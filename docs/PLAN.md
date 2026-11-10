@@ -193,7 +193,7 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
 - **Crash recovery:** at startup, spool files in state `recording`/`processing` are replayed through the same parser + recorder (dedup by lap ID). After a crash or power loss, nothing is lost, not even the lap in progress.
 - `failed` (parser error): the file is kept and the UI shows "1 recording could not be processed", with an option to retry after an update or delete it. This is very useful after game updates that change layouts.
 - **Debug setting "Keep raw recordings"** (Settings → Advanced/Debug, off by default): processed spool files are kept instead of deleted. The UI shows folder size, an "open folder" button and a "delete all raw files" button. Raw files are **never synced and never exported** in `.rzx`. A user can attach them manually to a bug report.
-- Size: iRacing ≈ 60 ticks/s × ~1.5 KB ≈ 90 KB/s raw. zstd should bring that down to roughly 20–40 MB/h (to be measured). Only matters when "keep" is on.
+- Size (measured): iRacing ≈ 60 rows/s × ~1.1 KB. With zstd that comes to **~73 MB per hour** (18.7 MB for a 15-minute race). Only matters when "keep" is on, because processed spools are deleted.
 - `.ibt` import: the user's `.ibt` file is the raw source. It is read in place and never modified or deleted.
 
 ### 5.2 Player car only

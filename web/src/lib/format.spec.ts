@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
-import { formatDelta, formatLapTime } from './format.ts';
+import { formatBytes, formatDelta, formatLapTime, formatSessionType } from './format.ts';
 
 describe('formatLapTime', () => {
 	it('formats minutes, seconds and milliseconds', () => {
@@ -28,5 +28,20 @@ describe('formatDelta', () => {
 		expect(formatDelta(123)).toBe('+0.123');
 		expect(formatDelta(-1250)).toBe('-1.250');
 		expect(formatDelta(0)).toBe('+0.000');
+	});
+});
+
+describe('formatBytes', () => {
+	it('picks a readable unit', () => {
+		expect(formatBytes(0)).toBe('0 B');
+		expect(formatBytes(1536)).toBe('1.5 KB');
+		expect(formatBytes(19_198_000)).toBe('18.3 MB');
+	});
+});
+
+describe('formatSessionType', () => {
+	it('maps known types and keeps unknown ones', () => {
+		expect(formatSessionType('time_trial')).toBe('Time trial');
+		expect(formatSessionType('hotlap')).toBe('hotlap');
 	});
 });

@@ -17,6 +17,7 @@ authors = ["The Rundenzeit Contributors"]
 rz-model = { path = "crates/rz-model", version = "0.1.0" }
 rz-store = { path = "crates/rz-store", version = "0.1.0" }
 rz-capture = { path = "crates/rz-capture", version = "0.1.0" }
+rz-analysis = { path = "crates/rz-analysis", version = "0.1.0" }
 rz-source-iracing = { path = "crates/rz-source-iracing", version = "0.1.0" }
 
 # external

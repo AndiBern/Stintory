@@ -418,7 +418,14 @@ impl IracingDecoder {
             game: GameId::Iracing,
             game_version: info.event.build_version.clone(),
             track_key: format!("iracing:{}", info.track.id.unwrap_or(0)),
+            track_name: track_name(info),
             car_key: format!("iracing:{}", info.player.car_id.unwrap_or(0)),
+            car_name: info
+                .player
+                .car_screen_name
+                .clone()
+                .or_else(|| info.player.car_path.clone())
+                .unwrap_or_else(|| "Unknown car".into()),
             session_type: session_type(def.and_then(|d| d.session_type.as_deref())),
             started_at,
             conditions: Conditions {
@@ -462,7 +469,7 @@ impl IracingDecoder {
         if self.meta_dirty || self.session_num != Some(session_num) {
             self.build_channels();
             if let Some(meta) = self.meta(session_num) {
-                out.push(SourceEvent::Session(meta));
+                out.push(SourceEvent::Session(Box::new(meta)));
                 self.session_emitted = true;
                 self.meta_dirty = false;
                 self.session_num = Some(session_num);
@@ -595,6 +602,20 @@ impl Decoder for IracingDecoder {
         } else {
             Vec::new()
         }
+    }
+}
+
+/// "Display name – Config", e.g. "Motorsport Arena Oschersleben – Grand Prix".
+fn track_name(info: &SessionInfo) -> String {
+    let t = &info.track;
+    let base = t
+        .display_name
+        .clone()
+        .or_else(|| t.name.clone())
+        .unwrap_or_else(|| "Unknown track".into());
+    match t.config_name.as_deref().map(str::trim) {
+        Some(cfg) if !cfg.is_empty() && !base.contains(cfg) => format!("{base} – {cfg}"),
+        _ => base,
     }
 }
 

@@ -45,6 +45,10 @@ crate = "rz-capture"
 
 [[licenses.exceptions]]
 allow = ["AGPL-3.0-or-later"]
+crate = "rz-analysis"
+
+[[licenses.exceptions]]
+allow = ["AGPL-3.0-or-later"]
 crate = "rundenzeit-desktop"
 
 [bans]

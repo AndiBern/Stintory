@@ -52,10 +52,14 @@ pub struct Session {
     pub game: GameId,
     /// Game version string, if the game reports it.
     pub game_version: Option<String>,
-    /// Canonical track key incl. layout, e.g. `iracing:261:Grand Prix`.
+    /// Canonical track key incl. layout, e.g. `iracing:449`.
     pub track_key: String,
-    /// Canonical car key, e.g. `iracing:132`.
+    /// Human-readable track name incl. layout, e.g. `Oschersleben – Grand Prix`.
+    pub track_name: String,
+    /// Canonical car key, e.g. `iracing:163`.
     pub car_key: String,
+    /// Human-readable car name, e.g. `Ray Formula 1600`.
+    pub car_name: String,
     /// Kind of session.
     pub session_type: SessionType,
     /// When the session started.
@@ -168,8 +172,10 @@ mod tests {
             id: SessionId::new(),
             game: GameId::Iracing,
             game_version: None,
-            track_key: "iracing:261:Grand Prix".into(),
+            track_key: "iracing:261".into(),
+            track_name: "Spa – Grand Prix".into(),
             car_key: "iracing:132".into(),
+            car_name: "Porsche 911 GT3 R".into(),
             session_type: SessionType::Practice,
             started_at: datetime!(2026-11-10 18:00:00 UTC),
             ended_at: None,

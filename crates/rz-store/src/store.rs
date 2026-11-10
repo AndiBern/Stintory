@@ -64,8 +64,9 @@ impl Store {
         let now = timefmt::now();
         self.conn.execute(
             "INSERT INTO sessions (id, game, game_version, track_key, car_key, session_type,
-                started_at, ended_at, conditions, setup, session_info, origin, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)",
+                started_at, ended_at, conditions, setup, session_info, origin, created_at, updated_at,
+                track_name, car_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13, ?14, ?15)",
             params![
                 s.id.to_string(),
                 s.game.as_str(),
@@ -80,6 +81,8 @@ impl Store {
                 s.session_info.as_ref().map(serde_json::to_string).transpose()?,
                 serde_json::to_string(&s.origin)?,
                 now,
+                s.track_name,
+                s.car_name,
             ],
         )?;
         Ok(())
@@ -107,7 +110,7 @@ impl Store {
         let changed = self.conn.execute(
             "UPDATE sessions SET game_version = ?2, track_key = ?3, car_key = ?4,
                 session_type = ?5, ended_at = ?6, conditions = ?7, setup = ?8,
-                session_info = ?9, updated_at = ?10
+                session_info = ?9, updated_at = ?10, track_name = ?11, car_name = ?12
              WHERE id = ?1",
             params![
                 s.id.to_string(),
@@ -123,6 +126,8 @@ impl Store {
                     .map(serde_json::to_string)
                     .transpose()?,
                 timefmt::now(),
+                s.track_name,
+                s.car_name,
             ],
         )?;
         if changed == 0 {
@@ -163,7 +168,7 @@ impl Store {
         self.conn
             .query_row(
                 "SELECT id, game, game_version, track_key, car_key, session_type, started_at,
-                        ended_at, conditions, setup, session_info, origin
+                        ended_at, conditions, setup, session_info, origin, track_name, car_name
                  FROM sessions WHERE id = ?1",
                 [id.to_string()],
                 |row| Ok(read_session(row)),
@@ -176,6 +181,7 @@ impl Store {
     pub fn list_sessions(&self) -> Result<Vec<SessionSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT s.id, s.game, s.track_key, s.car_key, s.session_type, s.started_at,
+                    s.track_name, s.car_name,
                     COUNT(l.id),
                     MIN(CASE WHEN l.valid = 1
                               AND COALESCE(json_extract(l.flags, '$.out_lap'), 0) = 0
@@ -195,8 +201,10 @@ impl Store {
                     car_key: row.get(3)?,
                     session_type: parse(row, 4, "sessions.session_type")?,
                     started_at: timefmt::decode("sessions.started_at", &row.get::<_, String>(5)?)?,
-                    lap_count: row.get(6)?,
-                    best_lap_ms: row.get(7)?,
+                    track_name: row.get(6)?,
+                    car_name: row.get(7)?,
+                    lap_count: row.get(8)?,
+                    best_lap_ms: row.get(9)?,
                 })
             })())
         })?;
@@ -325,6 +333,8 @@ fn read_session(row: &Row<'_>) -> Result<Session> {
             column: "sessions.origin",
             message: "NULL".into(),
         })?,
+        track_name: row.get(12)?,
+        car_name: row.get(13)?,
     })
 }
 
@@ -357,8 +367,10 @@ mod tests {
             id: SessionId::new(),
             game: GameId::Iracing,
             game_version: Some("2026.11".into()),
-            track_key: "iracing:261:Grand Prix".into(),
+            track_key: "iracing:261".into(),
+            track_name: "Spa – Grand Prix".into(),
             car_key: "iracing:132".into(),
+            car_name: "Porsche 911 GT3 R".into(),
             session_type: SessionType::Practice,
             started_at: started,
             ended_at: None,

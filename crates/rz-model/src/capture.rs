@@ -66,8 +66,12 @@ pub struct SessionMeta {
     pub game_version: Option<String>,
     /// Canonical track key (incl. layout)
     pub track_key: String,
+    /// Human-readable track name incl. layout
+    pub track_name: String,
     /// Canonical car key
     pub car_key: String,
+    /// Human-readable car name
+    pub car_name: String,
     /// Session type
     pub session_type: SessionType,
     /// Wall-clock start of the session (from the game or the capture clock)
@@ -106,7 +110,7 @@ pub struct Frame {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SourceEvent {
     /// A session started, or the info of the current session changed.
-    Session(SessionMeta),
+    Session(Box<SessionMeta>),
     /// One sample.
     Frame(Frame),
     /// The game reported the official time of a completed lap. May arrive a

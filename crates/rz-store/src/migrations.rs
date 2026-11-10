@@ -78,8 +78,20 @@ CREATE TABLE raw_spools (
 CREATE INDEX raw_spools_by_state ON raw_spools (state);
 "#;
 
+/// Version 3: human-readable track and car names, and key/value settings.
+const V3_NAMES_AND_SETTINGS: &str = r#"
+ALTER TABLE sessions ADD COLUMN track_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE sessions ADD COLUMN car_name TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE settings (
+    key         TEXT PRIMARY KEY NOT NULL,
+    value       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+) STRICT;
+"#;
+
 /// All migrations in order. Index + 1 = schema version.
-const MIGRATIONS: &[&str] = &[V1_INITIAL, V2_RAW_SPOOL];
+const MIGRATIONS: &[&str] = &[V1_INITIAL, V2_RAW_SPOOL, V3_NAMES_AND_SETTINGS];
 
 /// Migrates the database to the latest schema version. Each migration runs
 /// in its own transaction together with the `user_version` bump.

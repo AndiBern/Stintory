@@ -8,11 +8,13 @@
 //! API, see `web/src/lib/api/`.
 
 mod commands;
+mod recording;
 mod state;
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 
-use tauri::Manager;
+use tauri::{Manager, RunEvent};
 use tracing_subscriber::EnvFilter;
 
 use crate::state::AppState;
@@ -28,7 +30,8 @@ pub fn run() {
         )
         .init();
 
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let data_dir = match std::env::var_os(DATA_DIR_ENV) {
                 Some(dir) => PathBuf::from(dir),
@@ -36,13 +39,36 @@ pub fn run() {
             };
             tracing::info!(data_dir = %data_dir.display(), "opening local store");
             let state = AppState::open(&data_dir)?;
+            recording::spawn_recovery(app.handle().clone(), state.store.clone());
+            recording::spawn_supervisor(
+                app.handle().clone(),
+                state.store.clone(),
+                state.recorder.clone(),
+                state.shutdown.clone(),
+            );
             app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_info,
-            commands::list_sessions
+            commands::list_sessions,
+            commands::get_session,
+            commands::delete_session,
+            commands::compare_laps,
+            commands::import_files,
+            commands::get_settings,
+            commands::set_keep_raw_recordings,
+            commands::delete_raw_recordings,
+            commands::recorder_status,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running the Rundenzeit desktop app");
+        .build(tauri::generate_context!())
+        .expect("error while building the Rundenzeit desktop app");
+
+    app.run(|handle, event| {
+        if let RunEvent::Exit = event
+            && let Some(state) = handle.try_state::<AppState>()
+        {
+            state.shutdown.store(true, Ordering::Relaxed);
+        }
+    });
 }

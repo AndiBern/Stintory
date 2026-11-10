@@ -17,11 +17,13 @@
 
 mod blobs;
 mod migrations;
+mod settings;
 mod spools;
 mod store;
 mod timefmt;
 
 pub use blobs::BlobStore;
+pub use settings::KEEP_RAW_RECORDINGS;
 pub use spools::{RAW_DIR, SpoolEntry, SpoolState};
 pub use store::Store;
 

@@ -15,6 +15,7 @@
 //!   is pure logic (no I/O, no clock), so it is fully unit-testable and is
 //!   shared by live capture, file import and crash recovery.
 
+pub mod pipeline;
 mod recorder;
 pub mod spool;
 

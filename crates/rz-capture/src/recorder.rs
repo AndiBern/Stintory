@@ -174,7 +174,7 @@ impl Recorder {
     pub fn handle(&mut self, event: SourceEvent) -> Vec<RecorderOutput> {
         let mut out = Vec::new();
         match event {
-            SourceEvent::Session(meta) => self.on_session(meta, &mut out),
+            SourceEvent::Session(meta) => self.on_session(*meta, &mut out),
             SourceEvent::Frame(frame) => self.on_frame(frame, &mut out),
             SourceEvent::LapTime {
                 lap,
@@ -224,7 +224,9 @@ impl Recorder {
             game: meta.game,
             game_version: None,
             track_key: String::new(),
+            track_name: String::new(),
             car_key: String::new(),
+            car_name: String::new(),
             session_type: meta.session_type,
             started_at: meta.started_at,
             ended_at: None,
@@ -476,6 +478,8 @@ fn apply_meta(session: &mut Session, meta: &SessionMeta) {
     session.game_version.clone_from(&meta.game_version);
     session.track_key.clone_from(&meta.track_key);
     session.car_key.clone_from(&meta.car_key);
+    session.track_name.clone_from(&meta.track_name);
+    session.car_name.clone_from(&meta.car_name);
     session.session_type = meta.session_type;
     session.conditions = meta.conditions.clone();
     session.setup.clone_from(&meta.setup);
@@ -590,8 +594,10 @@ mod tests {
             session_key: key.into(),
             game: GameId::Iracing,
             game_version: None,
-            track_key: "iracing:1:test".into(),
+            track_key: "iracing:1".into(),
+            track_name: "Test Track".into(),
             car_key: "iracing:1".into(),
+            car_name: "Test Car".into(),
             session_type: SessionType::Practice,
             started_at: datetime!(2026-11-10 18:00 UTC),
             conditions: Default::default(),
@@ -619,7 +625,7 @@ mod tests {
                 t: 100.0,
                 out: Vec::new(),
             };
-            d.send(SourceEvent::Session(meta("s1")));
+            d.send(SourceEvent::Session(Box::new(meta("s1"))));
             d
         }
 
@@ -807,7 +813,7 @@ mod tests {
     fn new_session_key_ends_previous_session() {
         let mut d = Drive::new();
         d.drive_lap(1, 0.0, 0.0);
-        d.send(SourceEvent::Session(meta("s2")));
+        d.send(SourceEvent::Session(Box::new(meta("s2"))));
         let kinds: Vec<_> = d
             .out
             .iter()
@@ -826,8 +832,8 @@ mod tests {
         let mut d = Drive::new();
         let mut m = meta("s1");
         m.conditions.track_temp_c = Some(31.0);
-        d.send(SourceEvent::Session(m.clone()));
-        d.send(SourceEvent::Session(m)); // unchanged: no output
+        d.send(SourceEvent::Session(Box::new(m.clone())));
+        d.send(SourceEvent::Session(Box::new(m))); // unchanged: no output
         let updates: Vec<_> = d
             .out
             .iter()

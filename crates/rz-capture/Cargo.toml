@@ -12,6 +12,8 @@ authors.workspace = true
 
 [dependencies]
 rz-model.workspace = true
+rz-source-iracing.workspace = true
+rz-store.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 time.workspace = true
@@ -19,7 +21,6 @@ tracing.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
-rz-source-iracing.workspace = true
 tempfile.workspace = true
 
 [lints]
