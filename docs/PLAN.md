@@ -99,7 +99,7 @@ LICENSES/                  # REUSE-style full texts: AGPL-3.0-or-later, MIT, Apa
 | Auth | `argon2` (password hashes), `webauthn-rs` (passkeys), `totp-rs` (TOTP), cookie sessions for the web UI, per-device API tokens for clients. Later `openidconnect` | Self-hosters often have no IdP. Passkeys + TOTP give strong security without one |
 | Frontend | **Svelte 5** (runes) + TypeScript, **SvelteKit** with `adapter-static` (SPA, no SSR), Vite, **uPlot** for traces, Canvas for track map, shadcn-svelte/Bits UI for UI components, TanStack Table for lap tables. Tests: Vitest + Playwright | Little boilerplate, easy to learn, built-in reactivity/state. A static build runs unchanged in Tauri and served by axum. uPlot handles 100k+ points smoothly with cursor sync across charts |
 | Packaging | Tauri bundler: MSI/NSIS (Windows), AppImage/deb/rpm (Linux). Server: multi-stage Docker image | |
-| CI | GitHub Actions: `cargo test` on windows + linux, frontend lint/test, build artifacts, Docker image, `reuse lint` + `cargo deny check licenses` | License checks keep the license split (§12) enforced |
+| CI | Forgejo Actions on an Ubuntu runner (`.forgejo/workflows/ci.yml`): `cargo fmt`/`clippy`/`test`, frontend check/lint/tests/build, `reuse lint`, `cargo deny`, license-direction script. Windows builds and Windows-only tests run locally for now; CI compile-checks Windows-only crates against the Windows target from M1 | License checks keep the license split (§12) enforced |
 
 ## 4. Data model
 
@@ -382,7 +382,9 @@ M1 is the biggest milestone. A useful internal split is M1a (capture + store + s
 
 Rules:
 - Permissive crates must **never depend on AGPL crates**. Enforced with `cargo deny` (the dependency direction model/sources → capture → store/analysis → apps makes this natural).
+<!-- REUSE-IgnoreStart -->
 - Every source file has an SPDX header (`// SPDX-License-Identifier: AGPL-3.0-or-later` or `MIT OR Apache-2.0`). Each crate sets `license` in `Cargo.toml`. `reuse lint` runs in CI.
+<!-- REUSE-IgnoreEnd -->
 - Contributions under the **DCO** (`Signed-off-by:` in commits), no CLA. Contributions to a crate are licensed under that crate's license.
 - Third-party dependencies must be AGPL-3-compatible (MIT, Apache-2.0, BSD, ISC, MPL-2.0, Zlib…). `cargo deny` keeps an allow-list. GPL-2.0-only is not allowed, because it's incompatible with Apache-2.0.
 - Branding: game names are used only descriptively ("supports iRacing"). No game logos, and no game names in the product name.

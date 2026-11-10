@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[package]
+name = "rz-model"
+description = "Rundenzeit domain model and lap telemetry file format (Parquet)"
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[dependencies]
+arrow-array.workspace = true
+arrow-schema.workspace = true
+bytes.workspace = true
+hex.workspace = true
+parquet.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true

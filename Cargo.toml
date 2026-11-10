@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/desktop"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+authors = ["The Rundenzeit Contributors"]
+# Each crate sets its own `license` (see docs/PLAN.md §12.1).
+
+[workspace.dependencies]
+# internal
+rz-model = { path = "crates/rz-model", version = "0.1.0" }
+rz-store = { path = "crates/rz-store", version = "0.1.0" }
+
+# external
+arrow-array = "60"
+arrow-schema = "60"
+parquet = { version = "60", default-features = false, features = ["arrow", "zstd"] }
+bytes = "1"
+rusqlite = { version = "0.41", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+thiserror = "2"
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v7", "serde"] }
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

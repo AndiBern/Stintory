@@ -1,0 +1,31 @@
+version = 1
+
+# Source files carry their own SPDX headers. These annotations cover files
+# that cannot contain comments (JSON, lock files, images) and documentation.
+
+[[annotations]]
+path = [
+  "**/*.md",
+  "**/*.json",
+  "**/Cargo.lock",
+  "**/*.svg",
+  "**/*.png",
+  "**/*.ico",
+  "**/*.icns",
+  "**/robots.txt",
+  "**/.gitignore",
+  "**/.prettierignore",
+  "**/.npmrc",
+  ".editorconfig",
+  "web/*.config.js",
+  "web/*.config.ts",
+  "web/src/app.html",
+  "web/src/app.d.ts",
+  "web/src/routes/layout.css",
+  "apps/desktop/icons/**",
+  "REUSE.toml",
+]
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2026 The Rundenzeit Contributors"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
+

@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[package]
+name = "rundenzeit-desktop"
+description = "Rundenzeit desktop client"
+license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+default-run = "rundenzeit"
+
+[lib]
+name = "rundenzeit_desktop"
+
+[[bin]]
+name = "rundenzeit"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+rz-model.workspace = true
+rz-store.workspace = true
+serde.workspace = true
+tauri = { version = "2", features = [] }
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[lints]
+workspace = true

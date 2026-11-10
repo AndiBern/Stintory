@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Forgejo Actions CI. Runs on the Ubuntu runner only. Windows builds and
+# tests of the Windows-only capture code are done locally for now.
+#
+# Actions are referenced by full URL so the workflow doesn't depend on which
+# actions the Forgejo instance mirrors.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: https://github.com/actions/checkout@v5
+      - uses: https://github.com/actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check -w web
+      - run: npm run lint -w web
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:unit -w web -- --run
+      - run: npm run test:e2e -w web
+      - run: npm run build -w web
+
+  rust:
+    name: Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: https://github.com/actions/checkout@v5
+      - name: Install system dependencies (Tauri)
+        run: |
+          SUDO=$(command -v sudo || true)
+          $SUDO apt-get update
+          $SUDO apt-get install -y --no-install-recommends \
+            build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev libssl-dev
+      - uses: https://github.com/actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - uses: https://github.com/dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: https://github.com/Swatinem/rust-cache@v2
+      # The desktop app embeds the built frontend at compile time.
+      - run: npm ci
+      - run: npm run build -w web
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      # TODO(M1): compile-check the Windows-only capture crates, e.g.
+      #   rustup target add x86_64-pc-windows-msvc
+      #   cargo check --target x86_64-pc-windows-msvc -p rz-source-iracing
+
+  licenses:
+    name: Licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: https://github.com/actions/checkout@v5
+      - name: REUSE compliance
+        run: |
+          SUDO=$(command -v sudo || true)
+          $SUDO apt-get update
+          $SUDO apt-get install -y --no-install-recommends pipx
+          pipx run reuse lint
+      - uses: https://github.com/dtolnay/rust-toolchain@stable
+      - uses: https://github.com/taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - run: cargo deny check licenses bans sources
+      - run: node scripts/check-license-direction.mjs

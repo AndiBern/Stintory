@@ -1,0 +1,6 @@
+# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[toolchain]
+channel = "1.99"
+components = ["rustfmt", "clippy"]

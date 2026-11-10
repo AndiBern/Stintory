@@ -1,0 +1,40 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Rundenzeit",
+	"identifier": "org.rundenzeit.desktop",
+	"build": {
+		"devUrl": "http://localhost:5173",
+		"frontendDist": "../../web/build",
+		"beforeDevCommand": { "script": "npm run dev", "cwd": "../../web" },
+		"beforeBuildCommand": { "script": "npm run build", "cwd": "../../web" }
+	},
+	"app": {
+		"windows": [
+			{
+				"label": "main",
+				"title": "Rundenzeit",
+				"width": 1280,
+				"height": 800,
+				"minWidth": 900,
+				"minHeight": 600
+			}
+		],
+		"security": {
+			"csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
+		}
+	},
+	"bundle": {
+		"active": true,
+		"targets": "all",
+		"license": "AGPL-3.0-or-later",
+		"category": "Utility",
+		"shortDescription": "Record and compare your sim racing laps",
+		"icon": [
+			"icons/32x32.png",
+			"icons/128x128.png",
+			"icons/128x128@2x.png",
+			"icons/icon.icns",
+			"icons/icon.ico"
+		]
+	}
+}

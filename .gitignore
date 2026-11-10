@@ -1,0 +1,21 @@
+# Rust
+/target/
+
+# Node / SvelteKit
+node_modules/
+/web/.svelte-kit/
+/web/build/
+/web/test-results/
+
+# Tauri generated schemas
+/apps/desktop/gen/
+
+# Local data while developing
+/.rundenzeit-dev/
+
+# Editors / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# cargo-deny configuration: https://embarkstudios.github.io/cargo-deny/
+# License policy: docs/PLAN.md §12.1. The "permissive crates must not depend
+# on AGPL crates" rule is checked by scripts/check-license-direction.mjs.
+
+[graph]
+all-features = true
+
+[licenses]
+# Licenses allowed for third-party dependencies. All are compatible with
+# AGPL-3.0 and with distributing our MIT/Apache crates.
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "0BSD",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "BSL-1.0",
+  "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+# The allow-list is a policy, not every license has to be in use.
+unused-allowed-license = "allow"
+
+# Our own AGPL crates. Add an exception for every new AGPL crate.
+[licenses.private]
+ignore = false
+
+[[licenses.exceptions]]
+allow = ["AGPL-3.0-or-later"]
+crate = "rz-store"
+
+[[licenses.exceptions]]
+allow = ["AGPL-3.0-or-later"]
+crate = "rundenzeit-desktop"
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[advisories]
+ignore = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
