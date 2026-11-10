@@ -10,6 +10,8 @@
 //! - A lap that starts in the pits is an **out-lap**, a lap that ends in the
 //!   pits an **in-lap**. A lap that starts away from the start/finish line
 //!   (joined mid-lap) or is cut off (session end, reset) is **incomplete**.
+//!   A "lap" that never left the pit lane (pit box to the line, or the line
+//!   to the pit box) is not a lap and is dropped.
 //! - [`SourceEvent::Invalidate`] marks the current (or a just finished) lap
 //!   invalid. If the game's lap number goes back down, the laps it "took
 //!   back" are invalid ("not counted by the game").
@@ -107,6 +109,8 @@ struct LapBuffer {
     flashback: bool,
     invalid: Vec<String>,
     last_in_pits: bool,
+    /// At least one sample away from the pit lane.
+    left_pits: bool,
 }
 
 #[derive(Debug)]
@@ -132,6 +136,7 @@ impl LapBuffer {
             flashback: false,
             invalid: Vec::new(),
             last_in_pits: frame.in_pits,
+            left_pits: false,
         }
     }
 
@@ -139,6 +144,7 @@ impl LapBuffer {
         self.times.push(frame.session_time);
         self.dists.push(frame.lap_dist);
         self.last_in_pits = frame.in_pits;
+        self.left_pits |= !frame.in_pits;
         self.values.push(frame.values);
     }
 
@@ -504,6 +510,10 @@ fn build_lap(
         );
         return None;
     }
+    if !buffer.left_pits {
+        tracing::debug!(lap = buffer.lap, "lap never left the pit lane, dropped");
+        return None;
+    }
     let incomplete = cut_off || buffer.joined_mid_lap;
     let flags = LapFlags {
         out_lap: buffer.out_lap,
@@ -534,6 +544,7 @@ fn build_lap(
             id: lap_id(meta, &buffer),
             session_id,
             number: u32::try_from(buffer.lap.max(0)).unwrap_or(0),
+            start_time_s: buffer.start_time(),
             lap_time_ms,
             sector_times_ms,
             valid,
@@ -720,13 +731,14 @@ mod tests {
         let mut d = Drive::new();
         d.drive_lap(1, 0.0, 300.0); // leaves the pits
         d.drive_lap(2, 0.0, 0.0);
-        // lap 3 ends in the pits, then the session ends mid-lap 4
+        // lap 3 ends in the pits, then the session ends mid-lap 4 (out of
+        // the pits again)
         for i in 0..200 {
             let dist = TRACK_M * i as f32 / 200.0;
             d.frame(3, dist, dist > 900.0);
         }
         for i in 0..50 {
-            d.frame(4, i as f32, true);
+            d.frame(4, i as f32, i < 30);
         }
         d.send(SourceEvent::SessionEnd);
 
@@ -915,6 +927,28 @@ mod tests {
         assert!(laps[1].lap.flags.in_lap);
         assert!(laps[2].lap.flags.out_lap);
         assert!(!laps[2].lap.flags.incomplete);
+    }
+
+    #[test]
+    fn laps_that_never_leave_the_pit_lane_are_dropped() {
+        let mut d = Drive::new();
+        // pit box just before the line: "lap 0" is a few metres of pit lane
+        for i in 0..50 {
+            d.frame(0, 960.0 + i as f32 * 0.5, true);
+        }
+        d.drive_lap(1, -1.0, 300.0); // out-lap
+        d.drive_lap(2, 0.0, 0.0);
+        // in-lap ends at the line in the pit lane, then into the pit box
+        for i in 0..200 {
+            let dist = TRACK_M * i as f32 / 200.0;
+            d.frame(3, dist, dist > 900.0);
+        }
+        for i in 0..50 {
+            d.frame(4, i as f32 * 0.5, true);
+        }
+        d.send(SourceEvent::SessionEnd);
+        let numbers: Vec<u32> = d.laps().iter().map(|l| l.lap.number).collect();
+        assert_eq!(numbers, [1, 2, 3]);
     }
 
     #[test]

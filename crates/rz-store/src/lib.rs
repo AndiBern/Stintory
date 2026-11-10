@@ -25,7 +25,7 @@ mod timefmt;
 pub use blobs::BlobStore;
 pub use settings::KEEP_RAW_RECORDINGS;
 pub use spools::{RAW_DIR, SpoolEntry, SpoolState};
-pub use store::Store;
+pub use store::{SAME_LAP_START_TOLERANCE_S, SAME_SESSION_START_TOLERANCE, Store};
 
 use rz_model::{BlobHash, LapId, SessionId};
 

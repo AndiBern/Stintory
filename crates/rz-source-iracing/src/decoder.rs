@@ -30,6 +30,17 @@
 //! - Sign conventions: `SteeringWheelAngle`, `LatAccel` and `YawRate` are
 //!   positive to the **left** in iRacing (checked against the GPS heading);
 //!   our canonical channels are positive to the right, so they are negated.
+//! - Position: `Lat`/`Lon`/`Alt` exist only in `.ibt` files, not in the live
+//!   telemetry. `WeekendInfo.TrackLatitude/TrackLongitude` is the
+//!   start/finish line. Without GPS we integrate the car's velocity
+//!   (`VelocityX` forward, `VelocityY` left, car frame) rotated by
+//!   `YawNorth` (heading from north, clockwise):
+//!   `east += (vx·sin h − vy·cos h)·dt`, `north += (vx·cos h + vy·sin h)·dt`.
+//!   Checked against GPS on a 7-minute `.ibt`: < 2 m apart. The position is
+//!   set to the line (0, 0) at each line crossing on track, which keeps the
+//!   drift per lap small and puts it in the same frame as the GPS position.
+//!   Before the first crossing (out of the pits, joined mid-lap, after a
+//!   tow) there is no position.
 
 use rz_model::capture::{
     ChannelSpec, Decoder, Frame, RawRecord, SessionMeta, SourceError, SourceEvent, ValueKind,
@@ -90,10 +101,60 @@ enum Extract {
         scale: f64,
         offset: f64,
     },
-    /// Local east coordinate from `Lat`/`Lon`
+    /// Local east coordinate (m) around the start/finish line
     PosX,
-    /// Local north coordinate from `Lat`
+    /// Local north coordinate (m) around the start/finish line
     PosY,
+}
+
+/// Where the local position comes from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum PosSource {
+    /// No position variables
+    #[default]
+    None,
+    /// `Lat`/`Lon` (`.ibt` files)
+    Gps,
+    /// Integrated velocity and heading (live)
+    DeadReckoning,
+}
+
+/// A gap in the data longer than this (s) loses the dead-reckoned position.
+const DR_MAX_GAP_S: f64 = 1.0;
+
+/// Dead-reckoning state, see the module docs.
+#[derive(Debug, Clone, Copy, Default)]
+struct DeadReckoning {
+    /// Position relative to the start/finish line, once crossed on track.
+    pos: Option<(f64, f64)>,
+    last_time: Option<f64>,
+    lap: Option<i32>,
+}
+
+impl DeadReckoning {
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Advances to `time` with the car's velocity (`vx` forward, `vy` left,
+    /// m/s) and heading from north `h` (rad, clockwise).
+    fn step(&mut self, time: f64, lap: i32, in_pits: bool, vx: f64, vy: f64, h: f64) {
+        if let (Some(t0), Some((x, y))) = (self.last_time, self.pos.as_mut()) {
+            let dt = time - t0;
+            if !(0.0..=DR_MAX_GAP_S).contains(&dt) || !(vx.is_finite() && vy.is_finite()) {
+                self.pos = None;
+            } else {
+                let (sin, cos) = h.sin_cos();
+                *x += (vx * sin - vy * cos) * dt;
+                *y += (vx * cos + vy * sin) * dt;
+            }
+        }
+        if self.lap.is_some_and(|l| lap > l) && !in_pits {
+            self.pos = Some((0.0, 0.0)); // at the line
+        }
+        self.last_time = Some(time);
+        self.lap = Some(lap);
+    }
 }
 
 /// Variables the decoder itself needs (not channels).
@@ -113,6 +174,9 @@ struct KeyVars {
     tow_time: Option<VarHeader>,
     lat: Option<VarHeader>,
     lon: Option<VarHeader>,
+    velocity_x: Option<VarHeader>,
+    velocity_y: Option<VarHeader>,
+    yaw_north: Option<VarHeader>,
     session_flags: Option<VarHeader>,
 }
 
@@ -139,6 +203,9 @@ impl KeyVars {
             tow_time: opt("PlayerCarTowTime"),
             lat: opt("Lat"),
             lon: opt("Lon"),
+            velocity_x: opt("VelocityX"),
+            velocity_y: opt("VelocityY"),
+            yaw_north: opt("YawNorth"),
             session_flags: opt("SessionFlags"),
         })
     }
@@ -178,6 +245,8 @@ pub struct IracingDecoder {
     session_emitted: bool,
     in_car: bool,
     prev: Option<Prev>,
+    pos_source: PosSource,
+    dr: DeadReckoning,
 }
 
 impl IracingDecoder {
@@ -374,11 +443,21 @@ impl IracingDecoder {
         );
         var("iracing.lat", "Lat", Unit::None, F64, 1.0, 0.0);
         var("iracing.lon", "Lon", Unit::None, F64, 1.0, 0.0);
-        // local position in metres around the track's reference point
+        // local position in metres around the start/finish line
         let has_gps = t.get("Lat").is_some() && t.get("Lon").is_some();
         let has_origin = info.track.latitude_deg.is_some() && info.track.longitude_deg.is_some();
-        if has_gps && has_origin {
+        let has_motion = ["VelocityX", "VelocityY", "YawNorth"]
+            .iter()
+            .all(|n| t.get(n).is_some());
+        self.pos_source = if has_gps && has_origin {
             var(names::POS_Z, "Alt", Unit::Meter, F32, 1.0, 0.0);
+            PosSource::Gps
+        } else if has_motion {
+            PosSource::DeadReckoning
+        } else {
+            PosSource::None
+        };
+        if self.pos_source != PosSource::None {
             ch.push((
                 ChannelSpec::new(names::POS_X, Unit::Meter, F32),
                 Extract::PosX,
@@ -461,12 +540,16 @@ impl IracingDecoder {
             }
             self.in_car = false;
             self.prev = None;
+            self.dr.reset();
             return;
         }
         self.in_car = true;
 
         let session_num = get_opt(&k.session_num).unwrap_or(0.0) as i64;
         if self.meta_dirty || self.session_num != Some(session_num) {
+            if self.session_num != Some(session_num) {
+                self.dr.reset();
+            }
             self.build_channels();
             if let Some(meta) = self.meta(session_num) {
                 out.push(SourceEvent::Session(Box::new(meta)));
@@ -497,6 +580,7 @@ impl IracingDecoder {
                     reason: "towed".into(),
                 });
             }
+            self.dr.reset();
             return; // the car is being moved: not driving data
         }
 
@@ -508,12 +592,34 @@ impl IracingDecoder {
         let in_pits = get_opt(&k.on_pit_road).is_some_and(|v| v != 0.0)
             || get_opt(&k.in_pit_stall).is_some_and(|v| v != 0.0);
         let flags = get_opt(&k.session_flags).unwrap_or(0.0) as u32;
-        let lat = get_opt(&k.lat);
-        let lon = get_opt(&k.lon);
-        let origin = self
-            .info
-            .as_ref()
-            .and_then(|i| Some((i.track.latitude_deg?, i.track.longitude_deg?)));
+        let pos = match self.pos_source {
+            PosSource::None => None,
+            PosSource::Gps => {
+                let origin = self
+                    .info
+                    .as_ref()
+                    .and_then(|i| Some((i.track.latitude_deg?, i.track.longitude_deg?)));
+                match (get_opt(&k.lat), get_opt(&k.lon), origin) {
+                    (Some(lat), Some(lon), Some((lat0, lon0))) => Some((
+                        (lon - lon0).to_radians() * EARTH_RADIUS_M * lat0.to_radians().cos(),
+                        (lat - lat0).to_radians() * EARTH_RADIUS_M,
+                    )),
+                    _ => None,
+                }
+            }
+            PosSource::DeadReckoning => {
+                let v = |h: &Option<VarHeader>| get_opt(h).unwrap_or(f64::NAN);
+                self.dr.step(
+                    session_time,
+                    lap as i32,
+                    in_pits,
+                    v(&k.velocity_x),
+                    v(&k.velocity_y),
+                    v(&k.yaw_north),
+                );
+                self.dr.pos
+            }
+        };
         let values = self
             .channels
             .iter()
@@ -521,16 +627,8 @@ impl IracingDecoder {
                 Extract::Var { var, scale, offset } => {
                     var.read(row, 0).map_or(f64::NAN, |v| v * scale + offset)
                 }
-                Extract::PosX => match (lon, origin) {
-                    (Some(lon), Some((lat0, lon0))) => {
-                        (lon - lon0).to_radians() * EARTH_RADIUS_M * lat0.to_radians().cos()
-                    }
-                    _ => f64::NAN,
-                },
-                Extract::PosY => match (lat, origin) {
-                    (Some(lat), Some((lat0, _))) => (lat - lat0).to_radians() * EARTH_RADIUS_M,
-                    _ => f64::NAN,
-                },
+                Extract::PosX => pos.map_or(f64::NAN, |p| p.0),
+                Extract::PosY => pos.map_or(f64::NAN, |p| p.1),
             })
             .collect();
         out.push(SourceEvent::Frame(Frame {

@@ -135,7 +135,7 @@ fn supervise(store: SharedStore, reporter: StatusReporter, shutdown: Arc<AtomicB
             std::thread::sleep(Duration::from_secs(2));
             continue;
         }
-        tracing::info!("iRacing detected, recording");
+        tracing::info!("iRacing is sending telemetry, recording");
         let spool = match store.with(|s| s.register_spool(GameId::Iracing)) {
             Ok(s) => s,
             Err(e) => {
@@ -172,8 +172,12 @@ fn supervise(store: SharedStore, reporter: StatusReporter, shutdown: Arc<AtomicB
         let _ = writer.finish();
         match result {
             Ok(stats) => {
-                tracing::info!(laps = stats.laps, "recording finished");
-                if let Err(e) = finish_spool(&store, &spool) {
+                tracing::info!(
+                    records = stats.records,
+                    laps = stats.laps,
+                    "recording finished"
+                );
+                if let Err(e) = finish_spool(&store, &spool, &stats) {
                     tracing::error!(error = %e, "cannot finish spool");
                 }
             }

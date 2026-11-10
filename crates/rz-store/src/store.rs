@@ -12,6 +12,15 @@ use crate::migrations;
 use crate::{Result, StoreError, timefmt};
 
 const DB_FILE: &str = "rundenzeit.db";
+
+/// Two sessions at the same track, in the same car and of the same type that
+/// started at most this far apart are the same session.
+pub const SAME_SESSION_START_TOLERANCE: time::Duration = time::Duration::minutes(2);
+
+/// Two laps of a session with the same number that started at most this far
+/// apart (game session time, seconds) are the same lap. A live recording may
+/// miss single ticks, so the first sample can differ by a frame or two.
+pub const SAME_LAP_START_TOLERANCE_S: f64 = 0.5;
 const BLOB_DIR: &str = "blobs";
 
 /// The local store: SQLite database + blob directory.
@@ -90,17 +99,92 @@ impl Store {
 
     /// Inserts the session, or updates it if a session with this id exists
     /// (re-import, or a session split across several files).
-    pub fn upsert_session(&mut self, s: &Session) -> Result<()> {
-        let exists: bool = self.conn.query_row(
-            "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = ?1)",
-            [s.id.to_string()],
-            |r| r.get(0),
-        )?;
-        if exists {
-            self.update_session(s)
-        } else {
-            self.insert_session(s)
+    ///
+    /// If the same session was already stored under another id (recorded
+    /// live, then imported from the game's own file, see
+    /// [`find_duplicate_session`](Self::find_duplicate_session)), `s.id`
+    /// becomes an alias of the stored session, which is left as it is.
+    /// Returns the id the session is stored under; laps sent with the alias
+    /// go there too (see [`insert_lap`](Self::insert_lap)).
+    pub fn upsert_session(&mut self, s: &Session) -> Result<SessionId> {
+        if self.session_exists(s.id)? {
+            self.update_session(s)?;
+            return Ok(s.id);
         }
+        let id = self.canonical_session_id(s.id)?;
+        if id != s.id {
+            return Ok(id);
+        }
+        if let Some(existing) = self.find_duplicate_session(s)? {
+            tracing::info!(alias = %s.id, session = %existing, "same session stored before, merging");
+            self.conn.execute(
+                "INSERT INTO session_aliases (alias_id, session_id, created_at)
+                 VALUES (?1, ?2, ?3)",
+                params![s.id.to_string(), existing.to_string(), timefmt::now()],
+            )?;
+            return Ok(existing);
+        }
+        self.insert_session(s)?;
+        Ok(s.id)
+    }
+
+    fn session_exists(&self, id: SessionId) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = ?1)",
+            [id.to_string()],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// The id a session is stored under: `id` itself, or the session `id`
+    /// is an alias of.
+    pub fn canonical_session_id(&self, id: SessionId) -> Result<SessionId> {
+        let target: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT session_id FROM session_aliases WHERE alias_id = ?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        match target {
+            Some(t) => parse_str("session_aliases.session_id", &t),
+            None => Ok(id),
+        }
+    }
+
+    /// A stored session that is the same as `s` under another id: same
+    /// game, track, car and session type, started within
+    /// [`SAME_SESSION_START_TOLERANCE`]. Sessions with an online id get the
+    /// same id anyway; this catches offline sessions, whose start time a
+    /// live recording and the game's file can report slightly differently.
+    pub fn find_duplicate_session(&self, s: &Session) -> Result<Option<SessionId>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, started_at FROM sessions
+             WHERE game = ?1 AND track_key = ?2 AND car_key = ?3 AND session_type = ?4
+               AND id != ?5",
+        )?;
+        let rows = stmt.query_map(
+            params![
+                s.game.as_str(),
+                s.track_key,
+                s.car_key,
+                s.session_type.as_str(),
+                s.id.to_string()
+            ],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+        )?;
+        let mut best: Option<(time::Duration, SessionId)> = None;
+        for row in rows {
+            let (id, started) = row?;
+            let started = timefmt::decode("sessions.started_at", &started)?;
+            let diff = (started - s.started_at).abs();
+            if diff <= SAME_SESSION_START_TOLERANCE && best.is_none_or(|(d, _)| diff < d) {
+                let id = parse_str("sessions.id", &id)?;
+                best = Some((diff, id));
+            }
+        }
+        Ok(best.map(|(_, id)| id))
     }
 
     /// Updates a session's mutable fields (everything except id, game,
@@ -212,15 +296,26 @@ impl Store {
     }
 
     /// Stores a lap: writes the telemetry blob, then inserts the lap row in
-    /// one transaction. Returns the stored lap. If a lap with this id already
-    /// exists, nothing is written and the existing lap is returned.
-    pub fn insert_lap(&mut self, new: NewLap, telemetry: &LapTelemetry) -> Result<Lap> {
-        // Idempotent: lap ids are derived, so a re-import yields the same id.
+    /// one transaction. Returns the stored lap.
+    ///
+    /// - If a lap with this id already exists, nothing is written and the
+    ///   existing lap is returned (lap ids are derived: re-imports are no-ops).
+    /// - A lap of a session alias goes to the canonical session.
+    /// - If the session already has this lap under another id (see
+    ///   [`find_duplicate_lap`](Self::find_duplicate_lap)), the stored lap is
+    ///   kept, but gets the new telemetry if that has more channels or more
+    ///   samples (a game file usually has more than a live recording).
+    pub fn insert_lap(&mut self, mut new: NewLap, telemetry: &LapTelemetry) -> Result<Lap> {
         match self.lap(new.id) {
             Ok(existing) => return Ok(existing),
             Err(StoreError::LapNotFound(_)) => {}
             Err(e) => return Err(e),
         }
+        new.session_id = self.canonical_session_id(new.session_id)?;
+        if let Some(existing) = self.find_duplicate_lap(&new)? {
+            return self.replace_if_better(existing, new, telemetry);
+        }
+        let start_time_s = new.start_time_s;
         let (bytes, _) = telemetry.to_blob()?;
         let hash = self.blobs.put(&bytes)?;
         let sample_count = u32::try_from(telemetry.len()).map_err(|_| StoreError::Corrupt {
@@ -237,8 +332,9 @@ impl Store {
         )?;
         let inserted = tx.execute(
             "INSERT INTO laps (id, session_id, number, lap_time_ms, sector_times_ms, valid,
-                invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, created_at, updated_at)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12
+                invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, created_at,
+                updated_at, start_time_s)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13
              WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?2)",
             params![
                 lap.id.to_string(),
@@ -253,12 +349,103 @@ impl Store {
                 lap.sample_rate_hz,
                 lap.sample_count,
                 now,
+                start_time_s,
             ],
         )?;
         if inserted == 0 {
             return Err(StoreError::SessionNotFound(lap.session_id));
         }
         tx.commit()?;
+        Ok(lap)
+    }
+
+    /// A lap of `new`'s session with the same number that started at the
+    /// same session time (within [`SAME_LAP_START_TOLERANCE_S`]). Laps
+    /// stored before the start time was recorded match on number and
+    /// lap time instead.
+    pub fn find_duplicate_lap(&self, new: &NewLap) -> Result<Option<LapId>> {
+        let id: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT id FROM laps
+                 WHERE session_id = ?1 AND number = ?2 AND id != ?3
+                   AND ((start_time_s IS NOT NULL AND ?4 IS NOT NULL
+                         AND abs(start_time_s - ?4) < ?6)
+                     OR (start_time_s IS NULL AND lap_time_ms IS NOT NULL
+                         AND lap_time_ms = ?5))
+                 ORDER BY abs(COALESCE(start_time_s - ?4, 0)) LIMIT 1",
+                params![
+                    new.session_id.to_string(),
+                    new.number,
+                    new.id.to_string(),
+                    new.start_time_s,
+                    new.lap_time_ms,
+                    SAME_LAP_START_TOLERANCE_S,
+                ],
+                |r| r.get(0),
+            )
+            .optional()?;
+        id.map(|id| parse_str("laps.id", &id)).transpose()
+    }
+
+    fn replace_if_better(
+        &mut self,
+        existing: LapId,
+        new: NewLap,
+        telemetry: &LapTelemetry,
+    ) -> Result<Lap> {
+        let old = self.lap(existing)?;
+        let old_telemetry = self.lap_telemetry(existing)?;
+        let better = (telemetry.channels().len(), telemetry.len())
+            > (old_telemetry.channels().len(), old_telemetry.len());
+        if !better {
+            tracing::debug!(lap = %existing, "same lap stored before, kept");
+            return Ok(old);
+        }
+        tracing::info!(lap = %existing, "same lap stored before, telemetry replaced");
+        let (bytes, _) = telemetry.to_blob()?;
+        let hash = self.blobs.put(&bytes)?;
+        let sample_count = u32::try_from(telemetry.len()).map_err(|_| StoreError::Corrupt {
+            column: "laps.sample_count",
+            message: "too many samples".into(),
+        })?;
+        let start_time_s = new.start_time_s;
+        let mut lap = new.into_lap(hash, telemetry.sample_rate_hz(), sample_count);
+        lap.id = existing;
+        let now = timefmt::now();
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?1, ?2, ?3)",
+            params![lap.blob_hash.as_str(), bytes.len() as i64, now],
+        )?;
+        tx.execute(
+            "UPDATE laps SET lap_time_ms = ?2, sector_times_ms = ?3, valid = ?4,
+                invalid_reason = ?5, flags = ?6, blob_hash = ?7, sample_rate_hz = ?8,
+                sample_count = ?9, start_time_s = ?10, updated_at = ?11
+             WHERE id = ?1",
+            params![
+                lap.id.to_string(),
+                lap.lap_time_ms,
+                serde_json::to_string(&lap.sector_times_ms)?,
+                lap.valid,
+                lap.invalid_reason,
+                serde_json::to_string(&lap.flags)?,
+                lap.blob_hash.as_str(),
+                lap.sample_rate_hz,
+                lap.sample_count,
+                start_time_s,
+                now,
+            ],
+        )?;
+        let orphaned = tx.execute(
+            "DELETE FROM blobs WHERE hash = ?1
+               AND NOT EXISTS (SELECT 1 FROM laps WHERE blob_hash = ?1)",
+            [old.blob_hash.as_str()],
+        )? > 0;
+        tx.commit()?;
+        if orphaned {
+            self.blobs.remove(&old.blob_hash)?;
+        }
         Ok(lap)
     }
 
@@ -293,6 +480,18 @@ impl Store {
         let bytes = self.blobs.get(&lap.blob_hash)?;
         Ok(LapTelemetry::from_parquet(bytes)?)
     }
+}
+
+/// Parses a stored value with `FromStr`.
+fn parse_str<T>(column: &'static str, s: &str) -> Result<T>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    s.parse().map_err(|e: T::Err| StoreError::Corrupt {
+        column,
+        message: format!("{s:?}: {e}"),
+    })
 }
 
 /// Reads column `idx` as text and parses it with `FromStr`.
@@ -400,6 +599,7 @@ mod tests {
             id: LapId::new(),
             session_id,
             number,
+            start_time_s: Some(f64::from(number) * 100.0),
             lap_time_ms: Some(time_ms),
             sector_times_ms: vec![30_000, 30_000, time_ms - 60_000],
             valid,
@@ -473,6 +673,88 @@ mod tests {
         let b = store.insert_lap(new, &telemetry(10, 1.0)).unwrap();
         assert_eq!(a, b);
         assert_eq!(store.laps(s.id).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn same_session_under_another_id_is_merged() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        // recorded live ...
+        let live = session(datetime!(2026-11-10 16:00:13 UTC));
+        assert_eq!(store.upsert_session(&live).unwrap(), live.id);
+        let lap = new_lap(live.id, 1, 95_047, true);
+        store.insert_lap(lap.clone(), &telemetry(10, 1.0)).unwrap();
+
+        // ... then imported from the game's file, which reports the start
+        // slightly differently (another offline session key, another id)
+        let mut file = session(datetime!(2026-11-10 16:00:41 UTC));
+        file.ended_at = Some(datetime!(2026-11-10 16:07:43 UTC));
+        assert_eq!(store.upsert_session(&file).unwrap(), live.id);
+        assert_eq!(
+            store.upsert_session(&file).unwrap(),
+            live.id,
+            "alias is kept"
+        );
+        assert_eq!(store.canonical_session_id(file.id).unwrap(), live.id);
+        assert!(matches!(
+            store.session(file.id),
+            Err(StoreError::SessionNotFound(_))
+        ));
+
+        // the same lap from the file: other id, a frame later
+        let mut same = new_lap(file.id, 1, 95_047, true);
+        same.start_time_s = lap.start_time_s.map(|t| t + 1.0 / 60.0);
+        let stored = store.insert_lap(same, &telemetry(10, 1.0)).unwrap();
+        assert_eq!(stored.id, lap.id, "kept");
+        // a lap the live recording missed
+        store
+            .insert_lap(new_lap(file.id, 2, 96_000, true), &telemetry(10, 1.0))
+            .unwrap();
+        assert_eq!(store.list_sessions().unwrap().len(), 1);
+        assert_eq!(store.laps(live.id).unwrap().len(), 2);
+
+        // a session at the same track much later is another session
+        let later = session(datetime!(2026-11-10 16:30 UTC));
+        assert_eq!(store.upsert_session(&later).unwrap(), later.id);
+        assert_eq!(store.list_sessions().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn duplicate_lap_gets_the_richer_telemetry() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        let s = session(datetime!(2026-11-10 18:00 UTC));
+        store.insert_session(&s).unwrap();
+        let live = store
+            .insert_lap(new_lap(s.id, 1, 90_000, true), &telemetry(10, 1.0))
+            .unwrap();
+        // the game file has GPS: one channel more
+        let richer = telemetry(10, 1.0)
+            .with_channel(Channel::new(
+                "iracing.lat",
+                Unit::None,
+                ChannelData::F64(vec![52.0; 10]),
+            ))
+            .unwrap();
+        let stored = store
+            .insert_lap(new_lap(s.id, 1, 90_000, true), &richer)
+            .unwrap();
+        assert_eq!(stored.id, live.id);
+        assert_ne!(stored.blob_hash, live.blob_hash);
+        assert_eq!(store.laps(s.id).unwrap().len(), 1);
+        assert!(
+            store
+                .lap_telemetry(live.id)
+                .unwrap()
+                .channel("iracing.lat")
+                .is_some()
+        );
+        assert!(!store.blobs().contains(&live.blob_hash), "old blob removed");
+        // poorer telemetry does not replace it
+        let kept = store
+            .insert_lap(new_lap(s.id, 1, 90_000, true), &telemetry(5, 1.0))
+            .unwrap();
+        assert_eq!(kept.blob_hash, stored.blob_hash);
     }
 
     #[test]

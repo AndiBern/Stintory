@@ -16,6 +16,9 @@ use rz_model::Session;
 use rz_model::channel::names;
 use rz_source_iracing::{IbtSource, IracingDecoder};
 
+mod common;
+use common::LiveLike;
+
 fn examples() -> Option<Vec<PathBuf>> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../telemetry_examples/iRacing");
     let mut files: Vec<_> = std::fs::read_dir(&dir)
@@ -41,6 +44,10 @@ struct Result {
 
 fn run(paths: &[PathBuf]) -> Result {
     let mut source = IbtSource::open_many(paths).expect("open ibt");
+    run_source(&mut source)
+}
+
+fn run_source(source: &mut dyn RawSource) -> Result {
     let mut decoder = IracingDecoder::new();
     let mut recorder = Recorder::new(RecorderConfig {
         official_time_wait_s: 8.0,
@@ -226,4 +233,76 @@ fn all_examples_decode_and_are_deterministic() {
         assert!(!info.contains("IRating"), "no other drivers' data");
         assert!(!info.contains("ResultsPositions"));
     }
+}
+
+#[test]
+fn winton_practice_has_no_pit_lane_laps() {
+    let Some(all) = examples() else {
+        return;
+    };
+    let files = files_matching(&all, "winton national 2026-11-10 17-00-40");
+    if files.is_empty() {
+        return;
+    }
+    let r = run(&files);
+    print(&r);
+    // The pit box is just before the line: "lap 0" (box to line) and the
+    // seconds in the box after the reset at the end are not laps.
+    let numbers: Vec<u32> = r.laps.iter().map(|l| l.lap.number).collect();
+    assert_eq!(numbers, [1, 2, 3, 4, 5]);
+    assert!(r.laps[0].lap.flags.out_lap);
+    assert!(lap(&r, 4, 95_047).lap.valid);
+}
+
+/// Live telemetry has no GPS; the decoder reckons the position from
+/// velocity and heading. It must match the GPS position of the same laps.
+#[test]
+fn dead_reckoning_matches_gps() {
+    let Some(all) = examples() else {
+        return;
+    };
+    let files = files_matching(&all, "winton national 2026-11-10 17-00-40");
+    if files.is_empty() {
+        return;
+    }
+    let gps = run(&files);
+    let live = run_source(&mut LiveLike::new(IbtSource::open_many(&files).unwrap()));
+    assert_eq!(gps.laps.len(), live.laps.len());
+    let mut compared = 0;
+    for (g, d) in gps.laps.iter().zip(&live.laps) {
+        assert_eq!(g.lap.id, d.lap.id);
+        assert!(
+            d.telemetry.channel("iracing.lat").is_none(),
+            "no GPS in live"
+        );
+        let xy = |l: &RecordedLap| -> [Vec<f64>; 2] {
+            [names::POS_X, names::POS_Y].map(|n| match &l.telemetry.channel(n).unwrap().data {
+                rz_model::ChannelData::F32(v) => v.iter().map(|&x| f64::from(x)).collect(),
+                other => panic!("{n}: unexpected {other:?}"),
+            })
+        };
+        let ([gx, gy], [dx, dy]) = (xy(g), xy(d));
+        let mut max = 0.0f64;
+        let mut known = 0;
+        for i in 0..gx.len() {
+            if dx[i].is_nan() {
+                continue; // not anchored at the line yet (out-lap)
+            }
+            known += 1;
+            max = max.max((gx[i] - dx[i]).hypot(gy[i] - dy[i]));
+        }
+        println!(
+            "lap {}: {known}/{} samples, max {max:.1} m",
+            g.lap.number,
+            gx.len()
+        );
+        if !g.lap.flags.out_lap {
+            assert_eq!(known, gx.len(), "lap {} fully positioned", g.lap.number);
+        }
+        if known > 0 {
+            compared += 1;
+            assert!(max < 5.0, "lap {}: {max:.1} m off", g.lap.number);
+        }
+    }
+    assert!(compared >= 4);
 }

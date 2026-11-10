@@ -90,8 +90,29 @@ CREATE TABLE settings (
 ) STRICT;
 "#;
 
+/// Version 4: finding the same session/lap recorded twice (live and from a
+/// game file). `start_time_s` is the game session time of the lap's first
+/// sample; an alias maps a session id that turned out to be a duplicate to
+/// the session that was stored first.
+const V4_DUPLICATES: &str = r#"
+ALTER TABLE laps ADD COLUMN start_time_s REAL;
+
+CREATE TABLE session_aliases (
+    alias_id    TEXT PRIMARY KEY NOT NULL,
+    session_id  TEXT NOT NULL REFERENCES sessions (id) ON DELETE CASCADE,
+    created_at  TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX session_aliases_by_session ON session_aliases (session_id);
+"#;
+
 /// All migrations in order. Index + 1 = schema version.
-const MIGRATIONS: &[&str] = &[V1_INITIAL, V2_RAW_SPOOL, V3_NAMES_AND_SETTINGS];
+const MIGRATIONS: &[&str] = &[
+    V1_INITIAL,
+    V2_RAW_SPOOL,
+    V3_NAMES_AND_SETTINGS,
+    V4_DUPLICATES,
+];
 
 /// Migrates the database to the latest schema version. Each migration runs
 /// in its own transaction together with the `user_version` bump.

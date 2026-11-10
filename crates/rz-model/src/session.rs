@@ -130,6 +130,9 @@ pub struct NewLap {
     pub session_id: SessionId,
     /// Lap number as counted by the game
     pub number: u32,
+    /// Game session time (s) of the lap's first sample; finds the same lap
+    /// recorded twice (live and from a game file)
+    pub start_time_s: Option<f64>,
     /// Official lap time, None if incomplete
     pub lap_time_ms: Option<u32>,
     /// Official sector times

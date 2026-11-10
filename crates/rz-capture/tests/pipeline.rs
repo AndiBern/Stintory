@@ -14,6 +14,9 @@ use rz_capture::spool::SpoolWriter;
 use rz_source_iracing::IbtSource;
 use rz_store::{KEEP_RAW_RECORDINGS, SpoolState, Store};
 
+mod common;
+use common::LiveLike;
+
 fn example(needle: &str) -> Option<Vec<PathBuf>> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../telemetry_examples/iRacing");
     let files: Vec<_> = std::fs::read_dir(dir)
@@ -81,6 +84,42 @@ fn import_is_idempotent() {
             .iter()
             .any(|(_, _, best)| *best == Some(125_172))
     );
+}
+
+/// Recording live, then importing the game's file of the same session must
+/// not create a duplicate. The laps get the file's richer telemetry (GPS).
+#[test]
+fn import_after_live_recording_merges() {
+    let Some(files) = example("winton national 2026-11-10 17-00-40") else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = shared(dir.path());
+    // the live recording saw the session start 30 s later: another
+    // offline session key, so other ids
+    let mut live = LiveLike::new(IbtSource::open_many(&files).unwrap()).with_start_shifted(30.0);
+    run(&mut live, &mut store, opts()).unwrap();
+    let after_live = lap_counts(&store);
+    assert_eq!(after_live.len(), 1);
+
+    run(
+        &mut IbtSource::open_many(&files).unwrap(),
+        &mut store,
+        opts(),
+    )
+    .unwrap();
+    assert_eq!(lap_counts(&store), after_live, "merged, no duplicate");
+    store.with(|s| {
+        let id = s.list_sessions().unwrap()[0].id;
+        for lap in s.laps(id).unwrap() {
+            let t = s.lap_telemetry(lap.id).unwrap();
+            assert!(
+                t.channel("iracing.lat").is_some(),
+                "lap {}: GPS from file",
+                lap.number
+            );
+        }
+    });
 }
 
 /// Writes all raw records of `files` into a spool (like a live recording

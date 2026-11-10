@@ -184,9 +184,13 @@ impl LiveSource {
             .is_some_and(|h| h.is_connected())
     }
 
-    /// Cheap check whether iRacing is running (mapping exists).
+    /// Cheap check whether the sim is running and sending telemetry. The
+    /// mapping alone is not enough: it outlives the sim session (e.g. while
+    /// only the iRacing UI is open, or another tool keeps it open).
     pub fn probe() -> bool {
-        Connection::open().is_some()
+        Connection::open()
+            .and_then(|c| c.header())
+            .is_some_and(|h| h.is_connected())
     }
 
     fn reset(&mut self) {

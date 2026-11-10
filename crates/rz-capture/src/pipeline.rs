@@ -50,7 +50,7 @@ impl Sink for Store {
         match output {
             RecorderOutput::SessionStarted(s)
             | RecorderOutput::SessionUpdated(s)
-            | RecorderOutput::SessionEnded(s) => self.upsert_session(&s),
+            | RecorderOutput::SessionEnded(s) => self.upsert_session(&s).map(|_| ()),
             RecorderOutput::Lap(lap) => self.insert_lap(lap.lap, &lap.telemetry).map(|_| ()),
         }
     }
@@ -248,11 +248,16 @@ impl RawSource for SpoolSource {
 }
 
 /// Marks a finished spool as processed and deletes the file unless the
-/// debug setting "keep raw recordings" is on.
-pub fn finish_spool(store: &SharedStore, spool: &SpoolEntry) -> Result<(), StoreError> {
+/// debug setting "keep raw recordings" is on. A spool without any records
+/// (the game was running, but sent no data) is always deleted.
+pub fn finish_spool(
+    store: &SharedStore,
+    spool: &SpoolEntry,
+    stats: &Stats,
+) -> Result<(), StoreError> {
     store.with(|s| {
         let keep = s.setting::<bool>(KEEP_RAW_RECORDINGS)?.unwrap_or(false);
-        if keep {
+        if keep && stats.records > 0 {
             s.set_spool_state(&spool.id, SpoolState::Processed, None)
         } else {
             s.delete_spool(&spool.id)
@@ -286,7 +291,7 @@ pub fn recover_spools(store: &SharedStore) -> Result<u32, StoreError> {
         match result {
             Ok(stats) => {
                 laps += stats.laps;
-                finish_spool(store, &spool)?;
+                finish_spool(store, &spool, &stats)?;
             }
             Err(e) => {
                 tracing::error!(error = %e, path = %spool.path.display(), "recovery failed");
