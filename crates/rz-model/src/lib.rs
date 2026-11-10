@@ -8,6 +8,7 @@
 //! write Rundenzeit data. It must not depend on any copyleft crate.
 
 pub mod api;
+pub mod capture;
 pub mod channel;
 pub mod game;
 pub mod ids;
@@ -17,5 +18,5 @@ pub mod telemetry;
 pub use channel::{Channel, ChannelData, Unit};
 pub use game::{GameId, SessionType};
 pub use ids::{BlobHash, LapId, SessionId};
-pub use session::{Lap, LapFlags, Origin, Session};
+pub use session::{Lap, LapFlags, NewLap, Origin, Session};
 pub use telemetry::{LapTelemetry, TelemetryError};

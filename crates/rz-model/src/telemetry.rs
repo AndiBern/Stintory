@@ -14,29 +14,46 @@
 //! Column metadata:
 //! - `rz.unit`: unit symbol (see [`Unit::as_str`])
 
+#[cfg(feature = "parquet")]
 use std::collections::HashMap;
+#[cfg(feature = "parquet")]
 use std::sync::Arc;
 
+#[cfg(feature = "parquet")]
 use arrow_array::{
     Array, ArrayRef, BooleanArray, Float32Array, Float64Array, Int32Array, RecordBatch,
 };
+#[cfg(feature = "parquet")]
 use arrow_schema::{ArrowError, DataType, Field, Schema};
+#[cfg(feature = "parquet")]
 use bytes::Bytes;
+#[cfg(feature = "parquet")]
 use parquet::arrow::ArrowWriter;
+#[cfg(feature = "parquet")]
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+#[cfg(feature = "parquet")]
 use parquet::basic::{Compression, ZstdLevel};
+#[cfg(feature = "parquet")]
 use parquet::errors::ParquetError;
+#[cfg(feature = "parquet")]
 use parquet::file::properties::WriterProperties;
 
-use crate::channel::{Channel, ChannelData, Unit};
+use crate::channel::Channel;
+#[cfg(feature = "parquet")]
+use crate::channel::{ChannelData, Unit};
+#[cfg(feature = "parquet")]
 use crate::ids::BlobHash;
 
 /// Current major version of the lap telemetry file format.
 pub const FORMAT_VERSION: u32 = 1;
 
+#[cfg(feature = "parquet")]
 const META_FORMAT_VERSION: &str = "rz.format_version";
+#[cfg(feature = "parquet")]
 const META_SAMPLE_RATE: &str = "rz.sample_rate_hz";
+#[cfg(feature = "parquet")]
 const META_UNIT: &str = "rz.unit";
+#[cfg(feature = "parquet")]
 const ZSTD_LEVEL: i32 = 3;
 
 /// Errors when building, writing or reading lap telemetry.
@@ -62,9 +79,11 @@ pub enum TelemetryError {
     #[error("unsupported telemetry format version {0} (supported: {FORMAT_VERSION})")]
     UnsupportedVersion(u32),
     /// Parquet encoding/decoding failed.
+    #[cfg(feature = "parquet")]
     #[error(transparent)]
     Parquet(#[from] ParquetError),
     /// Arrow conversion failed.
+    #[cfg(feature = "parquet")]
     #[error(transparent)]
     Arrow(#[from] ArrowError),
 }
@@ -139,6 +158,7 @@ impl LapTelemetry {
     }
 
     /// Encodes the telemetry as a Parquet file.
+    #[cfg(feature = "parquet")]
     pub fn to_parquet(&self) -> Result<Vec<u8>, TelemetryError> {
         let fields: Vec<Field> = self
             .channels
@@ -172,6 +192,7 @@ impl LapTelemetry {
     }
 
     /// Encodes the telemetry and returns the bytes with their content hash.
+    #[cfg(feature = "parquet")]
     pub fn to_blob(&self) -> Result<(Vec<u8>, BlobHash), TelemetryError> {
         let bytes = self.to_parquet()?;
         let hash = BlobHash::of(&bytes);
@@ -179,6 +200,7 @@ impl LapTelemetry {
     }
 
     /// Decodes a Parquet file written by [`to_parquet`](Self::to_parquet).
+    #[cfg(feature = "parquet")]
     pub fn from_parquet(bytes: impl Into<Bytes>) -> Result<Self, TelemetryError> {
         let builder = ParquetRecordBatchReaderBuilder::try_new(bytes.into())?;
         let schema = builder.schema().clone();
@@ -223,10 +245,12 @@ impl LapTelemetry {
     }
 }
 
+#[cfg(feature = "parquet")]
 fn invalid(msg: String) -> TelemetryError {
     TelemetryError::InvalidFile(msg)
 }
 
+#[cfg(feature = "parquet")]
 fn unsupported_type(field: &Field) -> TelemetryError {
     invalid(format!(
         "column {} has unsupported type {}",
@@ -235,6 +259,7 @@ fn unsupported_type(field: &Field) -> TelemetryError {
     ))
 }
 
+#[cfg(feature = "parquet")]
 fn data_type(data: &ChannelData) -> DataType {
     match data {
         ChannelData::F32(_) => DataType::Float32,
@@ -244,6 +269,7 @@ fn data_type(data: &ChannelData) -> DataType {
     }
 }
 
+#[cfg(feature = "parquet")]
 fn to_array(data: &ChannelData) -> ArrayRef {
     match data {
         ChannelData::F32(v) => Arc::new(Float32Array::from(v.clone())),
@@ -253,6 +279,7 @@ fn to_array(data: &ChannelData) -> ArrayRef {
     }
 }
 
+#[cfg(feature = "parquet")]
 fn empty_data(data_type: &DataType) -> Option<ChannelData> {
     match data_type {
         DataType::Float32 => Some(ChannelData::F32(Vec::new())),
@@ -263,6 +290,7 @@ fn empty_data(data_type: &DataType) -> Option<ChannelData> {
     }
 }
 
+#[cfg(feature = "parquet")]
 fn append(target: &mut ChannelData, column: &dyn Array) -> Result<(), TelemetryError> {
     if column.null_count() > 0 {
         return Err(invalid("null values are not allowed".to_owned()));
@@ -293,7 +321,7 @@ fn append(target: &mut ChannelData, column: &dyn Array) -> Result<(), TelemetryE
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "parquet"))]
 mod tests {
     use super::*;
     use crate::channel::names;

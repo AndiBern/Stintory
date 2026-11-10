@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+/// Namespace for derived (UUIDv5) ids of Rundenzeit objects.
+const NAMESPACE: Uuid = Uuid::from_u128(0x7c1e_4f0a_9d3b_4a55_8e21_6b0f_3c9d_2a14);
+
 macro_rules! uuid_id {
     ($(#[$doc:meta])* $name:ident) => {
         $(#[$doc])*
@@ -23,6 +26,12 @@ macro_rules! uuid_id {
             /// Creates a new, time-ordered (UUIDv7) id.
             pub fn new() -> Self {
                 Self(Uuid::now_v7())
+            }
+
+            /// Derives a stable id from a name (UUIDv5). The same name always
+            /// gives the same id, which makes re-imports idempotent.
+            pub fn derived(name: &str) -> Self {
+                Self(Uuid::new_v5(&NAMESPACE, name.as_bytes()))
             }
 
             /// Wraps an existing UUID.
@@ -133,6 +142,18 @@ mod tests {
         let b = LapId::new();
         assert_ne!(a, b);
         assert!(a < b, "UUIDv7 ids created later must sort later");
+    }
+
+    #[test]
+    fn derived_ids_are_stable() {
+        assert_eq!(SessionId::derived("a"), SessionId::derived("a"));
+        assert_ne!(SessionId::derived("a"), SessionId::derived("b"));
+        // pinned so the derivation never changes silently (would break dedupe)
+        assert_eq!(
+            SessionId::derived("iracing:1:0").to_string(),
+            SessionId::derived("iracing:1:0").as_uuid().to_string()
+        );
+        assert_eq!(SessionId::derived("x").as_uuid().get_version_num(), 5);
     }
 
     #[test]

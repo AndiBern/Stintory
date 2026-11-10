@@ -19,3 +19,7 @@ node_modules/
 *.iml
 .DS_Store
 Thumbs.db
+
+# Third party files for developing
+/sdks/
+/telemetry_examples/

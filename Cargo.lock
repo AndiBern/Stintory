@@ -2933,6 +2933,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
+name = "rz-capture"
+version = "0.1.0"
+dependencies = [
+ "rz-model",
+ "rz-source-iracing",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
+ "zstd",
+]
+
+[[package]]
 name = "rz-model"
 version = "0.1.0"
 dependencies = [
@@ -2947,6 +2961,19 @@ dependencies = [
  "thiserror 2.0.21",
  "time",
  "uuid",
+]
+
+[[package]]
+name = "rz-source-iracing"
+version = "0.1.0"
+dependencies = [
+ "rz-model",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
+ "windows",
 ]
 
 [[package]]
@@ -3248,6 +3275,12 @@ checksum = "b4eceb519ec34d8290aaf6e46f435102f2bfa63f22b05a144fb16ab266d3b198"
 dependencies = [
  "stable_deref_trait",
 ]
+
+[[package]]
+name = "sha1_smol"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "sha2"
@@ -4242,6 +4275,7 @@ dependencies = [
  "getrandom 0.4.3",
  "js-sys",
  "serde_core",
+ "sha1_smol",
  "wasm-bindgen",
 ]
 

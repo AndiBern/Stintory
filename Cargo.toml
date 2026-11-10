@@ -16,6 +16,8 @@ authors = ["The Rundenzeit Contributors"]
 # internal
 rz-model = { path = "crates/rz-model", version = "0.1.0" }
 rz-store = { path = "crates/rz-store", version = "0.1.0" }
+rz-capture = { path = "crates/rz-capture", version = "0.1.0" }
+rz-source-iracing = { path = "crates/rz-source-iracing", version = "0.1.0" }
 
 # external
 arrow-array = "60"
@@ -30,7 +32,8 @@ hex = "0.4"
 thiserror = "2"
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
 tracing = "0.1"
-uuid = { version = "1", features = ["v7", "serde"] }
+uuid = { version = "1", features = ["v5", "v7", "serde"] }
+zstd = "0.14"
 tempfile = "3"
 
 [workspace.lints.rust]

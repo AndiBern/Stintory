@@ -62,8 +62,24 @@ CREATE INDEX laps_by_session ON laps (session_id, number);
 CREATE INDEX laps_by_blob ON laps (blob_hash);
 "#;
 
+/// Version 2: raw spool files (docs/PLAN.md §5.1). `path` is relative to
+/// the data directory.
+const V2_RAW_SPOOL: &str = r#"
+CREATE TABLE raw_spools (
+    id          TEXT PRIMARY KEY NOT NULL,
+    game        TEXT NOT NULL,
+    path        TEXT NOT NULL UNIQUE,
+    state       TEXT NOT NULL CHECK (state IN ('recording', 'processed', 'failed')),
+    error       TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX raw_spools_by_state ON raw_spools (state);
+"#;
+
 /// All migrations in order. Index + 1 = schema version.
-const MIGRATIONS: &[&str] = &[V1_INITIAL];
+const MIGRATIONS: &[&str] = &[V1_INITIAL, V2_RAW_SPOOL];
 
 /// Migrates the database to the latest schema version. Each migration runs
 /// in its own transaction together with the `user_version` bump.

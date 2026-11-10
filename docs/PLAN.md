@@ -150,19 +150,33 @@ Storage: samples at the **native rate** (iRacing 60 Hz, F1 = configured rate, LM
 
 ## 5. Capture pipeline
 
+The adapter interface lives in `rz_model::capture` (MIT/Apache), so the permissively licensed game crates can implement it. The recorder and the spool are in `rz-capture` (AGPL).
+
 ```rust
-trait Source {
-    fn name(&self) -> GameId;
-    fn probe(&mut self) -> bool;                  // game running / data available?
-    fn next(&mut self, timeout: Duration) -> Result<Option<SourceEvent>>;
+trait RawSource {                 // per game: shared memory, UDP, file
+    fn game(&self) -> GameId;
+    fn next_record(&mut self, timeout: Duration) -> Result<Option<RawRecord>>;  // already player-only (§5.2)
+}
+trait Decoder {                   // per game: raw bytes -> events
+    fn decode(&mut self, record: &RawRecord) -> Result<Vec<SourceEvent>>;
+    fn finish(&mut self) -> Vec<SourceEvent>;
 }
 enum SourceEvent {
-    SessionInfo(SessionMeta),       // track/car/session type/setup changes
-    Frame(Frame),                   // one sample of canonical + extra channels for the player car
-    LapBoundary { completed: LapSummary }, // when the game tells us officially
-    Rewind { to_time: f64 },        // F1 flashback, iRacing reset/tow
+    Session(SessionMeta),         // new session (new key) or changed info (same key)
+    Frame(Frame),                 // one sample of the player's car
+    LapTime { lap, lap_time_ms, sector_times_ms },  // official time, may arrive after the boundary
+    Invalidate { reason },        // current lap invalid
+    Rewind { to_session_time },   // F1 flashback
+    LapAborted { reason },        // tow, reset, left the car
     SessionEnd,
 }
+```
+
+```text
+live:      RawSource ─► spool file (.rzraw) ─┐
+                     └──────────────────────► Decoder ─► Recorder ─► Store
+recovery:  spool file ─────────────────────► Decoder ─► Recorder ─► Store
+import:    file RawSource (.ibt) ──────────► Decoder ─► Recorder ─► Store
 ```
 
 - **Supervisor** (in the Tauri backend, background thread): probes all enabled sources every ~2 s. When one becomes active, it runs the source loop until the game is gone. Tray icon shows status ("Recording iRacing – Spa – lap 7").

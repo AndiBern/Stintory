@@ -74,6 +74,15 @@ impl BlobStore {
         Ok(bytes)
     }
 
+    /// Deletes a blob file (no error if it doesn't exist).
+    pub fn remove(&self, hash: &BlobHash) -> Result<()> {
+        match fs::remove_file(self.path(hash)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Root directory.
     pub fn root(&self) -> &Path {
         &self.root

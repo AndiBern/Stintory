@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use rz_model::api::SessionSummary;
-use rz_model::{Lap, LapFlags, LapId, LapTelemetry, Session, SessionId};
+use rz_model::{Lap, LapId, LapTelemetry, NewLap, Session, SessionId};
 
 use crate::blobs::BlobStore;
 use crate::migrations;
@@ -13,28 +13,6 @@ use crate::{Result, StoreError, timefmt};
 
 const DB_FILE: &str = "rundenzeit.db";
 const BLOB_DIR: &str = "blobs";
-
-/// Metadata of a lap to insert. Telemetry-derived fields (blob hash, sample
-/// count, sample rate) are filled in by [`Store::insert_lap`].
-#[derive(Debug, Clone)]
-pub struct NewLap {
-    /// Lap id (generate with [`LapId::new`])
-    pub id: LapId,
-    /// Session the lap belongs to (must exist)
-    pub session_id: SessionId,
-    /// Lap number as counted by the game
-    pub number: u32,
-    /// Official lap time, None if incomplete
-    pub lap_time_ms: Option<u32>,
-    /// Official sector times
-    pub sector_times_ms: Vec<u32>,
-    /// Lap validity
-    pub valid: bool,
-    /// Reason if invalid
-    pub invalid_reason: Option<String>,
-    /// Special lap flags
-    pub flags: LapFlags,
-}
 
 /// The local store: SQLite database + blob directory.
 pub struct Store {
@@ -77,6 +55,10 @@ impl Store {
         &self.blobs
     }
 
+    pub(crate) fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
     /// Inserts a new session.
     pub fn insert_session(&mut self, s: &Session) -> Result<()> {
         let now = timefmt::now();
@@ -103,6 +85,79 @@ impl Store {
         Ok(())
     }
 
+    /// Inserts the session, or updates it if a session with this id exists
+    /// (re-import, or a session split across several files).
+    pub fn upsert_session(&mut self, s: &Session) -> Result<()> {
+        let exists: bool = self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = ?1)",
+            [s.id.to_string()],
+            |r| r.get(0),
+        )?;
+        if exists {
+            self.update_session(s)
+        } else {
+            self.insert_session(s)
+        }
+    }
+
+    /// Updates a session's mutable fields (everything except id, game,
+    /// start time and origin), e.g. when the game reports new session info
+    /// or the session ended.
+    pub fn update_session(&mut self, s: &Session) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE sessions SET game_version = ?2, track_key = ?3, car_key = ?4,
+                session_type = ?5, ended_at = ?6, conditions = ?7, setup = ?8,
+                session_info = ?9, updated_at = ?10
+             WHERE id = ?1",
+            params![
+                s.id.to_string(),
+                s.game_version,
+                s.track_key,
+                s.car_key,
+                s.session_type.as_str(),
+                s.ended_at.map(timefmt::encode),
+                serde_json::to_string(&s.conditions)?,
+                s.setup.as_ref().map(serde_json::to_string).transpose()?,
+                s.session_info
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+                timefmt::now(),
+            ],
+        )?;
+        if changed == 0 {
+            return Err(StoreError::SessionNotFound(s.id));
+        }
+        Ok(())
+    }
+
+    /// Deletes a session with all its laps. Blobs no longer referenced by any
+    /// lap are removed from disk.
+    pub fn delete_session(&mut self, id: SessionId) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        let deleted = tx.execute("DELETE FROM sessions WHERE id = ?1", [id.to_string()])?;
+        if deleted == 0 {
+            return Err(StoreError::SessionNotFound(id));
+        }
+        let orphans: Vec<String> = {
+            let mut stmt = tx
+                .prepare("SELECT hash FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM laps)")?;
+            stmt.query_map([], |r| r.get(0))?
+                .collect::<rusqlite::Result<_>>()?
+        };
+        tx.execute(
+            "DELETE FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM laps)",
+            [],
+        )?;
+        tx.commit()?;
+        for hash in orphans {
+            if let Ok(hash) = hash.parse() {
+                self.blobs.remove(&hash)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Loads a session.
     pub fn session(&self, id: SessionId) -> Result<Session> {
         self.conn
@@ -122,7 +177,11 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT s.id, s.game, s.track_key, s.car_key, s.session_type, s.started_at,
                     COUNT(l.id),
-                    MIN(CASE WHEN l.valid = 1 THEN l.lap_time_ms END)
+                    MIN(CASE WHEN l.valid = 1
+                              AND COALESCE(json_extract(l.flags, '$.out_lap'), 0) = 0
+                              AND COALESCE(json_extract(l.flags, '$.in_lap'), 0) = 0
+                              AND COALESCE(json_extract(l.flags, '$.incomplete'), 0) = 0
+                             THEN l.lap_time_ms END)
              FROM sessions s LEFT JOIN laps l ON l.session_id = s.id
              GROUP BY s.id
              ORDER BY s.started_at DESC",
@@ -145,27 +204,22 @@ impl Store {
     }
 
     /// Stores a lap: writes the telemetry blob, then inserts the lap row in
-    /// one transaction. Returns the stored lap.
+    /// one transaction. Returns the stored lap. If a lap with this id already
+    /// exists, nothing is written and the existing lap is returned.
     pub fn insert_lap(&mut self, new: NewLap, telemetry: &LapTelemetry) -> Result<Lap> {
+        // Idempotent: lap ids are derived, so a re-import yields the same id.
+        match self.lap(new.id) {
+            Ok(existing) => return Ok(existing),
+            Err(StoreError::LapNotFound(_)) => {}
+            Err(e) => return Err(e),
+        }
         let (bytes, _) = telemetry.to_blob()?;
         let hash = self.blobs.put(&bytes)?;
         let sample_count = u32::try_from(telemetry.len()).map_err(|_| StoreError::Corrupt {
             column: "laps.sample_count",
             message: "too many samples".into(),
         })?;
-        let lap = Lap {
-            id: new.id,
-            session_id: new.session_id,
-            number: new.number,
-            lap_time_ms: new.lap_time_ms,
-            sector_times_ms: new.sector_times_ms,
-            valid: new.valid,
-            invalid_reason: new.invalid_reason,
-            flags: new.flags,
-            blob_hash: hash,
-            sample_rate_hz: telemetry.sample_rate_hz(),
-            sample_count,
-        };
+        let lap = new.into_lap(hash, telemetry.sample_rate_hz(), sample_count);
 
         let now = timefmt::now();
         let tx = self.conn.transaction()?;
@@ -295,7 +349,7 @@ mod tests {
     use super::*;
     use rz_model::channel::names;
     use rz_model::session::Conditions;
-    use rz_model::{Channel, ChannelData, GameId, Origin, SessionType, Unit};
+    use rz_model::{Channel, ChannelData, GameId, LapFlags, Origin, SessionType, Unit};
     use time::macros::datetime;
 
     fn session(started: time::OffsetDateTime) -> Session {
@@ -393,6 +447,23 @@ mod tests {
     }
 
     #[test]
+    fn reinserting_is_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        let mut s = session(datetime!(2026-11-10 18:00 UTC));
+        store.upsert_session(&s).unwrap();
+        s.ended_at = Some(datetime!(2026-11-10 18:30 UTC));
+        store.upsert_session(&s).unwrap();
+        assert_eq!(store.session(s.id).unwrap().ended_at, s.ended_at);
+
+        let new = new_lap(s.id, 1, 90_000, true);
+        let a = store.insert_lap(new.clone(), &telemetry(10, 1.0)).unwrap();
+        let b = store.insert_lap(new, &telemetry(10, 1.0)).unwrap();
+        assert_eq!(a, b);
+        assert_eq!(store.laps(s.id).unwrap().len(), 1);
+    }
+
+    #[test]
     fn lap_for_unknown_session_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let mut store = Store::open(dir.path()).unwrap();
@@ -434,6 +505,62 @@ mod tests {
         );
         assert_eq!(list[1].lap_count, 0);
         assert_eq!(list[1].best_lap_ms, None);
+    }
+
+    #[test]
+    fn out_laps_do_not_count_as_best() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        let s = session(datetime!(2026-11-10 18:00 UTC));
+        store.insert_session(&s).unwrap();
+        let mut out_lap = new_lap(s.id, 1, 70_000, true);
+        out_lap.flags.out_lap = true;
+        store.insert_lap(out_lap, &telemetry(10, 1.0)).unwrap();
+        store
+            .insert_lap(new_lap(s.id, 2, 92_000, true), &telemetry(10, 2.0))
+            .unwrap();
+        assert_eq!(store.list_sessions().unwrap()[0].best_lap_ms, Some(92_000));
+    }
+
+    #[test]
+    fn update_session_changes_mutable_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        let mut s = session(datetime!(2026-11-10 18:00 UTC));
+        store.insert_session(&s).unwrap();
+        s.ended_at = Some(datetime!(2026-11-10 18:45 UTC));
+        s.conditions.weather = Some("cloudy".into());
+        store.update_session(&s).unwrap();
+        assert_eq!(store.session(s.id).unwrap(), s);
+    }
+
+    #[test]
+    fn delete_session_removes_laps_and_unused_blobs() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        let a = session(datetime!(2026-11-10 18:00 UTC));
+        let b = session(datetime!(2026-11-10 19:00 UTC));
+        store.insert_session(&a).unwrap();
+        store.insert_session(&b).unwrap();
+        let shared = telemetry(10, 1.0);
+        let only_a = telemetry(10, 2.0);
+        let lap_shared = store
+            .insert_lap(new_lap(a.id, 1, 90_000, true), &shared)
+            .unwrap();
+        let lap_only_a = store
+            .insert_lap(new_lap(a.id, 2, 90_000, true), &only_a)
+            .unwrap();
+        store
+            .insert_lap(new_lap(b.id, 1, 90_000, true), &shared)
+            .unwrap();
+
+        store.delete_session(a.id).unwrap();
+        assert!(store.laps(a.id).unwrap().is_empty());
+        assert!(
+            store.blobs().contains(&lap_shared.blob_hash),
+            "still used by b"
+        );
+        assert!(!store.blobs().contains(&lap_only_a.blob_hash));
     }
 
     #[test]

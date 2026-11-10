@@ -8,6 +8,7 @@
 //! ```text
 //! <data>/rundenzeit.db                  SQLite: sessions, laps, blob index
 //! <data>/blobs/<aa>/<hash>.parquet      lap telemetry, content addressed
+//! <data>/raw/<game>-<id>.rzraw          raw spool files (deleted once processed)
 //! ```
 //!
 //! Lap telemetry is immutable. Writing a lap first stores its blob (idempotent,
@@ -16,11 +17,13 @@
 
 mod blobs;
 mod migrations;
+mod spools;
 mod store;
 mod timefmt;
 
 pub use blobs::BlobStore;
-pub use store::{NewLap, Store};
+pub use spools::{RAW_DIR, SpoolEntry, SpoolState};
+pub use store::Store;
 
 use rz_model::{BlobHash, LapId, SessionId};
 

@@ -116,6 +116,47 @@ pub struct Lap {
     pub sample_count: u32,
 }
 
+/// A lap before its telemetry is stored: everything of [`Lap`] except the
+/// fields derived from the telemetry blob.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewLap {
+    /// Lap id (generate with [`LapId::new`])
+    pub id: LapId,
+    /// Session the lap belongs to
+    pub session_id: SessionId,
+    /// Lap number as counted by the game
+    pub number: u32,
+    /// Official lap time, None if incomplete
+    pub lap_time_ms: Option<u32>,
+    /// Official sector times
+    pub sector_times_ms: Vec<u32>,
+    /// Lap validity
+    pub valid: bool,
+    /// Reason if invalid
+    pub invalid_reason: Option<String>,
+    /// Special lap flags
+    pub flags: LapFlags,
+}
+
+impl NewLap {
+    /// Completes the lap with the fields derived from its stored telemetry.
+    pub fn into_lap(self, blob_hash: BlobHash, sample_rate_hz: f32, sample_count: u32) -> Lap {
+        Lap {
+            id: self.id,
+            session_id: self.session_id,
+            number: self.number,
+            lap_time_ms: self.lap_time_ms,
+            sector_times_ms: self.sector_times_ms,
+            valid: self.valid,
+            invalid_reason: self.invalid_reason,
+            flags: self.flags,
+            blob_hash,
+            sample_rate_hz,
+            sample_count,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
