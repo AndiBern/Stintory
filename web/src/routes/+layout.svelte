@@ -8,7 +8,7 @@
 	import { resolve } from '$app/paths';
 	import { accountApi, api } from '#lib/api/index.ts';
 	import { app, auth, connect, connectAuth } from '#lib/app-state.svelte.ts';
-	import { formatLapTime, formatGame } from '#lib/format.ts';
+	import { formatAgo, formatLapTime, formatGame } from '#lib/format.ts';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
@@ -43,7 +43,12 @@
 		if (!account || !auth.ready || !auth.reachable) return;
 		const path = page.url.pathname;
 		if (!auth.me) {
-			if (!isPublic) goto(resolve('/login'));
+			// come back here after logging in (e.g. the desktop app's device login)
+			if (!isPublic) {
+				const next = encodeURIComponent(path + page.url.search);
+				// eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved path + query
+				goto(`${resolve('/login')}?next=${next}`);
+			}
 		} else if (
 			(auth.me.mustChangePassword || auth.me.twoFactorRequired) &&
 			path !== resolve('/account')
@@ -113,6 +118,23 @@
 					<div class="text-zinc-400">Waiting for a game…</div>
 				{:else if app.recorder?.state === 'unsupported'}
 					<div class="text-zinc-500">Live recording: Windows only</div>
+				{/if}
+				{#if app.sync && app.sync.state !== 'disconnected'}
+					<a
+						href={resolve('/settings')}
+						class="mt-2 block border-t border-zinc-800 pt-2 text-zinc-400 hover:text-zinc-200"
+						title={app.sync.lastError ?? app.sync.serverUrl ?? ''}
+					>
+						{#if app.sync.state === 'syncing'}
+							Syncing…
+						{:else if app.sync.state === 'connecting'}
+							Connecting…
+						{:else if app.sync.lastError}
+							<span class="text-amber-400">Sync failed</span>
+						{:else}
+							Synced {formatAgo(app.sync.lastSyncAt)}
+						{/if}
+					</a>
 				{/if}
 			</div>
 		{/if}

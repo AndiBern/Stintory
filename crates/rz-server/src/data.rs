@@ -21,7 +21,7 @@ use rz_model::api::{
     SessionDetail, SessionSummary,
 };
 use rz_model::rzx::RzxReader;
-use rz_model::{BlobHash, Lap, LapId, LapTelemetry, Origin, Session, SessionId};
+use rz_model::{Lap, LapId, LapTelemetry, Origin, Session, SessionId};
 use tokio_postgres::Row;
 use uuid::Uuid;
 
@@ -100,10 +100,10 @@ pub async fn list_sessions(
     ))
 }
 
-const LAP_COLUMNS: &str = "id, session_id, number, lap_time_ms, sector_times_ms, valid, \
+pub(crate) const LAP_COLUMNS: &str = "id, session_id, number, lap_time_ms, sector_times_ms, valid, \
      invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, start_time_s";
 
-fn lap_from_row(r: &Row) -> ApiResult<Lap> {
+pub(crate) fn lap_from_row(r: &Row) -> ApiResult<Lap> {
     Ok(Lap {
         id: LapId::from_uuid(r.get(0)),
         session_id: SessionId::from_uuid(r.get(1)),
@@ -171,41 +171,13 @@ pub async fn delete_session(
 ) -> ApiResult<StatusCode> {
     let mut db = state.conn().await?;
     let tx = db.transaction().await?;
-    let hashes: Vec<String> = tx
-        .query(
-            "SELECT DISTINCT blob_hash FROM laps WHERE owner_id = $1 AND session_id = $2",
-            &[&session.user.id, &id],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    let n = tx
-        .execute(
-            "DELETE FROM sessions WHERE owner_id = $1 AND id = $2",
-            &[&session.user.id, &id],
-        )
-        .await?;
+    crate::sync::lock_user(&tx, session.user.id, true).await?;
+    let (n, hashes) = crate::sync::delete_sessions(&tx, session.user.id, &[id]).await?;
     if n == 0 {
         return Err(ApiError::not_found("session"));
     }
-    let orphans: Vec<String> = tx
-        .query(
-            "DELETE FROM blobs b WHERE b.hash = ANY($1)
-               AND NOT EXISTS (SELECT 1 FROM laps l WHERE l.blob_hash = b.hash)
-             RETURNING b.hash",
-            &[&hashes],
-        )
-        .await?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
     tx.commit().await?;
-    for hash in orphans {
-        if let Ok(hash) = hash.parse::<BlobHash>() {
-            state.blobs.remove(&hash)?;
-        }
-    }
+    crate::sync::remove_unused_blobs(&state, hashes).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -382,6 +354,7 @@ pub async fn import(
     let owner = session.user.id;
     let mut db = state.conn().await?;
     let tx = db.transaction().await?;
+    crate::sync::lock_user(&tx, owner, true).await?;
     let mut result = ImportResult {
         files: 1,
         sessions: 0,

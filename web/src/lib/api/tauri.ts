@@ -12,6 +12,7 @@ import type {
 	CompareRequest,
 	ExportRequest,
 	ExportResult,
+	SyncStatus,
 	ImportProgress,
 	ImportResult,
 	RecorderStatus,
@@ -26,7 +27,8 @@ export class TauriApi implements ApiClient {
 		importFiles: true,
 		exportFiles: true,
 		liveRecording: true,
-		localSettings: true
+		localSettings: true,
+		serverSync: true
 	};
 
 	getInfo(): Promise<AppInfo> {
@@ -110,6 +112,34 @@ export class TauriApi implements ApiClient {
 		return call('recorder_status');
 	}
 
+	syncStatus(): Promise<SyncStatus> {
+		return call('sync_status');
+	}
+
+	syncConnect(serverUrl: string): Promise<SyncStatus> {
+		return call('sync_connect', { serverUrl });
+	}
+
+	syncCancelConnect(): Promise<void> {
+		return call('sync_cancel_connect');
+	}
+
+	syncConnectToken(serverUrl: string, token: string): Promise<SyncStatus> {
+		return call('sync_connect_token', { serverUrl, token });
+	}
+
+	syncDisconnect(): Promise<SyncStatus> {
+		return call('sync_disconnect');
+	}
+
+	syncNow(): Promise<SyncStatus> {
+		return call('sync_now');
+	}
+
+	syncSetAuto(auto: boolean): Promise<SyncStatus> {
+		return call('sync_set_auto', { auto });
+	}
+
 	onSessionsChanged(handler: () => void): Unsubscribe {
 		return subscribe(listen('sessions-changed', () => handler()));
 	}
@@ -120,6 +150,10 @@ export class TauriApi implements ApiClient {
 
 	onRecorderStatus(handler: (s: RecorderStatus) => void): Unsubscribe {
 		return subscribe(listen<RecorderStatus>('recorder-status', (e) => handler(e.payload)));
+	}
+
+	onSyncStatus(handler: (s: SyncStatus) => void): Unsubscribe {
+		return subscribe(listen<SyncStatus>('sync-status', (e) => handler(e.payload)));
 	}
 
 	onFilesDropped(handler: (paths: string[]) => void): Unsubscribe {

@@ -55,6 +55,10 @@ crate = "rundenzeit-desktop"
 allow = ["AGPL-3.0-or-later"]
 crate = "rz-server"
 
+[[licenses.exceptions]]
+allow = ["AGPL-3.0-or-later"]
+crate = "rz-sync"
+
 [bans]
 multiple-versions = "allow"
 wildcards = "deny"
@@ -66,6 +70,12 @@ ignore = [
   # bindings that Tauri uses on Linux (no vulnerability). Goes away when Tauri
   # moves off GTK 3; nothing we can update ourselves.
   { id = "RUSTSEC-2024-0370", reason = "transitive via tauri -> gtk3 on Linux, unmaintained only" },
+  # "unmaintained" notices for parts of zbus (D-Bus on Linux), used by the
+  # Secret Service keychain (keyring) and tauri-plugin-opener. No fixed
+  # release exists; no vulnerability.
+  { id = "RUSTSEC-2026-0370", reason = "zvariant via zbus (keyring, tauri-plugin-opener), unmaintained only" },
+  { id = "RUSTSEC-2026-0371", reason = "zbus_names via zbus (keyring, tauri-plugin-opener), unmaintained only" },
+  { id = "RUSTSEC-2026-0372", reason = "zvariant_derive via zbus (keyring, tauri-plugin-opener), unmaintained only" },
 ]
 
 [sources]

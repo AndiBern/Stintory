@@ -106,12 +106,31 @@ CREATE TABLE session_aliases (
 CREATE INDEX session_aliases_by_session ON session_aliases (session_id);
 "#;
 
+/// Version 5: sync with a server (docs/PLAN.md §9.5). `sync_pushed`
+/// remembers which version (`updated_at`) of a session or lap the server
+/// has; `sync_deleted` lists deleted sessions the server must still hear
+/// about.
+const V5_SYNC: &str = r#"
+CREATE TABLE sync_pushed (
+    kind     TEXT NOT NULL CHECK (kind IN ('session', 'lap')),
+    id       TEXT NOT NULL,
+    version  TEXT NOT NULL,
+    PRIMARY KEY (kind, id)
+) STRICT;
+
+CREATE TABLE sync_deleted (
+    session_id  TEXT PRIMARY KEY NOT NULL,
+    deleted_at  TEXT NOT NULL
+) STRICT;
+"#;
+
 /// All migrations in order. Index + 1 = schema version.
 const MIGRATIONS: &[&str] = &[
     V1_INITIAL,
     V2_RAW_SPOOL,
     V3_NAMES_AND_SETTINGS,
     V4_DUPLICATES,
+    V5_SYNC,
 ];
 
 /// Migrates the database to the latest schema version. Each migration runs

@@ -7,7 +7,8 @@ import {
 	type ImportProgress,
 	type ImportResult,
 	type Me,
-	type RecorderStatus
+	type RecorderStatus,
+	type SyncStatus
 } from './api/index.ts';
 
 /** A message shown at the top of the page until dismissed. */
@@ -24,7 +25,9 @@ export const app = $state({
 	/** Running import, or null */
 	importing: null as ImportProgress | null,
 	/** Result of the last import or export */
-	notice: null as Notice | null
+	notice: null as Notice | null,
+	/** Sync with a server (desktop app) */
+	sync: null as SyncStatus | null
 });
 
 /** Subscribes to backend events. Returns a cleanup function. */
@@ -40,11 +43,22 @@ export function connect(): () => void {
 		client.onRecorderStatus((s) => {
 			app.recorder = s;
 		}),
+		client.onSyncStatus((s) => {
+			app.sync = s;
+		}),
 		client.onFilesDropped((paths) => void runImport(() => client.importFiles(paths)))
 	];
 	client.recorderStatus().then((s) => {
 		app.recorder = s;
 	});
+	if (client.capabilities.serverSync) {
+		client
+			.syncStatus()
+			.then((s) => {
+				app.sync = s;
+			})
+			.catch(() => {});
+	}
 	return () => subs.forEach((unsubscribe) => unsubscribe());
 }
 

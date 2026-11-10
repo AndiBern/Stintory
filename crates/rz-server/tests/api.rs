@@ -95,6 +95,8 @@ struct Browser<'a> {
     server: &'a TestServer,
     cookie: Option<String>,
     csrf: Option<String>,
+    /// Device token (desktop app) instead of a cookie
+    bearer: Option<String>,
 }
 
 impl<'a> Browser<'a> {
@@ -103,6 +105,14 @@ impl<'a> Browser<'a> {
             server,
             cookie: None,
             csrf: None,
+            bearer: None,
+        }
+    }
+
+    fn device(server: &'a TestServer, token: &str) -> Self {
+        Self {
+            bearer: Some(token.to_owned()),
+            ..Self::new(server)
         }
     }
 
@@ -137,6 +147,9 @@ impl<'a> Browser<'a> {
             .uri(format!("/api/v1{path}"));
         if let Some(c) = &self.cookie {
             b = b.header(header::COOKIE, c);
+        }
+        if let Some(t) = &self.bearer {
+            b = b.header(header::AUTHORIZATION, format!("Bearer {t}"));
         }
         if method != "GET"
             && let Some(t) = &self.csrf
@@ -534,7 +547,8 @@ async fn registration_follows_the_setting() {
     );
 }
 
-fn bundle() -> (Vec<u8>, Session, Vec<Lap>) {
+/// A session with two laps and their telemetry files.
+fn sample() -> (Session, Vec<(Lap, Vec<u8>)>) {
     let session = Session {
         id: SessionId::new(),
         game: GameId::Iracing,
@@ -551,8 +565,6 @@ fn bundle() -> (Vec<u8>, Session, Vec<Lap>) {
         session_info: None,
         origin: Origin::Own,
     };
-    let mut w = RzxWriter::new(Cursor::new(Vec::new()));
-    w.add_session(&session).unwrap();
     let mut laps = Vec::new();
     for n in 1..=2u32 {
         let samples = 100;
@@ -590,11 +602,21 @@ fn bundle() -> (Vec<u8>, Session, Vec<Lap>) {
             sample_count: samples as u32,
             start_time_s: Some(f64::from(n) * 10.0),
         };
-        w.add_lap(&lap, &bytes).unwrap();
-        laps.push(lap);
+        laps.push((lap, bytes));
+    }
+    (session, laps)
+}
+
+/// `sample()` as an .rzx file.
+fn bundle() -> (Vec<u8>, Session, Vec<Lap>) {
+    let (session, laps) = sample();
+    let mut w = RzxWriter::new(Cursor::new(Vec::new()));
+    w.add_session(&session).unwrap();
+    for (lap, bytes) in &laps {
+        w.add_lap(lap, bytes).unwrap();
     }
     let file = w.finish("test", Some("Andi")).unwrap().into_inner();
-    (file, session, laps)
+    (file, session, laps.into_iter().map(|(l, _)| l).collect())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -685,4 +707,252 @@ async fn unknown_api_paths_are_json_404() {
     let (st, body) = Browser::new(&s).get("/nope").await;
     assert_eq!(st, StatusCode::NOT_FOUND);
     assert!(body["error"].is_string());
+}
+
+fn pkce() -> (String, String) {
+    use base64::Engine;
+    use sha2::Digest;
+    let verifier = crypto::new_token(); // 43 characters
+    let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(sha2::Sha256::digest(verifier.as_bytes()));
+    (verifier, challenge)
+}
+
+/// The query parameter `name` of a URL.
+fn param(url: &str, name: &str) -> String {
+    url.split(['?', '&'])
+        .find_map(|p| p.strip_prefix(&format!("{name}=")))
+        .unwrap()
+        .to_owned()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn device_login_and_revocation() {
+    let Some(s) = server().await else { return };
+    let mut b = Browser::new(&s);
+    b.login(ADMIN, ADMIN_PW).await;
+    let (verifier, challenge) = pkce();
+    let approve = |redirect: &str, challenge: &str| {
+        json!({
+            "redirectUri": redirect, "codeChallenge": challenge,
+            "state": "xyz 1", "deviceName": "Rig PC"
+        })
+    };
+
+    // only loopback redirects
+    let (st, _) = b
+        .post(
+            "/device-login/approve",
+            approve("http://evil.example:5000/cb", &challenge),
+        )
+        .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+
+    // a wrong verifier uses the code up
+    let (st, body) = b
+        .post(
+            "/device-login/approve",
+            approve("http://127.0.0.1:49200/callback", &challenge),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    let to = body["redirectTo"].as_str().unwrap();
+    assert!(
+        to.starts_with("http://127.0.0.1:49200/callback?code="),
+        "{to}"
+    );
+    assert_eq!(param(to, "state"), "xyz%201");
+    let code = param(to, "code");
+    let mut app = Browser::new(&s);
+    let (st, body) = app
+        .post(
+            "/device-login/token",
+            json!({ "code": code, "codeVerifier": pkce().0 }),
+        )
+        .await;
+    assert_eq!(
+        (st, body["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("invalid_grant"))
+    );
+    let (st, _) = app
+        .post(
+            "/device-login/token",
+            json!({ "code": code, "codeVerifier": verifier }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "single use");
+
+    // the real flow
+    let (_, body) = b
+        .post(
+            "/device-login/approve",
+            approve("http://127.0.0.1:49200/callback", &challenge),
+        )
+        .await;
+    let code = param(body["redirectTo"].as_str().unwrap(), "code");
+    let (st, body) = app
+        .post(
+            "/device-login/token",
+            json!({ "code": code, "codeVerifier": verifier }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    let token = body["token"].as_str().unwrap().to_owned();
+    assert!(token.starts_with("rzd_"));
+    assert_eq!(body["device"]["name"], "Rig PC");
+    assert_eq!(body["user"]["username"], ADMIN);
+
+    let mut dev = Browser::device(&s, &token);
+    let (st, me) = dev.get("/devices/current").await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(me["device"]["name"], "Rig PC");
+    assert_eq!(dev.get("/sessions").await.0, StatusCode::OK);
+    // no account or admin pages with a device token
+    assert_eq!(dev.get("/admin/users").await.0, StatusCode::FORBIDDEN);
+    assert_eq!(dev.get("/me").await.0, StatusCode::UNAUTHORIZED);
+    // and no CSRF token needed: it's not a cookie
+    let (st, _) = dev.post("/sync/push", json!({})).await;
+    assert_eq!(st, StatusCode::OK);
+
+    // the account page lists it; revoking stops it
+    let (_, devices) = b.get("/me/devices").await;
+    let id = devices[0]["id"].as_str().unwrap().to_owned();
+    assert!(devices[0]["lastUsedAt"].is_string());
+    let (st, _) = b
+        .call("DELETE", &format!("/me/devices/{id}"), json!({}))
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (st, body) = dev.get("/sessions").await;
+    assert_eq!(
+        (st, body["code"].as_str()),
+        (StatusCode::UNAUTHORIZED, Some("device_revoked"))
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sync_between_two_devices() {
+    let Some(s) = server().await else { return };
+    let mut b = Browser::new(&s);
+    b.login(ADMIN, ADMIN_PW).await;
+    let token = || async {
+        let (st, body) = Browser {
+            server: &s,
+            cookie: b.cookie.clone(),
+            csrf: b.csrf.clone(),
+            bearer: None,
+        }
+        .post("/me/devices", json!({ "name": "pc" }))
+        .await;
+        assert_eq!(st, StatusCode::OK, "{body}");
+        body["token"].as_str().unwrap().to_owned()
+    };
+    let (ta, tb) = (token().await, token().await);
+    let (mut a, mut bdev) = (Browser::device(&s, &ta), Browser::device(&s, &tb));
+    let (session, laps) = sample();
+
+    // device A pushes: blobs first
+    let hashes: Vec<String> = laps.iter().map(|(l, _)| l.blob_hash.to_string()).collect();
+    let (_, body) = a
+        .post("/sync/blobs/missing", json!({ "hashes": hashes }))
+        .await;
+    assert_eq!(body["missing"].as_array().unwrap().len(), 2);
+    let (st, _) = a
+        .post(
+            "/sync/push",
+            json!({ "sessions": [session], "laps": [laps[0].0] }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST, "telemetry not uploaded yet");
+    for (lap, bytes) in &laps {
+        let req = a
+            .request("PUT", &format!("/sync/blobs/{}", lap.blob_hash))
+            .body(Body::from(bytes.clone()))
+            .unwrap();
+        assert_eq!(a.send(req).await.0, StatusCode::NO_CONTENT);
+    }
+    let req = a
+        .request("PUT", &format!("/sync/blobs/{}", laps[0].0.blob_hash))
+        .body(Body::from(b"tampered".to_vec()))
+        .unwrap();
+    assert_eq!(a.send(req).await.0, StatusCode::BAD_REQUEST);
+    let all_laps: Vec<&Lap> = laps.iter().map(|(l, _)| l).collect();
+    let (st, body) = a
+        .post(
+            "/sync/push",
+            json!({ "sessions": [session], "laps": all_laps }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    assert_eq!(
+        body,
+        json!({ "sessions": 1, "laps": 2, "deletedSessions": 0 })
+    );
+
+    // device B pulls everything
+    let (_, ch) = bdev.get("/sync/changes?since=0").await;
+    assert_eq!(ch["sessions"].as_array().unwrap().len(), 1);
+    assert_eq!(ch["laps"].as_array().unwrap().len(), 2);
+    let got: Session = serde_json::from_value(ch["sessions"][0].clone()).unwrap();
+    assert_eq!(got, session);
+    let got: Lap = serde_json::from_value(ch["laps"][0].clone()).unwrap();
+    assert!(laps.iter().any(|(l, _)| *l == got));
+    let cursor = ch["cursor"].as_i64().unwrap();
+    assert_eq!(ch["more"], false);
+    let (_, ch) = bdev.get(&format!("/sync/changes?since={cursor}")).await;
+    assert!(
+        ch["sessions"].as_array().unwrap().is_empty() && ch["laps"].as_array().unwrap().is_empty()
+    );
+    // paging: one change per page, laps bring their session along
+    let (_, page) = bdev.get("/sync/changes?since=0&limit=1").await;
+    assert_eq!(page["more"], true);
+
+    // telemetry download, only for own laps
+    let req = bdev
+        .request("GET", &format!("/sync/blobs/{}", laps[0].0.blob_hash))
+        .body(Body::empty())
+        .unwrap();
+    let res = s.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(bytes.as_ref(), laps[0].1.as_slice());
+    let (_, created) = b.post("/admin/users", json!({ "username": "other" })).await;
+    let temp = created["temporaryPassword"].as_str().unwrap().to_owned();
+    let mut other = Browser::new(&s);
+    other.login("other", &temp).await;
+    other
+        .post(
+            "/me/password",
+            json!({ "currentPassword": temp, "newPassword": "other password 12" }),
+        )
+        .await;
+    assert_eq!(
+        other
+            .get(&format!("/sync/blobs/{}", laps[0].0.blob_hash))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        other.get("/sync/changes?since=0").await.1["laps"],
+        json!([])
+    );
+
+    // an update reaches B
+    let mut ended = session.clone();
+    ended.ended_at = Some(time::macros::datetime!(2026-11-10 16:30 UTC));
+    a.post("/sync/push", json!({ "sessions": [ended] })).await;
+    let (_, ch) = bdev.get(&format!("/sync/changes?since={cursor}")).await;
+    let got: Session = serde_json::from_value(ch["sessions"][0].clone()).unwrap();
+    assert_eq!(got.ended_at, ended.ended_at);
+    let cursor = ch["cursor"].as_i64().unwrap();
+
+    // a deletion reaches B, the telemetry is removed from the server
+    let (_, body) = a
+        .post("/sync/push", json!({ "deletedSessions": [session.id] }))
+        .await;
+    assert_eq!(body["deletedSessions"], 1);
+    let (_, ch) = bdev.get(&format!("/sync/changes?since={cursor}")).await;
+    assert_eq!(ch["deletedSessions"], json!([session.id]));
+    assert!(!s.state.blobs.contains(&laps[0].0.blob_hash));
+    assert_eq!(b.get("/sessions").await.1, json!([]));
 }

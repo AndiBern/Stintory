@@ -14,9 +14,11 @@ pub mod config;
 pub mod crypto;
 pub mod data;
 pub mod db;
+pub mod devices;
 pub mod error;
 pub mod ratelimit;
 pub mod state;
+pub mod sync;
 
 use std::sync::Arc;
 
@@ -40,6 +42,12 @@ pub async fn init(config: Config, search_path: Option<&str>) -> ApiResult<Shared
         .validate()
         .map_err(|e| ApiError::internal(e.to_string()))?;
     let db = db::pool(&config.database_url, search_path)?;
+    db::wait_until_reachable(
+        &db,
+        &db::describe(&config.database_url),
+        std::time::Duration::from_secs(config.db_wait_seconds),
+    )
+    .await?;
     db::migrate(&db).await?;
     let blobs = rz_store::BlobStore::open(config.data_dir.join("blobs"))?;
     let secrets = SecretBox::new(
@@ -124,6 +132,31 @@ fn api(state: &SharedState) -> Router<SharedState> {
             get(admin::get_settings).put(admin::put_settings),
         )
         .route("/admin/audit", get(admin::audit_log))
+        // desktop clients
+        .route("/device-login/approve", post(devices::approve))
+        .route("/device-login/token", post(devices::token))
+        .route(
+            "/devices/current",
+            get(devices::current).delete(devices::disconnect),
+        )
+        .route(
+            "/me/devices",
+            get(devices::my_devices).post(devices::create),
+        )
+        .route("/me/devices/{id}", delete(devices::revoke))
+        // sync
+        .route("/sync/blobs/missing", post(sync::missing_blobs))
+        .route(
+            "/sync/blobs/{hash}",
+            get(sync::get_blob)
+                .put(sync::put_blob)
+                .layer(DefaultBodyLimit::max(upload_limit)),
+        )
+        .route(
+            "/sync/push",
+            post(sync::push).layer(DefaultBodyLimit::max(64 << 20)),
+        )
+        .route("/sync/changes", get(sync::changes))
         // data
         .route("/sessions", get(data::list_sessions))
         .route(

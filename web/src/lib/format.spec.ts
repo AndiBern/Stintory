@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	fileName,
+	formatAgo,
 	formatBytes,
 	formatDelta,
 	formatLapTime,
@@ -71,5 +72,15 @@ describe('fileName', () => {
 		);
 		expect(fileName('a/b:c*?', 'd.')).toBe('abc d');
 		expect(fileName('???')).toBe('export');
+	});
+});
+
+describe('formatAgo', () => {
+	it('says how long ago', () => {
+		const now = Date.parse('2026-11-10T18:00:00Z');
+		expect(formatAgo(null, now)).toBe('never');
+		expect(formatAgo('2026-11-10T17:59:30Z', now)).toBe('just now');
+		expect(formatAgo('2026-11-10T17:55:00Z', now)).toBe('5 min ago');
+		expect(formatAgo('2026-11-10T15:00:00Z', now)).toBe('3 h ago');
 	});
 });

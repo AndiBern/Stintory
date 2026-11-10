@@ -10,6 +10,7 @@
 mod commands;
 mod recording;
 mod state;
+mod sync;
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -32,6 +33,7 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let data_dir = match std::env::var_os(DATA_DIR_ENV) {
                 Some(dir) => PathBuf::from(dir),
@@ -39,14 +41,17 @@ pub fn run() {
             };
             tracing::info!(data_dir = %data_dir.display(), "opening local store");
             let state = AppState::open(&data_dir)?;
+            let sync = sync::SyncManager::start(app.handle().clone(), state.store.clone());
             recording::spawn_recovery(app.handle().clone(), state.store.clone());
             recording::spawn_supervisor(
                 app.handle().clone(),
                 state.store.clone(),
                 state.recorder.clone(),
                 state.shutdown.clone(),
+                sync.clone(),
             );
             app.manage(state);
+            app.manage(sync);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -58,6 +63,13 @@ pub fn run() {
             commands::import_files,
             commands::export_rzx,
             commands::export_csv,
+            commands::sync_status,
+            commands::sync_connect,
+            commands::sync_cancel_connect,
+            commands::sync_connect_token,
+            commands::sync_disconnect,
+            commands::sync_now,
+            commands::sync_set_auto,
             commands::get_settings,
             commands::set_keep_raw_recordings,
             commands::delete_raw_recordings,

@@ -98,3 +98,13 @@ export function fileDate(iso: string): string {
 	const p = (n: number) => String(n).padStart(2, '0');
 	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}`;
 }
+
+/** "just now", "5 min ago", "3 h ago", or the date. */
+export function formatAgo(iso: string | null | undefined, now = Date.now()): string {
+	if (!iso) return 'never';
+	const seconds = (now - new Date(iso).getTime()) / 1000;
+	if (seconds < 60) return 'just now';
+	if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+	if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+	return formatDateTime(iso);
+}

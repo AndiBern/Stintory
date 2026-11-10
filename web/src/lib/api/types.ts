@@ -224,3 +224,36 @@ export interface AuditEntry {
 	ip: string | null;
 	details: Record<string, unknown>;
 }
+
+// ----- sync with a server (desktop) -----
+
+export type SyncState = 'disconnected' | 'connecting' | 'idle' | 'syncing';
+
+export interface SyncStatus {
+	state: SyncState;
+	serverUrl: string | null;
+	username: string | null;
+	deviceName: string | null;
+	autoSync: boolean;
+	/** false: the token is kept in the app's data folder (no keychain) */
+	tokenInKeychain: boolean;
+	lastSyncAt: string | null;
+	lastPushed: number;
+	lastPulled: number;
+	lastError: string | null;
+}
+
+/** A desktop app connected to the user's account (server). */
+export interface DeviceInfo {
+	id: string;
+	name: string;
+	createdAt: string;
+	lastUsedAt: string | null;
+	lastIp: string | null;
+}
+
+export interface NewDevice {
+	token: string;
+	device: DeviceInfo;
+	user: Me;
+}

@@ -100,38 +100,18 @@ impl User {
     }
 }
 
-/// The logged-in user as the frontend sees it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Me {
-    /// Id
-    pub id: Uuid,
-    /// Login name
-    pub username: String,
-    /// Name shown to others
-    pub display_name: String,
-    /// Server admin
-    pub is_admin: bool,
-    /// TOTP is set up
-    pub totp_enabled: bool,
-    /// Must set a new password first
-    pub must_change_password: bool,
-    /// Must set up a second factor first (enforced by the admin)
-    pub two_factor_required: bool,
-}
+pub use rz_model::remote::Me;
 
-impl Me {
-    /// The view of `user` under `settings`.
-    pub fn new(user: &User, settings: &ServerSettings) -> Self {
-        Self {
-            id: user.id,
-            username: user.username.clone(),
-            display_name: user.display_name.clone(),
-            is_admin: user.is_admin,
-            totp_enabled: user.totp_enabled,
-            must_change_password: user.must_change_password,
-            two_factor_required: settings.enforce_2fa && !user.totp_enabled,
-        }
+/// The logged-in user as the frontend sees it, under `settings`.
+pub fn me(user: &User, settings: &ServerSettings) -> Me {
+    Me {
+        id: user.id,
+        username: user.username.clone(),
+        display_name: user.display_name.clone(),
+        is_admin: user.is_admin,
+        totp_enabled: user.totp_enabled,
+        must_change_password: user.must_change_password,
+        two_factor_required: settings.enforce_2fa && !user.totp_enabled,
     }
 }
 
@@ -214,11 +194,13 @@ impl FromRequestParts<SharedState> for ClientIp {
 }
 
 impl ClientIp {
-    fn as_deref(&self) -> Option<&str> {
+    /// The address, if known.
+    pub fn as_deref(&self) -> Option<&str> {
         self.0.as_deref()
     }
 
-    fn limiter_key(&self) -> String {
+    /// Key for [`crate::ratelimit::RateLimiter`].
+    pub fn limiter_key(&self) -> String {
         format!("ip:{}", self.0.as_deref().unwrap_or("unknown"))
     }
 }
@@ -249,10 +231,12 @@ impl FromRequestParts<SharedState> for SameOrigin {
 pub struct Session {
     /// The user
     pub user: User,
-    /// Hash of the session token
+    /// Hash of the session token (browser sessions; empty for devices)
     pub token_hash: Vec<u8>,
-    /// CSRF token of the session
+    /// CSRF token of the session (browser sessions; empty for devices)
     pub csrf_token: String,
+    /// The desktop client making the request (device token), if any
+    pub device_id: Option<Uuid>,
 }
 
 async fn load_session(
@@ -281,10 +265,21 @@ async fn load_session(
                 user: User::from_row(&r, 2),
                 token_hash: hash,
                 csrf_token: r.get(0),
+                device_id: None,
             },
             r.get(1),
         )
     }))
+}
+
+/// The token of an `Authorization: Bearer ...` header.
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::AUTHORIZATION)?
+        .to_str()
+        .ok()?
+        .strip_prefix("Bearer ")
+        .map(str::trim)
 }
 
 /// Logged in, but possibly restricted (must change the password or set up
@@ -331,7 +326,13 @@ impl FromRequestParts<SharedState> for Auth {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, state: &SharedState) -> ApiResult<Self> {
-        let AccountAuth(session) = AccountAuth::from_request_parts(parts, state).await?;
+        let session = match bearer_token(&parts.headers).map(str::to_owned) {
+            Some(token) => {
+                let ip = ClientIp::from_request_parts(parts, state).await?;
+                crate::devices::authenticate(state, &token, &ip).await?
+            }
+            None => AccountAuth::from_request_parts(parts, state).await?.0,
+        };
         if session.user.must_change_password {
             return Err(ApiError::forbidden("please set a new password first")
                 .with_code("password_change_required"));
@@ -358,8 +359,8 @@ impl FromRequestParts<SharedState> for AdminAuth {
 
     async fn from_request_parts(parts: &mut Parts, state: &SharedState) -> ApiResult<Self> {
         let Auth(session) = Auth::from_request_parts(parts, state).await?;
-        if !session.user.is_admin {
-            return Err(ApiError::forbidden("admins only"));
+        if !session.user.is_admin || session.device_id.is_some() {
+            return Err(ApiError::forbidden("admins only (in the browser)"));
         }
         Ok(Self(session))
     }
@@ -432,7 +433,7 @@ pub async fn status(
     let settings = ServerSettings::load(&state.conn().await?).await?;
     let session = load_session(&headers, &state).await?;
     Ok(Json(AuthStatus {
-        user: session.as_ref().map(|(s, _)| Me::new(&s.user, &settings)),
+        user: session.as_ref().map(|(s, _)| me(&s.user, &settings)),
         csrf_token: session.map(|(s, _)| s.csrf_token),
         registration_open: settings.registration == Registration::Open,
     }))
@@ -579,7 +580,7 @@ async fn finish_login(
     Ok((
         jar.add(cookie),
         Json(LoginResponse::Ok {
-            user: Me::new(&user, &settings),
+            user: me(&user, &settings),
             csrf_token: csrf,
         }),
     ))

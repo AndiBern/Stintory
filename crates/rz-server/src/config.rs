@@ -45,6 +45,11 @@ pub struct Config {
     #[arg(long, env = "RZ_TRUST_PROXY", default_value_t = false)]
     pub trust_proxy: bool,
 
+    /// How long to wait at startup for the database to become reachable,
+    /// seconds (0: try once)
+    #[arg(long, env = "RZ_DB_WAIT_SECONDS", default_value_t = 300)]
+    pub db_wait_seconds: u64,
+
     /// Largest accepted upload (.rzx import), MiB
     #[arg(long, env = "RZ_MAX_UPLOAD_MB", default_value_t = 512)]
     pub max_upload_mb: u64,
@@ -114,6 +119,7 @@ impl Config {
             listen: "127.0.0.1:0".parse().expect("valid"),
             trust_proxy: false,
             max_upload_mb: 64,
+            db_wait_seconds: 0,
             admin_username: None,
             admin_password: None,
         }

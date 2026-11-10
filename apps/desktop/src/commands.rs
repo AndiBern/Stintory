@@ -4,13 +4,14 @@
 //! Tauri commands called by the frontend (`web/src/lib/api/tauri.ts`).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rz_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
 use rz_capture::pipeline::{self, RunOptions};
 use rz_model::api::{
     AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ExportRequest, ExportResult,
     ImportProgress, ImportResult, LapSummary, RecorderStatus, SessionDetail, SessionSummary,
-    Settings,
+    Settings, SyncStatus,
 };
 use rz_model::{LapId, SessionId};
 use rz_source_iracing::IbtSource;
@@ -22,6 +23,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::state::AppState;
+use crate::sync::SyncManager;
 
 /// Event: sessions or laps were added, changed or deleted.
 pub const EVENT_SESSIONS_CHANGED: &str = "sessions-changed";
@@ -103,11 +105,13 @@ pub async fn get_session(state: State<'_, AppState>, id: String) -> CmdResult<Se
 pub async fn delete_session(
     app: AppHandle,
     state: State<'_, AppState>,
+    sync: State<'_, Arc<SyncManager>>,
     id: String,
 ) -> CmdResult<()> {
     let id: SessionId = parse_id(&id)?;
     state.with_store(move |s| s.delete_session(id)).await?;
     let _ = app.emit(EVENT_SESSIONS_CHANGED, ());
+    sync.nudge();
     Ok(())
 }
 
@@ -150,6 +154,7 @@ fn has_extension(path: &Path, ext: &str) -> bool {
 pub async fn import_files(
     app: AppHandle,
     state: State<'_, AppState>,
+    sync: State<'_, Arc<SyncManager>>,
     paths: Vec<String>,
 ) -> CmdResult<ImportResult> {
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
@@ -196,6 +201,7 @@ pub async fn import_files(
         result.laps += stats.laps;
     }
     let _ = app.emit(EVENT_SESSIONS_CHANGED, ());
+    sync.nudge();
     Ok(result)
 }
 
@@ -405,4 +411,58 @@ pub fn recorder_status(state: State<'_, AppState>) -> RecorderStatus {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .clone()
+}
+
+// ----- sync with a server -------------------------------------------------
+
+/// Sync status.
+#[tauri::command]
+pub fn sync_status(sync: State<'_, Arc<SyncManager>>) -> SyncStatus {
+    sync.status()
+}
+
+/// Connects to a server through the browser login (waits until done).
+#[tauri::command]
+pub async fn sync_connect(
+    sync: State<'_, Arc<SyncManager>>,
+    server_url: String,
+) -> Result<SyncStatus, String> {
+    sync.inner().clone().connect(&server_url).await
+}
+
+/// Stops waiting for the browser login.
+#[tauri::command]
+pub fn sync_cancel_connect(sync: State<'_, Arc<SyncManager>>) {
+    sync.cancel_connect();
+}
+
+/// Connects with a device token created on the server's account page.
+#[tauri::command]
+pub async fn sync_connect_token(
+    sync: State<'_, Arc<SyncManager>>,
+    server_url: String,
+    token: String,
+) -> Result<SyncStatus, String> {
+    sync.connect_with_token(&server_url, &token).await
+}
+
+/// Disconnects from the server (local data stays).
+#[tauri::command]
+pub async fn sync_disconnect(sync: State<'_, Arc<SyncManager>>) -> Result<SyncStatus, String> {
+    sync.disconnect().await
+}
+
+/// Syncs now.
+#[tauri::command]
+pub async fn sync_now(sync: State<'_, Arc<SyncManager>>) -> Result<SyncStatus, String> {
+    sync.run().await
+}
+
+/// Turns automatic sync on or off.
+#[tauri::command]
+pub async fn sync_set_auto(
+    sync: State<'_, Arc<SyncManager>>,
+    auto: bool,
+) -> Result<SyncStatus, String> {
+    sync.set_auto(auto).await
 }

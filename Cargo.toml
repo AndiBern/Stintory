@@ -20,6 +20,7 @@ rz-capture = { path = "crates/rz-capture", version = "0.1.0" }
 rz-analysis = { path = "crates/rz-analysis", version = "0.1.0" }
 rz-source-iracing = { path = "crates/rz-source-iracing", version = "0.1.0" }
 rz-server = { path = "crates/rz-server", version = "0.1.0" }
+rz-sync = { path = "crates/rz-sync", version = "0.1.0" }
 
 # external
 arrow-array = "60"

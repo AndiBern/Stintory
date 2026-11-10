@@ -16,6 +16,16 @@ pub const KEEP_RAW_RECORDINGS: &str = "debug.keep_raw_recordings";
 /// Setting: driver name used for the last `.rzx` export (`Option<String>`).
 pub const EXPORT_DRIVER_NAME: &str = "export.driver_name";
 
+/// Setting: address of the sync server (`String`); unset = not connected.
+pub const SYNC_SERVER_URL: &str = "sync.server_url";
+/// Setting: position in the server's change feed (`i64`).
+pub const SYNC_CURSOR: &str = "sync.cursor";
+/// Setting: sync automatically (`bool`, default on).
+pub const SYNC_AUTO: &str = "sync.auto";
+/// Setting: the device token, only when the system keychain is unavailable
+/// (`String`).
+pub const SYNC_TOKEN_FALLBACK: &str = "sync.token";
+
 impl Store {
     /// Reads a setting; `None` if it was never set.
     pub fn setting<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {
@@ -35,6 +45,13 @@ impl Store {
              ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
             params![key, serde_json::to_string(value)?, timefmt::now()],
         )?;
+        Ok(())
+    }
+
+    /// Removes a setting.
+    pub fn remove_setting(&mut self, key: &str) -> Result<()> {
+        self.conn()
+            .execute("DELETE FROM settings WHERE key = ?1", [key])?;
         Ok(())
     }
 }

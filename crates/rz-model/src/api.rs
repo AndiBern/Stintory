@@ -386,3 +386,63 @@ mod tests {
         );
     }
 }
+
+/// What the desktop app's sync with a server is doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncState {
+    /// Not connected to a server
+    Disconnected,
+    /// Waiting for the login in the browser
+    Connecting,
+    /// Connected, nothing running
+    Idle,
+    /// A sync is running
+    Syncing,
+}
+
+/// Sync status shown in the desktop app.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncStatus {
+    /// What's happening
+    pub state: SyncState,
+    /// The server, when connected
+    pub server_url: Option<String>,
+    /// The account on the server
+    pub username: Option<String>,
+    /// This device's name on the server
+    pub device_name: Option<String>,
+    /// Sync automatically after recording and every few minutes
+    pub auto_sync: bool,
+    /// The device token is in the system keychain (false: in the app's
+    /// data folder, because no keychain is available)
+    pub token_in_keychain: bool,
+    /// End of the last successful sync
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub last_sync_at: Option<OffsetDateTime>,
+    /// Sessions + laps sent in the last sync
+    pub last_pushed: u32,
+    /// Sessions + laps received in the last sync
+    pub last_pulled: u32,
+    /// Why the last sync or connection attempt failed
+    pub last_error: Option<String>,
+}
+
+impl SyncStatus {
+    /// Not connected.
+    pub fn disconnected() -> Self {
+        Self {
+            state: SyncState::Disconnected,
+            server_url: None,
+            username: None,
+            device_name: None,
+            auto_sync: true,
+            token_in_keychain: false,
+            last_sync_at: None,
+            last_pushed: 0,
+            last_pulled: 0,
+            last_error: None,
+        }
+    }
+}

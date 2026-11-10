@@ -14,6 +14,7 @@ use rz_store::StoreError;
 use tauri::{AppHandle, Emitter};
 
 use crate::commands::EVENT_SESSIONS_CHANGED;
+use crate::sync::SyncManager;
 
 /// Event: live recorder status changed ([`RecorderStatus`]).
 pub const EVENT_RECORDER_STATUS: &str = "recorder-status";
@@ -57,6 +58,7 @@ impl StatusReporter {
 struct ReportingSink {
     store: SharedStore,
     reporter: StatusReporter,
+    sync: Arc<SyncManager>,
 }
 
 impl Sink for ReportingSink {
@@ -88,6 +90,7 @@ impl Sink for ReportingSink {
         self.store.apply(output)?;
         if notify {
             let _ = self.reporter.app.emit(EVENT_SESSIONS_CHANGED, ());
+            self.sync.nudge();
         }
         Ok(())
     }
@@ -100,6 +103,7 @@ pub fn spawn_supervisor(
     store: SharedStore,
     status: Arc<Mutex<RecorderStatus>>,
     shutdown: Arc<AtomicBool>,
+    sync: Arc<SyncManager>,
 ) {
     let reporter = StatusReporter { app, status };
     if !cfg!(windows) {
@@ -108,15 +112,26 @@ pub fn spawn_supervisor(
     }
     std::thread::Builder::new()
         .name("recorder".into())
-        .spawn(move || supervise(store, reporter, shutdown))
+        .spawn(move || supervise(store, reporter, shutdown, sync))
         .expect("spawn recorder thread");
 }
 
 #[cfg(not(windows))]
-fn supervise(_store: SharedStore, _reporter: StatusReporter, _shutdown: Arc<AtomicBool>) {}
+fn supervise(
+    _store: SharedStore,
+    _reporter: StatusReporter,
+    _shutdown: Arc<AtomicBool>,
+    _sync: Arc<SyncManager>,
+) {
+}
 
 #[cfg(windows)]
-fn supervise(store: SharedStore, reporter: StatusReporter, shutdown: Arc<AtomicBool>) {
+fn supervise(
+    store: SharedStore,
+    reporter: StatusReporter,
+    shutdown: Arc<AtomicBool>,
+    sync: Arc<SyncManager>,
+) {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
@@ -156,6 +171,7 @@ fn supervise(store: SharedStore, reporter: StatusReporter, shutdown: Arc<AtomicB
         let mut sink = ReportingSink {
             store: store.clone(),
             reporter: reporter.clone(),
+            sync: sync.clone(),
         };
         let stop = || shutdown.load(Ordering::Relaxed);
         let mut idle_done = |idle: Duration| idle >= IDLE_END;

@@ -19,7 +19,10 @@ import type {
 	ServerSettings,
 	SessionDetail,
 	SessionSummary,
+	DeviceInfo,
+	NewDevice,
 	Settings,
+	SyncStatus,
 	TemporaryPassword,
 	TotpSetup,
 	UserUpdate
@@ -43,6 +46,16 @@ export interface AccountApi {
 	regenerateRecoveryCodes(password: string): Promise<RecoveryCodes>;
 	browserSessions(): Promise<BrowserSession[]>;
 	endBrowserSession(id: string): Promise<void>;
+	devices(): Promise<DeviceInfo[]>;
+	createDevice(name: string): Promise<NewDevice>;
+	revokeDevice(id: string): Promise<void>;
+	/** Approves a desktop app's login; returns where to send the browser. */
+	approveDeviceLogin(request: {
+		redirectUri: string;
+		codeChallenge: string;
+		state: string;
+		deviceName: string;
+	}): Promise<{ redirectTo: string }>;
 	adminUsers(): Promise<AdminUser[]>;
 	adminCreateUser(
 		username: string,
@@ -69,7 +82,8 @@ export class HttpApi implements ApiClient, AccountApi {
 		importFiles: true,
 		exportFiles: false,
 		liveRecording: false,
-		localSettings: false
+		localSettings: false,
+		serverSync: false
 	};
 
 	private csrfToken: string | null = null;
@@ -157,7 +171,39 @@ export class HttpApi implements ApiClient, AccountApi {
 		});
 	}
 
+	syncStatus(): Promise<SyncStatus> {
+		return Promise.reject(notAvailable('Sync'));
+	}
+
+	syncConnect(): Promise<SyncStatus> {
+		return Promise.reject(notAvailable('Sync'));
+	}
+
+	syncCancelConnect(): Promise<void> {
+		return Promise.resolve();
+	}
+
+	syncConnectToken(): Promise<SyncStatus> {
+		return Promise.reject(notAvailable('Sync'));
+	}
+
+	syncDisconnect(): Promise<SyncStatus> {
+		return Promise.reject(notAvailable('Sync'));
+	}
+
+	syncNow(): Promise<SyncStatus> {
+		return Promise.reject(notAvailable('Sync'));
+	}
+
+	syncSetAuto(): Promise<SyncStatus> {
+		return Promise.reject(notAvailable('Sync'));
+	}
+
 	onSessionsChanged(): Unsubscribe {
+		return noop;
+	}
+
+	onSyncStatus(): Unsubscribe {
 		return noop;
 	}
 
@@ -247,6 +293,27 @@ export class HttpApi implements ApiClient, AccountApi {
 
 	endBrowserSession(id: string): Promise<void> {
 		return this.request<void>('DELETE', `/me/sessions/${encodeURIComponent(id)}`);
+	}
+
+	devices(): Promise<DeviceInfo[]> {
+		return this.request<DeviceInfo[]>('GET', '/me/devices');
+	}
+
+	createDevice(name: string): Promise<NewDevice> {
+		return this.request<NewDevice>('POST', '/me/devices', { name });
+	}
+
+	revokeDevice(id: string): Promise<void> {
+		return this.request<void>('DELETE', `/me/devices/${encodeURIComponent(id)}`);
+	}
+
+	approveDeviceLogin(request: {
+		redirectUri: string;
+		codeChallenge: string;
+		state: string;
+		deviceName: string;
+	}): Promise<{ redirectTo: string }> {
+		return this.request<{ redirectTo: string }>('POST', '/device-login/approve', request);
 	}
 
 	adminUsers(): Promise<AdminUser[]> {

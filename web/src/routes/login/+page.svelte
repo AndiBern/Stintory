@@ -3,6 +3,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
+	import { page } from '$app/state';
 	import { accountApi, ApiError, type LoginResponse } from '#lib/api/index.ts';
 	import { auth, errorText } from '#lib/app-state.svelte.ts';
 
@@ -17,9 +18,18 @@
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
+	/** Where to go after logging in: only paths on this site. */
+	function target(): string {
+		const next = page.url.searchParams.get('next') ?? '';
+		return next.startsWith('/') && !next.startsWith('//') && !next.includes('\\')
+			? next
+			: resolve('/');
+	}
+
 	// already logged in (e.g. back button)
 	$effect(() => {
-		if (auth.me) goto(resolve('/'));
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- checked local path
+		if (auth.me) goto(target());
 	});
 
 	function done(r: LoginResponse) {
@@ -30,7 +40,8 @@
 		}
 		auth.me = r.user;
 		password = '';
-		goto(resolve('/'));
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- checked local path
+		goto(target());
 	}
 
 	async function submit(event: SubmitEvent) {

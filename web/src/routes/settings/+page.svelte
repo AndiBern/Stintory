@@ -2,6 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import { api, type Settings } from '#lib/api/index.ts';
+	import ServerSync from '#lib/components/ServerSync.svelte';
 	import { formatBytes } from '#lib/format.ts';
 
 	const client = api();
@@ -34,6 +35,10 @@
 <h1 class="mb-4 text-2xl font-semibold">
 	{client.capabilities.localSettings ? 'Settings' : 'About'}
 </h1>
+
+{#if client.capabilities.serverSync}
+	<ServerSync />
+{/if}
 
 {#if client.capabilities.localSettings}
 	<section class="mb-6 max-w-2xl rounded border border-zinc-800 p-4">

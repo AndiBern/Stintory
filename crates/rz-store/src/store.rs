@@ -25,7 +25,7 @@ const BLOB_DIR: &str = "blobs";
 
 /// The local store: SQLite database + blob directory.
 pub struct Store {
-    conn: Connection,
+    pub(crate) conn: Connection,
     blobs: BlobStore,
     root: PathBuf,
 }
@@ -225,10 +225,32 @@ impl Store {
     /// Deletes a session with all its laps. Blobs no longer referenced by any
     /// lap are removed from disk.
     pub fn delete_session(&mut self, id: SessionId) -> Result<()> {
+        self.delete_session_inner(id, true)
+    }
+
+    /// Deletes a session. With `tell_server`, a session the server has is
+    /// queued for deletion there too (sync).
+    pub(crate) fn delete_session_inner(&mut self, id: SessionId, tell_server: bool) -> Result<()> {
         let tx = self.conn.transaction()?;
+        let pushed: bool = tx.query_row(
+            "SELECT EXISTS (SELECT 1 FROM sync_pushed WHERE kind = 'session' AND id = ?1)",
+            [id.to_string()],
+            |r| r.get(0),
+        )?;
+        tx.execute(
+            "DELETE FROM sync_pushed WHERE (kind = 'session' AND id = ?1)
+               OR (kind = 'lap' AND id IN (SELECT id FROM laps WHERE session_id = ?1))",
+            [id.to_string()],
+        )?;
         let deleted = tx.execute("DELETE FROM sessions WHERE id = ?1", [id.to_string()])?;
         if deleted == 0 {
             return Err(StoreError::SessionNotFound(id));
+        }
+        if pushed && tell_server {
+            tx.execute(
+                "INSERT OR REPLACE INTO sync_deleted (session_id, deleted_at) VALUES (?1, ?2)",
+                params![id.to_string(), timefmt::now()],
+            )?;
         }
         let orphans: Vec<String> = {
             let mut stmt = tx
@@ -524,7 +546,7 @@ fn json<T: serde::de::DeserializeOwned>(row: &Row<'_>, idx: usize) -> Result<Opt
     Ok(s.map(|s| serde_json::from_str(&s)).transpose()?)
 }
 
-fn read_session(row: &Row<'_>) -> Result<Session> {
+pub(crate) fn read_session(row: &Row<'_>) -> Result<Session> {
     Ok(Session {
         id: parse(row, 0, "sessions.id")?,
         game: parse(row, 1, "sessions.game")?,
@@ -549,7 +571,7 @@ fn read_session(row: &Row<'_>) -> Result<Session> {
     })
 }
 
-fn read_lap(row: &Row<'_>) -> Result<Lap> {
+pub(crate) fn read_lap(row: &Row<'_>) -> Result<Lap> {
     Ok(Lap {
         id: parse(row, 0, "laps.id")?,
         session_id: parse(row, 1, "laps.session_id")?,

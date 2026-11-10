@@ -1,7 +1,12 @@
 <!-- SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
-	import { accountApi, type BrowserSession, type TotpSetup } from '#lib/api/index.ts';
+	import {
+		accountApi,
+		type BrowserSession,
+		type DeviceInfo,
+		type TotpSetup
+	} from '#lib/api/index.ts';
 	import { auth, errorText, refreshAuth } from '#lib/app-state.svelte.ts';
 	import { formatDateTime } from '#lib/format.ts';
 
@@ -30,6 +35,40 @@
 		sessions = (await account?.browserSessions().catch(() => [])) ?? [];
 	}
 	if (account) loadSessions();
+
+	// desktop apps
+	let devices = $state<DeviceInfo[]>([]);
+	let newDeviceName = $state('');
+	let newToken = $state<string | null>(null);
+	let deviceMsg = $state<string | null>(null);
+
+	async function loadDevices() {
+		devices = (await account?.devices().catch(() => [])) ?? [];
+	}
+	if (account) loadDevices();
+
+	function revokeDevice(d: DeviceInfo) {
+		if (!confirm(`Disconnect "${d.name}"? It can't sync anymore until it connects again.`)) return;
+		run(
+			async () => {
+				await account!.revokeDevice(d.id);
+				await loadDevices();
+			},
+			(t) => (deviceMsg = t)
+		);
+	}
+
+	function createToken(event: SubmitEvent) {
+		event.preventDefault();
+		run(
+			async () => {
+				newToken = (await account!.createDevice(newDeviceName)).token;
+				newDeviceName = '';
+				await loadDevices();
+			},
+			(t) => (deviceMsg = t)
+		);
+	}
 
 	async function run(action: () => Promise<void>, onError: (text: string) => void) {
 		try {
@@ -334,6 +373,63 @@
 					{/each}
 				</tbody>
 			</table>
+		</section>
+
+		<section class="mt-6 max-w-2xl rounded border border-zinc-800 p-4">
+			<h2 class="mb-1 font-medium">Desktop apps</h2>
+			<p class="mb-3 text-sm text-zinc-400">
+				Computers that sync with your account. Connect one from the app's settings ("Server sync").
+			</p>
+			{#if devices.length === 0}
+				<p class="mb-3 text-sm text-zinc-500">None connected.</p>
+			{:else}
+				<table class="mb-3 w-full text-left text-sm">
+					<tbody>
+						{#each devices as d (d.id)}
+							<tr class="border-t border-zinc-800 first:border-t-0">
+								<td class="py-1.5">
+									<div class="text-zinc-300">{d.name}</div>
+									<div class="text-xs text-zinc-500">
+										connected {formatDateTime(d.createdAt)} · last used {d.lastUsedAt
+											? formatDateTime(d.lastUsedAt)
+											: 'never'}{d.lastIp ? ` · ${d.lastIp}` : ''}
+									</div>
+								</td>
+								<td class="text-right">
+									<button type="button" class={secondary} onclick={() => revokeDevice(d)}
+										>Disconnect</button
+									>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+			{#if newToken}
+				<div class="mb-3 rounded border border-emerald-800 bg-emerald-950 p-3 text-sm">
+					<p class="mb-1 text-emerald-200">
+						Paste this token into the app (Settings → Server sync → "Use a device token instead").
+						It is shown only once.
+					</p>
+					<code class="font-mono text-xs break-all text-emerald-100 select-all">{newToken}</code>
+					<div class="mt-2">
+						<button type="button" class={secondary} onclick={() => (newToken = null)}>Done</button>
+					</div>
+				</div>
+			{/if}
+			<details class="text-sm">
+				<summary class="cursor-pointer text-zinc-400 hover:text-zinc-200">
+					Create a token by hand (if the browser login doesn't work)
+				</summary>
+				<form class="mt-2 flex items-end gap-2" onsubmit={createToken}>
+					<label class="flex flex-1 flex-col gap-1">
+						<span class="text-zinc-400">Name of the computer</span>
+						<input class={input} bind:value={newDeviceName} maxlength="64" />
+					</label>
+					<button type="submit" class={button}>Create token</button>
+				</form>
+			</details>
+			{#if deviceMsg}<p class="mt-2 text-sm text-red-400">{deviceMsg}</p>{/if}
 		</section>
 	{/if}
 {/if}

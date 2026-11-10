@@ -14,7 +14,7 @@ use deadpool_postgres::GenericClient;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::auth::{AccountAuth, ClientIp, Me};
+use crate::auth::{AccountAuth, ClientIp, Me, me as me_view};
 use crate::crypto;
 use crate::error::{ApiError, ApiResult};
 use crate::state::{ServerSettings, SharedState, audit};
@@ -28,7 +28,7 @@ pub async fn me(
     AccountAuth(session): AccountAuth,
 ) -> ApiResult<Json<Me>> {
     let settings = ServerSettings::load(&state.conn().await?).await?;
-    Ok(Json(Me::new(&session.user, &settings)))
+    Ok(Json(me_view(&session.user, &settings)))
 }
 
 /// `PATCH /me`

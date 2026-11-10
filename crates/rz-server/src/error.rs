@@ -89,7 +89,7 @@ impl ApiError {
 
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.status, self.message)
+        f.write_str(&self.message)
     }
 }
 
@@ -111,15 +111,31 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// An error with all its causes, `outer: inner: innermost` (Postgres keeps
+/// the useful part, e.g. "password authentication failed", in the source).
+pub fn chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut source = e.source();
+    while let Some(s) = source {
+        let text = s.to_string();
+        if !out.ends_with(&text) {
+            out.push_str(": ");
+            out.push_str(&text);
+        }
+        source = s.source();
+    }
+    out
+}
+
 impl From<tokio_postgres::Error> for ApiError {
     fn from(e: tokio_postgres::Error) -> Self {
-        Self::internal(format!("database: {e}"))
+        Self::internal(format!("database: {}", chain(&e)))
     }
 }
 
 impl From<deadpool_postgres::PoolError> for ApiError {
     fn from(e: deadpool_postgres::PoolError) -> Self {
-        Self::internal(format!("database pool: {e}"))
+        Self::internal(format!("database pool: {}", chain(&e)))
     }
 }
 

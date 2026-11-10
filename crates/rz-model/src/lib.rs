@@ -12,6 +12,7 @@ pub mod capture;
 pub mod channel;
 pub mod game;
 pub mod ids;
+pub mod remote;
 #[cfg(feature = "rzx")]
 pub mod rzx;
 pub mod session;

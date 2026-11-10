@@ -4,9 +4,9 @@ The server keeps your sessions and laps, lets you log in from any browser,
 and (soon) syncs with the desktop app and lets you share laps with friends
 and teams. It is meant to be self-hosted: you run it, you own the data.
 
-> Status: milestone M3a, part 1. Accounts (password, two-factor
-> authentication), the web UI and uploading `.rzx` files work. Sync with the
-> desktop app, passkeys and sharing follow.
+> Status: milestone M3a. Accounts (password, two-factor authentication), the
+> web UI, uploading `.rzx` files and sync with the desktop app work. Passkeys
+> and sharing follow.
 
 ## What you need
 
@@ -51,6 +51,7 @@ All settings are environment variables (or command-line flags, see
 | `RZ_LISTEN` | `0.0.0.0:8080` | Listen address |
 | `RZ_TRUST_PROXY` | `false` (`true` in compose) | Take the client address from `X-Forwarded-For`. Only enable behind a proxy that sets it |
 | `RZ_MAX_UPLOAD_MB` | `512` | Largest `.rzx` upload |
+| `RZ_DB_WAIT_SECONDS` | `300` | How long to wait at startup for the database. Every failed attempt is logged with the reason (wrong password, unknown host …) |
 | `RZ_ADMIN_USERNAME`, `RZ_ADMIN_PASSWORD` | – | First admin, created if there are no users |
 | `RUST_LOG` | `info` | Log level |
 
@@ -75,6 +76,26 @@ everyone, and (later) sharing with everyone on the server.
 - Failed logins are limited per account (10 per 15 minutes) and per address.
   Logins, failures, 2FA changes and admin actions are in the security log on
   the Admin page.
+
+## Connecting the desktop app
+
+In the app: **Settings → Server sync**, enter the server address and click
+*Connect in browser…*. Your browser opens the server; log in there and click
+*Allow*. The app then syncs automatically: shortly after each recorded lap,
+after imports and deletions, and every few minutes.
+
+- Everything you record on one computer appears on your other computers and
+  in the web UI. Deleting a session deletes it everywhere.
+- The app keeps its login (a device token) in the system keychain (Windows
+  Credential Manager, Secret Service/KWallet on Linux). Without a keychain it
+  is kept in the app's data folder; the settings page says so.
+- Connected apps are listed on the **Account** page, where you can disconnect
+  them. A disconnected app stops syncing and shows a notice.
+- If the browser login can't reach the app (unusual setups), create a token on
+  the Account page (*Desktop apps → Create a token by hand*) and paste it in the
+  app (*Use a device token instead*).
+- Headless machines: `cargo run -p rz-sync --example sync -- <data-dir> <server-url>`
+  connects and syncs a data directory from the command line.
 
 ## Backups
 

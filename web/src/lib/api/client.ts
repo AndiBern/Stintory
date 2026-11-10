@@ -7,6 +7,7 @@ import type {
 	CompareRequest,
 	ExportRequest,
 	ExportResult,
+	SyncStatus,
 	ImportProgress,
 	ImportResult,
 	RecorderStatus,
@@ -38,6 +39,8 @@ export interface ApiClient {
 		liveRecording: boolean;
 		/** Local client settings */
 		localSettings: boolean;
+		/** Sync with a Rundenzeit server (desktop app) */
+		serverSync: boolean;
 	};
 
 	getInfo(): Promise<AppInfo>;
@@ -64,9 +67,19 @@ export interface ApiClient {
 	deleteRawRecordings(): Promise<void>;
 	recorderStatus(): Promise<RecorderStatus>;
 
+	syncStatus(): Promise<SyncStatus>;
+	/** Opens the server's login in the browser; resolves once connected. */
+	syncConnect(serverUrl: string): Promise<SyncStatus>;
+	syncCancelConnect(): Promise<void>;
+	syncConnectToken(serverUrl: string, token: string): Promise<SyncStatus>;
+	syncDisconnect(): Promise<SyncStatus>;
+	syncNow(): Promise<SyncStatus>;
+	syncSetAuto(auto: boolean): Promise<SyncStatus>;
+
 	onSessionsChanged(handler: () => void): Unsubscribe;
 	onImportProgress(handler: (p: ImportProgress) => void): Unsubscribe;
 	onRecorderStatus(handler: (s: RecorderStatus) => void): Unsubscribe;
+	onSyncStatus(handler: (s: SyncStatus) => void): Unsubscribe;
 	/** Files dropped onto the window (desktop only). */
 	onFilesDropped(handler: (paths: string[]) => void): Unsubscribe;
 }
