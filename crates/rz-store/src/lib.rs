@@ -11,11 +11,15 @@
 //! <data>/raw/<game>-<id>.rzraw          raw spool files (deleted once processed)
 //! ```
 //!
+//! Sessions and laps can be exported to and imported from `.rzx` files
+//! ([`rz_model::rzx`]).
+//!
 //! Lap telemetry is immutable. Writing a lap first stores its blob (idempotent,
 //! atomic rename), then inserts the metadata in one transaction, so a crash
 //! never leaves a lap row without its telemetry.
 
 mod blobs;
+mod bundle;
 mod migrations;
 mod settings;
 mod spools;
@@ -23,7 +27,8 @@ mod store;
 mod timefmt;
 
 pub use blobs::BlobStore;
-pub use settings::KEEP_RAW_RECORDINGS;
+pub use bundle::{BundleImport, ExportOptions, ExportSelection, ExportStats};
+pub use settings::{EXPORT_DRIVER_NAME, KEEP_RAW_RECORDINGS};
 pub use spools::{RAW_DIR, SpoolEntry, SpoolState};
 pub use store::{SAME_LAP_START_TOLERANCE_S, SAME_SESSION_START_TOLERANCE, Store};
 
@@ -74,6 +79,12 @@ pub enum StoreError {
     /// Blob file content does not match its hash
     #[error("telemetry blob corrupt (hash mismatch): {0}")]
     BlobCorrupt(BlobHash),
+    /// Reading or writing an `.rzx` file failed
+    #[error(transparent)]
+    Rzx(#[from] rz_model::rzx::RzxError),
+    /// An export without sessions or laps
+    #[error("nothing selected to export")]
+    NothingToExport,
 }
 
 /// Result type of this crate.

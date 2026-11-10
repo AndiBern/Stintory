@@ -13,6 +13,9 @@ use crate::{Result, timefmt};
 /// Debug setting: keep raw spool files after they were processed.
 pub const KEEP_RAW_RECORDINGS: &str = "debug.keep_raw_recordings";
 
+/// Setting: driver name used for the last `.rzx` export (`Option<String>`).
+pub const EXPORT_DRIVER_NAME: &str = "export.driver_name";
+
 impl Store {
     /// Reads a setting; `None` if it was never set.
     pub fn setting<T: DeserializeOwned>(&self, key: &str) -> Result<Option<T>> {

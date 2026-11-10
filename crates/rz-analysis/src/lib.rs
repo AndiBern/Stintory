@@ -268,6 +268,7 @@ mod tests {
             blob_hash: BlobHash::of(b""),
             sample_rate_hz: 10.0,
             sample_count: 0,
+            start_time_s: None,
         }
     }
 

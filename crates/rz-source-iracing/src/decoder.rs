@@ -473,12 +473,16 @@ impl IracingDecoder {
     fn meta(&self, session_num: i64) -> Option<SessionMeta> {
         let info = self.info.as_ref()?;
         let sub = info.event.sub_session_id.unwrap_or(0);
+        // The driver is part of the key: in an online session every driver
+        // has the same subsession, and ids must stay unique when laps are
+        // exchanged (.rzx, server).
+        let driver = info.player.user_id.unwrap_or(0);
         let session_key = if sub > 0 {
-            format!("iracing:{sub}:{session_num}")
+            format!("iracing:{sub}:{session_num}:{driver}")
         } else {
             // offline: identify by track, car and the minute the session started
             format!(
-                "iracing:offline:{}:{}:{}:{session_num}",
+                "iracing:offline:{}:{}:{}:{session_num}:{driver}",
                 info.track.id.unwrap_or(0),
                 info.player.car_id.unwrap_or(0),
                 (info.session_epoch_unix / 60.0).round() as i64
@@ -797,6 +801,7 @@ mod tests {
                 }],
                 player: PlayerInfo {
                     car_id: Some(163),
+                    user_id: Some(4242),
                     ..Default::default()
                 },
                 ..Default::default()
@@ -845,7 +850,7 @@ mod tests {
         let SourceEvent::Session(meta) = &ev[0] else {
             panic!("session first: {ev:?}")
         };
-        assert_eq!(meta.session_key, "iracing:77:2");
+        assert_eq!(meta.session_key, "iracing:77:2:4242");
         assert_eq!(meta.track_key, "iracing:449");
         assert_eq!(meta.car_key, "iracing:163");
         assert_eq!(meta.session_type, SessionType::Race);

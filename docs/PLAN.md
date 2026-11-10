@@ -241,16 +241,18 @@ Frontend gets resampled arrays (not raw) for comparison. These are computed on d
 
 ## 8. Export / import format
 
-`*.rzx` = ZIP:
+`*.rzx` = ZIP (implemented in `rz-model::rzx`, MIT OR Apache-2.0):
 ```
-manifest.json        format_version, exported_at, exporter version, driver display name (optional/anonymizable)
+manifest.json        format "rundenzeit-export", format_version "1.0", exported_at, exporter, driver_name (optional), counts
 sessions/<id>.json   session metadata (incl. track/car keys)
 laps/<id>.json       lap metadata
-laps/<id>.parquet    telemetry (same file as in the local store; hash verified on import)
+laps/<id>.parquet    telemetry (same file as in the local store, stored uncompressed in the ZIP; hash verified on import)
 ```
-- Import dedups by lap ID/hash. Imported laps get `origin = imported` and keep the original driver name.
-- Additional exports: **CSV** per lap (for spreadsheets), later **MoTeC `.ld`** (for i2 users).
-- `format_version` is checked; newer minor versions are readable, unknown channels are ignored.
+- Import dedups by session and lap id: what is already stored stays as it is. New sessions get `origin = imported` with the driver name from the file (a re-exported imported session keeps its original driver).
+- Imported sessions are never merged with own sessions by the "same session" rule (§5, `find_duplicate_session` only matches sessions of the same origin). Session keys contain the driver's game id, so two drivers in the same online session get different ids.
+- Privacy on export: the user picks the driver name (empty = anonymous, remembered for the next export). Setups are left out unless chosen. The game account name and id are removed from the session info.
+- Additional exports: **CSV** per lap (for spreadsheets; header `name [unit]`, empty = no value), later **MoTeC `.ld`** (for i2 users).
+- `format_version` is checked; newer minor versions are readable, unknown fields are ignored. Entry sizes are limited on import (ZIP bombs).
 
 ## 9. Server
 

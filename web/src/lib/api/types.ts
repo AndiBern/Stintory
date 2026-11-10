@@ -29,7 +29,14 @@ export interface SessionSummary {
 	startedAt: string;
 	lapCount: number;
 	bestLapMs: number | null;
+	origin: Origin;
 }
+
+/** Where a session came from. */
+export type Origin =
+	| { kind: 'own' }
+	| { kind: 'imported'; driverName: string | null }
+	| { kind: 'synced'; server: string; owner: string };
 
 export interface LapSummary {
 	id: string;
@@ -87,6 +94,27 @@ export interface ImportResult {
 	files: number;
 	sessions: number;
 	laps: number;
+	/** Laps of .rzx files that were already stored */
+	skippedLaps: number;
+}
+
+/** What to export: whole sessions and/or single laps. */
+export interface ExportSelection {
+	sessionIds?: string[];
+	lapIds?: string[];
+}
+
+export interface ExportRequest extends ExportSelection {
+	/** Shown to whoever imports the file; null = anonymous */
+	driverName: string | null;
+	includeSetup: boolean;
+}
+
+export interface ExportResult {
+	/** Written file, or directory for several CSV files */
+	path: string;
+	sessions: number;
+	laps: number;
 }
 
 export interface ImportProgress {
@@ -99,6 +127,8 @@ export interface Settings {
 	keepRawRecordings: boolean;
 	rawStorageBytes: number;
 	failedRecordings: number;
+	/** Driver name of the last export */
+	exportDriverName: string | null;
 }
 
 export type RecorderState = 'unsupported' | 'waiting' | 'recording';

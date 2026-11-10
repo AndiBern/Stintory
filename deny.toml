@@ -57,7 +57,12 @@ wildcards = "deny"
 allow-wildcard-paths = true
 
 [advisories]
-ignore = []
+ignore = [
+  # "unmaintained" notice for a build-time macro crate pulled in by the GTK 3
+  # bindings that Tauri uses on Linux (no vulnerability). Goes away when Tauri
+  # moves off GTK 3; nothing we can update ourselves.
+  { id = "RUSTSEC-2024-0370", reason = "transitive via tauri -> gtk3 on Linux, unmaintained only" },
+]
 
 [sources]
 unknown-registry = "deny"

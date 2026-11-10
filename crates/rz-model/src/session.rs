@@ -118,6 +118,9 @@ pub struct Lap {
     pub sample_rate_hz: f32,
     /// Number of telemetry samples.
     pub sample_count: u32,
+    /// Game session time (s) of the lap's first sample, if known.
+    #[serde(default)]
+    pub start_time_s: Option<f64>,
 }
 
 /// A lap before its telemetry is stored: everything of [`Lap`] except the
@@ -160,6 +163,7 @@ impl NewLap {
             blob_hash,
             sample_rate_hz,
             sample_count,
+            start_time_s: self.start_time_s,
         }
     }
 }

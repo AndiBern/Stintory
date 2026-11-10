@@ -5,6 +5,8 @@ import type {
 	AppInfo,
 	CompareData,
 	CompareRequest,
+	ExportRequest,
+	ExportResult,
 	ImportProgress,
 	ImportResult,
 	RecorderStatus,
@@ -30,6 +32,8 @@ export interface ApiClient {
 	readonly capabilities: {
 		/** Import telemetry files from the local disk */
 		importFiles: boolean;
+		/** Export to files on the local disk (.rzx, CSV) */
+		exportFiles: boolean;
 		/** Live recording while driving */
 		liveRecording: boolean;
 		/** Local client settings */
@@ -45,6 +49,16 @@ export interface ApiClient {
 	/** Opens a file picker and imports the chosen files; null if cancelled. */
 	pickAndImportFiles(): Promise<ImportResult | null>;
 	importFiles(paths: string[]): Promise<ImportResult>;
+	/**
+	 * Asks where to save, then writes an .rzx file; null if cancelled.
+	 * `suggestedName` is the file name proposed in the dialog.
+	 */
+	exportRzx(request: ExportRequest, suggestedName: string): Promise<ExportResult | null>;
+	/**
+	 * Writes lap telemetry as CSV: asks for a file (one lap) or a folder
+	 * (several laps); null if cancelled.
+	 */
+	exportCsv(lapIds: string[], suggestedName: string): Promise<ExportResult | null>;
 	getSettings(): Promise<Settings>;
 	setKeepRawRecordings(keep: boolean): Promise<void>;
 	deleteRawRecordings(): Promise<void>;

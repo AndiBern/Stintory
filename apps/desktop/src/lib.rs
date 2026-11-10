@@ -56,6 +56,8 @@ pub fn run() {
             commands::delete_session,
             commands::compare_laps,
             commands::import_files,
+            commands::export_rzx,
+            commands::export_csv,
             commands::get_settings,
             commands::set_keep_raw_recordings,
             commands::delete_raw_recordings,

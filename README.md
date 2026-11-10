@@ -2,7 +2,7 @@
 
 Record, review and compare your sim racing lap times. **Your data stays yours.** Everything is stored locally, with optional sync to a server you host yourself.
 
-> Status: early development (milestone M1, iRacing MVP). iRacing `.ibt` import, session/lap browser and lap comparison work. Live recording on Windows is implemented but not yet tested in the sim.
+> Status: early development (milestone M2). iRacing live recording (Windows), `.ibt` import, session/lap browser and lap comparison work. Sessions and laps can be exported to `.rzx` files (and CSV) and imported on another installation.
 
 - Vision: [IDEA.md](IDEA.md)
 - Research on game telemetry and existing tools: [docs/RESEARCH.md](docs/RESEARCH.md)

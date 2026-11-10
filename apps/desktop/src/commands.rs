@@ -3,17 +3,21 @@
 
 //! Tauri commands called by the frontend (`web/src/lib/api/tauri.ts`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use rz_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
 use rz_capture::pipeline::{self, RunOptions};
 use rz_model::api::{
-    AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ImportProgress,
-    ImportResult, LapSummary, RecorderStatus, SessionDetail, SessionSummary, Settings,
+    AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ExportRequest, ExportResult,
+    ImportProgress, ImportResult, LapSummary, RecorderStatus, SessionDetail, SessionSummary,
+    Settings,
 };
 use rz_model::{LapId, SessionId};
 use rz_source_iracing::IbtSource;
-use rz_store::{KEEP_RAW_RECORDINGS, SpoolState};
+use rz_store::{
+    EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, KEEP_RAW_RECORDINGS, SpoolState, Store,
+    StoreError,
+};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
@@ -134,8 +138,14 @@ pub async fn compare_laps(
     .map_err(Into::into)
 }
 
-/// Imports telemetry files (currently iRacing `.ibt`). Files of the same
-/// session are merged; laps already stored are skipped.
+fn has_extension(path: &Path, ext: &str) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+}
+
+/// Imports files: Rundenzeit exports (`.rzx`) and iRacing telemetry
+/// (`.ibt`). `.ibt` files of the same session are merged; laps already
+/// stored are skipped.
 #[tauri::command]
 pub async fn import_files(
     app: AppHandle,
@@ -145,15 +155,56 @@ pub async fn import_files(
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     if let Some(bad) = paths
         .iter()
-        .find(|p| !p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ibt")))
+        .find(|p| !has_extension(p, "ibt") && !has_extension(p, rz_model::rzx::EXTENSION))
     {
         return Err(CommandError::BadRequest(format!(
-            "unsupported file: {} (supported: iRacing .ibt)",
+            "unsupported file: {} (supported: Rundenzeit .rzx, iRacing .ibt)",
             bad.display()
         )));
     }
+    let (bundles, ibts): (Vec<PathBuf>, Vec<PathBuf>) = paths
+        .into_iter()
+        .partition(|p| has_extension(p, rz_model::rzx::EXTENSION));
+    let mut result = ImportResult {
+        files: (bundles.len() + ibts.len()) as u32,
+        sessions: 0,
+        laps: 0,
+        skipped_laps: 0,
+    };
+    for path in bundles {
+        let name = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        let stats = match state.with_store(move |s| s.import_rzx(&path)).await {
+            Ok(s) => s,
+            Err(e) => {
+                // earlier files may have been imported
+                let _ = app.emit(EVENT_SESSIONS_CHANGED, ());
+                // name the file: several may be imported at once
+                return Err(CommandError::BadRequest(format!("{name}: {e}")));
+            }
+        };
+        result.sessions += stats.sessions;
+        result.laps += stats.laps;
+        result.skipped_laps += stats.skipped_laps;
+    }
+    if !ibts.is_empty() {
+        let stats = import_ibts(&app, &state, ibts).await?;
+        result.sessions += stats.sessions;
+        result.laps += stats.laps;
+    }
+    let _ = app.emit(EVENT_SESSIONS_CHANGED, ());
+    Ok(result)
+}
+
+async fn import_ibts(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    paths: Vec<PathBuf>,
+) -> CmdResult<pipeline::Stats> {
     let mut sink = state.store.clone();
-    let files = paths.len() as u32;
     let progress_app = app.clone();
     let stats = tauri::async_runtime::spawn_blocking(move || {
         let mut source = IbtSource::open_many(&paths).map_err(pipeline::PipelineError::from)?;
@@ -180,12 +231,132 @@ pub async fn import_files(
     })
     .await
     .map_err(|e| CommandError::BadRequest(e.to_string()))??;
-    let _ = app.emit(EVENT_SESSIONS_CHANGED, ());
-    Ok(ImportResult {
-        files,
+    Ok(stats)
+}
+
+/// Writes sessions and/or laps to an `.rzx` file at `path`. Remembers the
+/// driver name for the next export.
+#[tauri::command]
+pub async fn export_rzx(
+    state: State<'_, AppState>,
+    request: ExportRequest,
+    path: String,
+) -> CmdResult<ExportResult> {
+    let mut path = PathBuf::from(path);
+    if !has_extension(&path, rz_model::rzx::EXTENSION) {
+        path.set_extension(rz_model::rzx::EXTENSION);
+    }
+    let driver_name = request
+        .driver_name
+        .map(|n| n.trim().to_owned())
+        .filter(|n| !n.is_empty());
+    let selection = ExportSelection {
+        sessions: request.session_ids,
+        laps: request.lap_ids,
+    };
+    let options = ExportOptions {
+        exporter: format!("Rundenzeit {}", env!("CARGO_PKG_VERSION")),
+        driver_name,
+        include_setup: request.include_setup,
+    };
+    let shown = path.display().to_string();
+    let stats = state
+        .with_store(move |s| {
+            s.set_setting(EXPORT_DRIVER_NAME, &options.driver_name)?;
+            s.export_rzx(&path, &selection, &options)
+        })
+        .await?;
+    Ok(ExportResult {
+        path: shown,
         sessions: stats.sessions,
         laps: stats.laps,
     })
+}
+
+/// Writes lap telemetry as CSV. One lap: `path` is the file. Several laps:
+/// `path` is a directory, the files are named after track, car, date and
+/// lap number.
+#[tauri::command]
+pub async fn export_csv(
+    state: State<'_, AppState>,
+    lap_ids: Vec<String>,
+    path: String,
+) -> CmdResult<ExportResult> {
+    let ids: Vec<LapId> = lap_ids
+        .iter()
+        .map(|s| parse_id(s))
+        .collect::<CmdResult<_>>()?;
+    if ids.is_empty() {
+        return Err(CommandError::BadRequest("no laps selected".into()));
+    }
+    let target = PathBuf::from(&path);
+    let shown = target.display().to_string();
+    let sessions = state
+        .with_store(move |s| {
+            let mut sessions = std::collections::BTreeSet::new();
+            for &id in &ids {
+                let file = if ids.len() == 1 {
+                    let mut f = target.clone();
+                    if !has_extension(&f, "csv") {
+                        f.set_extension("csv");
+                    }
+                    f
+                } else {
+                    target.join(csv_file_name(s, id)?)
+                };
+                let lap = s.lap(id)?;
+                sessions.insert(lap.session_id);
+                write_csv(s, id, &file)?;
+            }
+            Ok(sessions.len() as u32)
+        })
+        .await?;
+    Ok(ExportResult {
+        path: shown,
+        sessions,
+        laps: lap_ids.len() as u32,
+    })
+}
+
+/// `<track>_<car>_<yyyy-mm-dd_hh-mm>_lap<n>.csv`, safe on every OS.
+fn csv_file_name(store: &Store, id: LapId) -> Result<String, StoreError> {
+    let lap = store.lap(id)?;
+    let s = store.session(lap.session_id)?;
+    let date = format!(
+        "{:04}-{:02}-{:02}_{:02}-{:02}",
+        s.started_at.year(),
+        u8::from(s.started_at.month()),
+        s.started_at.day(),
+        s.started_at.hour(),
+        s.started_at.minute()
+    );
+    let name = format!("{}_{}_{date}_lap{}", s.track_name, s.car_name, lap.number);
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || "-_.".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    Ok(format!("{safe}.csv"))
+}
+
+/// Writes one lap's CSV atomically (temporary file, then rename).
+fn write_csv(store: &Store, id: LapId, file: &Path) -> Result<(), StoreError> {
+    let telemetry = store.lap_telemetry(id)?;
+    let mut tmp = file.as_os_str().to_owned();
+    tmp.push(".part");
+    let tmp = PathBuf::from(tmp);
+    let result = std::fs::File::create(&tmp)
+        .and_then(|f| telemetry.write_csv(&f).and_then(|()| f.sync_all()))
+        .and_then(|()| std::fs::rename(&tmp, file));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    Ok(result?)
 }
 
 /// Current settings.
@@ -198,6 +369,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
                 keep_raw_recordings: store.setting(KEEP_RAW_RECORDINGS)?.unwrap_or(false),
                 raw_storage_bytes: store.spool_size()?,
                 failed_recordings: store.spools(&[SpoolState::Failed])?.len() as u32,
+                export_driver_name: store.setting(EXPORT_DRIVER_NAME)?.flatten(),
             })
         })
         .await?)

@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Imports iRacing `.ibt` files into a Rundenzeit data directory, without
-//! the desktop app (development, bug reports).
+//! Imports iRacing `.ibt` and Rundenzeit `.rzx` files into a Rundenzeit data
+//! directory, without the desktop app (development, bug reports).
 //!
 //! ```sh
-//! cargo run --release -p rz-capture --example import -- <data-dir> <file.ibt>...
+//! cargo run --release -p rz-capture --example import -- <data-dir> <file.ibt|file.rzx>...
 //! ```
 
 use std::path::PathBuf;
@@ -18,7 +18,7 @@ use rz_store::Store;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = std::env::args_os().skip(1);
     let (Some(data_dir), files) = (args.next(), args.map(PathBuf::from).collect::<Vec<_>>()) else {
-        eprintln!("usage: import <data-dir> <file.ibt>...");
+        eprintln!("usage: import <data-dir> <file.ibt|file.rzx>...");
         std::process::exit(2);
     };
     if files.is_empty() {
@@ -26,23 +26,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(2);
     }
     let mut store = SharedStore(Arc::new(Mutex::new(Store::open(PathBuf::from(data_dir))?)));
-    let mut source = IbtSource::open_many(&files)?;
-    let stats = run(
-        &mut source,
-        &mut store,
-        RunOptions {
-            spool: None,
-            should_stop: &|| false,
-            idle_done: None,
-            progress: None,
-        },
-    )?;
-    println!(
-        "imported {} file(s): {} session(s), {} laps",
-        files.len(),
-        stats.sessions,
-        stats.laps
-    );
+    let (bundles, ibts): (Vec<PathBuf>, Vec<PathBuf>) = files
+        .into_iter()
+        .partition(|p| p.extension().is_some_and(|e| e == "rzx"));
+    for bundle in &bundles {
+        let stats = store.with(|s| s.import_rzx(bundle))?;
+        println!("{}: {stats:?}", bundle.display());
+    }
+    if !ibts.is_empty() {
+        let mut source = IbtSource::open_many(&ibts)?;
+        let stats = run(
+            &mut source,
+            &mut store,
+            RunOptions {
+                spool: None,
+                should_stop: &|| false,
+                idle_done: None,
+                progress: None,
+            },
+        )?;
+        println!(
+            "imported {} .ibt file(s): {} session(s), {} laps",
+            ibts.len(),
+            stats.sessions,
+            stats.laps
+        );
+    }
     for s in store.with(|s| s.list_sessions())? {
         println!(
             "  {}  {:<45} {:<25} {:>3} laps",

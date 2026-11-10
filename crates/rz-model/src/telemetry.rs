@@ -38,9 +38,7 @@ use parquet::errors::ParquetError;
 #[cfg(feature = "parquet")]
 use parquet::file::properties::WriterProperties;
 
-use crate::channel::Channel;
-#[cfg(feature = "parquet")]
-use crate::channel::{ChannelData, Unit};
+use crate::channel::{Channel, ChannelData, Unit};
 #[cfg(feature = "parquet")]
 use crate::ids::BlobHash;
 
@@ -155,6 +153,46 @@ impl LapTelemetry {
     pub fn with_channel(mut self, channel: Channel) -> Result<Self, TelemetryError> {
         self.add_channel(channel)?;
         Ok(self)
+    }
+
+    /// Writes the telemetry as CSV (RFC 4180, comma separated, `.` as
+    /// decimal point): a header row `name [unit]` per channel, then one row
+    /// per sample. Missing values (NaN) are empty, flags are 0/1.
+    pub fn write_csv<W: std::io::Write>(&self, out: W) -> std::io::Result<()> {
+        use std::io::Write as _;
+        let mut out = std::io::BufWriter::new(out);
+        let header: Vec<String> = self
+            .channels
+            .iter()
+            .map(|c| {
+                let name = if c.unit == Unit::None {
+                    c.name.clone()
+                } else {
+                    format!("{} [{}]", c.name, c.unit)
+                };
+                csv_field(&name)
+            })
+            .collect();
+        writeln!(out, "{}", header.join(","))?;
+        let mut row = String::new();
+        for i in 0..self.len() {
+            row.clear();
+            for (k, c) in self.channels.iter().enumerate() {
+                if k > 0 {
+                    row.push(',');
+                }
+                use std::fmt::Write as _;
+                let _ = match &c.data {
+                    ChannelData::F32(v) if v[i].is_finite() => write!(row, "{}", v[i]),
+                    ChannelData::F64(v) if v[i].is_finite() => write!(row, "{}", v[i]),
+                    ChannelData::F32(_) | ChannelData::F64(_) => Ok(()),
+                    ChannelData::I32(v) => write!(row, "{}", v[i]),
+                    ChannelData::Bool(v) => write!(row, "{}", u8::from(v[i])),
+                };
+            }
+            writeln!(out, "{row}")?;
+        }
+        out.flush()
     }
 
     /// Encodes the telemetry as a Parquet file.
@@ -321,6 +359,15 @@ fn append(target: &mut ChannelData, column: &dyn Array) -> Result<(), TelemetryE
     Ok(())
 }
 
+/// Quotes a CSV field if needed.
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_owned()
+    }
+}
+
 #[cfg(all(test, feature = "parquet"))]
 mod tests {
     use super::*;
@@ -434,5 +481,40 @@ mod tests {
             LapTelemetry::from_parquet(out),
             Err(TelemetryError::InvalidFile(_))
         ));
+    }
+
+    #[test]
+    fn csv_export() {
+        let t = LapTelemetry::new(60.0)
+            .with_channel(Channel::new(
+                names::TIME,
+                Unit::Second,
+                ChannelData::F32(vec![0.0, 0.5]),
+            ))
+            .unwrap()
+            .with_channel(Channel::new(
+                names::POS_X,
+                Unit::Meter,
+                ChannelData::F32(vec![f32::NAN, -1.25]),
+            ))
+            .unwrap()
+            .with_channel(Channel::new(
+                names::GEAR,
+                Unit::None,
+                ChannelData::I32(vec![-1, 3]),
+            ))
+            .unwrap()
+            .with_channel(Channel::new(
+                "odd,name",
+                Unit::None,
+                ChannelData::Bool(vec![true, false]),
+            ))
+            .unwrap();
+        let mut out = Vec::new();
+        t.write_csv(&mut out).unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "t [s],pos_x [m],gear,\"odd,name\"\n0,,-1,1\n0.5,-1.25,3,0\n"
+        );
     }
 }

@@ -14,7 +14,7 @@ use time::OffsetDateTime;
 
 use crate::game::{GameId, SessionType};
 use crate::ids::{LapId, SessionId};
-use crate::session::{Conditions, Lap};
+use crate::session::{Conditions, Lap, Origin};
 
 /// Which backend serves the API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,6 +63,42 @@ pub struct SessionSummary {
     pub lap_count: u32,
     /// Best valid lap time in ms, if any
     pub best_lap_ms: Option<u32>,
+    /// Where the session came from
+    pub origin: OriginView,
+}
+
+/// Where a session came from ([`Origin`] in camelCase).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum OriginView {
+    /// Recorded by us
+    Own,
+    /// Imported from an `.rzx` file
+    Imported {
+        /// Driver name from the file
+        driver_name: Option<String>,
+    },
+    /// Shared with us on a server
+    Synced {
+        /// Server base URL
+        server: String,
+        /// Owner's username
+        owner: String,
+    },
+}
+
+impl From<Origin> for OriginView {
+    fn from(o: Origin) -> Self {
+        match o {
+            Origin::Own => Self::Own,
+            Origin::Imported { driver_name } => Self::Imported { driver_name },
+            Origin::Synced { server, owner } => Self::Synced { server, owner },
+        }
+    }
 }
 
 /// One lap in the session detail view.
@@ -202,6 +238,37 @@ pub struct ImportResult {
     pub sessions: u32,
     /// Laps found (already known laps are counted but not stored twice)
     pub laps: u32,
+    /// Laps of `.rzx` files that were already stored
+    pub skipped_laps: u32,
+}
+
+/// What to write into an `.rzx` file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportRequest {
+    /// Sessions with all their laps
+    #[serde(default)]
+    pub session_ids: Vec<SessionId>,
+    /// Single laps (with their session)
+    #[serde(default)]
+    pub lap_ids: Vec<LapId>,
+    /// Driver name shown to whoever imports the file; None = anonymous
+    pub driver_name: Option<String>,
+    /// Include car setups
+    #[serde(default)]
+    pub include_setup: bool,
+}
+
+/// Result of an export.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportResult {
+    /// Written file, or directory for several CSV files
+    pub path: String,
+    /// Sessions written
+    pub sessions: u32,
+    /// Laps written
+    pub laps: u32,
 }
 
 /// Import progress, sent as event while importing.
@@ -226,6 +293,8 @@ pub struct Settings {
     pub raw_storage_bytes: u64,
     /// Raw recordings that could not be processed
     pub failed_recordings: u32,
+    /// Driver name used for the last export (pre-filled in the dialog)
+    pub export_driver_name: Option<String>,
 }
 
 /// State of the live recorder.
@@ -290,6 +359,9 @@ mod tests {
             started_at: datetime!(2026-11-10 18:00:00 UTC),
             lap_count: 12,
             best_lap_ms: Some(83_456),
+            origin: OriginView::Imported {
+                driver_name: Some("Max".into()),
+            },
         };
         let v = serde_json::to_value(&s).unwrap();
         for key in [
@@ -303,9 +375,14 @@ mod tests {
             "startedAt",
             "lapCount",
             "bestLapMs",
+            "origin",
         ] {
             assert!(v.get(key).is_some(), "missing {key} in {v}");
         }
         assert_eq!(v["game"], "f1_25");
+        assert_eq!(
+            v["origin"],
+            serde_json::json!({"kind": "imported", "driverName": "Max"})
+        );
     }
 }

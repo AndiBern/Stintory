@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type { Origin } from './api/types.ts';
+
 /** Formats a lap time in milliseconds as `m:ss.mmm` (e.g. `1:23.456`). */
 export function formatLapTime(ms: number | null | undefined): string {
 	if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) {
@@ -63,4 +65,36 @@ export function formatBytes(bytes: number): string {
 		unit++;
 	}
 	return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
+}
+
+/** Where a session came from, for badges. Empty for own sessions. */
+export function formatOrigin(origin: Origin): string {
+	switch (origin.kind) {
+		case 'own':
+			return '';
+		case 'imported':
+			return origin.driverName ? `Imported · ${origin.driverName}` : 'Imported';
+		case 'synced':
+			return `Shared by ${origin.owner}`;
+	}
+}
+
+/** A file name (without extension) safe on Windows and Linux. */
+export function fileName(...parts: string[]): string {
+	return (
+		parts
+			.join(' ')
+			// eslint-disable-next-line no-control-regex
+			.replace(/[\u0000-\u001f<>:"/\\|?*]+/g, '')
+			.replace(/\s+/g, ' ')
+			.trim()
+			.replace(/[. ]+$/, '') || 'export'
+	);
+}
+
+/** Date for file names: `2026-11-10 17-00` (local time). */
+export function fileDate(iso: string): string {
+	const d = new Date(iso);
+	const p = (n: number) => String(n).padStart(2, '0');
+	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}-${p(d.getMinutes())}`;
 }

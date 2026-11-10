@@ -6,11 +6,15 @@
 	import { page } from '$app/state';
 	import { api, type LapSummary, type SessionDetail } from '#lib/api/index.ts';
 	import { app } from '#lib/app-state.svelte.ts';
+	import ExportDialog, { type ExportScope } from '#lib/components/ExportDialog.svelte';
 	import {
+		fileDate,
+		fileName,
 		formatDateTime,
 		formatDelta,
 		formatGame,
 		formatLapTime,
+		formatOrigin,
 		formatSessionType
 	} from '#lib/format.ts';
 
@@ -22,6 +26,7 @@
 	let error = $state<string | null>(null);
 	let selected = $state<string[]>([]);
 	let showAll = $state(false);
+	let exporting = $state(false);
 
 	$effect(() => {
 		void app.sessionsVersion;
@@ -76,6 +81,35 @@
 		goto(resolve('/'));
 	}
 
+	const exportScopes: ExportScope[] = $derived.by(() => {
+		if (!detail) return [];
+		const s = detail.summary;
+		const base = fileName(s.trackName, s.carName, fileDate(s.startedAt));
+		const scopes: ExportScope[] = [];
+		if (selected.length > 0) {
+			const numbers = detail.laps
+				.filter((l) => selected.includes(l.id))
+				.map((l) => l.number)
+				.sort((a, b) => a - b);
+			scopes.push({
+				label:
+					selected.length === 1
+						? `Selected lap (${numbers[0]})`
+						: `${selected.length} selected laps`,
+				selection: { lapIds: [...selected] },
+				csvLapIds: [...selected],
+				fileName: selected.length === 1 ? `${base} lap ${numbers[0]}` : base
+			});
+		}
+		scopes.push({
+			label: `Whole session (${detail.laps.length} laps)`,
+			selection: { sessionIds: [s.id] },
+			csvLapIds: detail.laps.map((l) => l.id),
+			fileName: base
+		});
+		return scopes;
+	});
+
 	function status(l: LapSummary): string[] {
 		const tags: string[] = [];
 		if (l.outLap) tags.push('out-lap');
@@ -95,7 +129,14 @@
 	<div class="mt-2 mb-4 flex flex-wrap items-start justify-between gap-4">
 		<div>
 			<h1 class="text-2xl font-semibold">{s.trackName}</h1>
-			<p class="text-zinc-300">{s.carName}</p>
+			<p class="text-zinc-300">
+				{s.carName}
+				{#if formatOrigin(s.origin)}
+					<span class="ml-1 rounded bg-sky-950 px-1.5 text-xs text-sky-300"
+						>{formatOrigin(s.origin)}</span
+					>
+				{/if}
+			</p>
 			<p class="mt-1 text-sm text-zinc-400">
 				{formatGame(s.game)} · {formatSessionType(s.sessionType)} · {formatDateTime(s.startedAt)}
 				{#if detail.conditions.airTempC !== null}
@@ -118,6 +159,15 @@
 			>
 				{selected.length > 1 ? `Compare ${selected.length} laps` : 'Show lap'}
 			</button>
+			{#if client.capabilities.exportFiles}
+				<button
+					type="button"
+					class="rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
+					onclick={() => (exporting = true)}
+				>
+					Export…
+				</button>
+			{/if}
 			<button
 				type="button"
 				class="rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:border-red-700 hover:text-red-300"
@@ -127,6 +177,10 @@
 			</button>
 		</div>
 	</div>
+
+	{#if client.capabilities.exportFiles}
+		<ExportDialog bind:open={exporting} scopes={exportScopes} />
+	{/if}
 
 	<table class="w-full text-left text-sm">
 		<thead class="text-zinc-400">

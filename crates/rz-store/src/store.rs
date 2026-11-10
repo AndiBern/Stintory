@@ -128,7 +128,7 @@ impl Store {
         Ok(s.id)
     }
 
-    fn session_exists(&self, id: SessionId) -> Result<bool> {
+    pub(crate) fn session_exists(&self, id: SessionId) -> Result<bool> {
         Ok(self.conn.query_row(
             "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = ?1)",
             [id.to_string()],
@@ -154,7 +154,8 @@ impl Store {
     }
 
     /// A stored session that is the same as `s` under another id: same
-    /// game, track, car and session type, started within
+    /// origin (never merges another driver's laps into ours), game, track,
+    /// car and session type, started within
     /// [`SAME_SESSION_START_TOLERANCE`]. Sessions with an online id get the
     /// same id anyway; this catches offline sessions, whose start time a
     /// live recording and the game's file can report slightly differently.
@@ -162,7 +163,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT id, started_at FROM sessions
              WHERE game = ?1 AND track_key = ?2 AND car_key = ?3 AND session_type = ?4
-               AND id != ?5",
+               AND id != ?5 AND origin = ?6",
         )?;
         let rows = stmt.query_map(
             params![
@@ -170,7 +171,8 @@ impl Store {
                 s.track_key,
                 s.car_key,
                 s.session_type.as_str(),
-                s.id.to_string()
+                s.id.to_string(),
+                serde_json::to_string(&s.origin)?,
             ],
             |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
         )?;
@@ -265,7 +267,7 @@ impl Store {
     pub fn list_sessions(&self) -> Result<Vec<SessionSummary>> {
         let mut stmt = self.conn.prepare(
             "SELECT s.id, s.game, s.track_key, s.car_key, s.session_type, s.started_at,
-                    s.track_name, s.car_name,
+                    s.track_name, s.car_name, s.origin,
                     COUNT(l.id),
                     MIN(CASE WHEN l.valid = 1
                               AND COALESCE(json_extract(l.flags, '$.out_lap'), 0) = 0
@@ -287,8 +289,14 @@ impl Store {
                     started_at: timefmt::decode("sessions.started_at", &row.get::<_, String>(5)?)?,
                     track_name: row.get(6)?,
                     car_name: row.get(7)?,
-                    lap_count: row.get(8)?,
-                    best_lap_ms: row.get(9)?,
+                    lap_count: row.get(9)?,
+                    best_lap_ms: row.get(10)?,
+                    origin: json::<rz_model::Origin>(row, 8)?
+                        .ok_or(StoreError::Corrupt {
+                            column: "sessions.origin",
+                            message: "NULL".into(),
+                        })?
+                        .into(),
                 })
             })())
         })?;
@@ -315,7 +323,6 @@ impl Store {
         if let Some(existing) = self.find_duplicate_lap(&new)? {
             return self.replace_if_better(existing, new, telemetry);
         }
-        let start_time_s = new.start_time_s;
         let (bytes, _) = telemetry.to_blob()?;
         let hash = self.blobs.put(&bytes)?;
         let sample_count = u32::try_from(telemetry.len()).map_err(|_| StoreError::Corrupt {
@@ -323,12 +330,17 @@ impl Store {
             message: "too many samples".into(),
         })?;
         let lap = new.into_lap(hash, telemetry.sample_rate_hz(), sample_count);
+        self.insert_lap_row(&lap, bytes.len())?;
+        Ok(lap)
+    }
 
+    /// Inserts the row of a lap whose blob is stored already.
+    pub(crate) fn insert_lap_row(&mut self, lap: &Lap, blob_size: usize) -> Result<()> {
         let now = timefmt::now();
         let tx = self.conn.transaction()?;
         tx.execute(
             "INSERT OR IGNORE INTO blobs (hash, size, created_at) VALUES (?1, ?2, ?3)",
-            params![lap.blob_hash.as_str(), bytes.len() as i64, now],
+            params![lap.blob_hash.as_str(), blob_size as i64, now],
         )?;
         let inserted = tx.execute(
             "INSERT INTO laps (id, session_id, number, lap_time_ms, sector_times_ms, valid,
@@ -349,14 +361,14 @@ impl Store {
                 lap.sample_rate_hz,
                 lap.sample_count,
                 now,
-                start_time_s,
+                lap.start_time_s,
             ],
         )?;
         if inserted == 0 {
             return Err(StoreError::SessionNotFound(lap.session_id));
         }
         tx.commit()?;
-        Ok(lap)
+        Ok(())
     }
 
     /// A lap of `new`'s session with the same number that started at the
@@ -453,7 +465,7 @@ impl Store {
     pub fn laps(&self, session_id: SessionId) -> Result<Vec<Lap>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, number, lap_time_ms, sector_times_ms, valid, invalid_reason,
-                    flags, blob_hash, sample_rate_hz, sample_count
+                    flags, blob_hash, sample_rate_hz, sample_count, start_time_s
              FROM laps WHERE session_id = ?1 ORDER BY number, id",
         )?;
         let rows = stmt.query_map([session_id.to_string()], |row| Ok(read_lap(row)))?;
@@ -465,7 +477,7 @@ impl Store {
         self.conn
             .query_row(
                 "SELECT id, session_id, number, lap_time_ms, sector_times_ms, valid, invalid_reason,
-                        flags, blob_hash, sample_rate_hz, sample_count
+                        flags, blob_hash, sample_rate_hz, sample_count, start_time_s
                  FROM laps WHERE id = ?1",
                 [id.to_string()],
                 |row| Ok(read_lap(row)),
@@ -550,6 +562,7 @@ fn read_lap(row: &Row<'_>) -> Result<Lap> {
         blob_hash: parse(row, 8, "laps.blob_hash")?,
         sample_rate_hz: row.get(9)?,
         sample_count: row.get(10)?,
+        start_time_s: row.get(11)?,
     })
 }
 

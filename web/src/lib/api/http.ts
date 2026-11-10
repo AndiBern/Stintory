@@ -6,6 +6,7 @@ import type {
 	AppInfo,
 	CompareData,
 	CompareRequest,
+	ExportResult,
 	ImportResult,
 	RecorderStatus,
 	SessionDetail,
@@ -20,7 +21,12 @@ const noop: Unsubscribe = () => {};
  * with milestone M3; desktop-only features reject with a clear error.
  */
 export class HttpApi implements ApiClient {
-	readonly capabilities = { importFiles: false, liveRecording: false, localSettings: false };
+	readonly capabilities = {
+		importFiles: false,
+		exportFiles: false,
+		liveRecording: false,
+		localSettings: false
+	};
 
 	constructor(
 		private readonly baseUrl = '/api/v1',
@@ -53,6 +59,14 @@ export class HttpApi implements ApiClient {
 
 	importFiles(): Promise<ImportResult> {
 		return Promise.reject(notAvailable('Importing files'));
+	}
+
+	exportRzx(): Promise<ExportResult | null> {
+		return Promise.reject(notAvailable('Exporting files'));
+	}
+
+	exportCsv(): Promise<ExportResult | null> {
+		return Promise.reject(notAvailable('Exporting files'));
 	}
 
 	getSettings(): Promise<Settings> {

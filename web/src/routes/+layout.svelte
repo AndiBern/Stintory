@@ -78,26 +78,19 @@
 					></div>
 				</div>
 			</div>
-		{:else if app.lastImport}
+		{:else if app.notice}
 			<div
-				class="mb-4 flex items-start justify-between rounded border p-3 text-sm {app.lastImport
-					.error
+				class="mb-4 flex items-start justify-between rounded border p-3 text-sm {app.notice.tone ===
+				'error'
 					? 'border-red-800 bg-red-950 text-red-200'
 					: 'border-emerald-800 bg-emerald-950 text-emerald-200'}"
 				role="status"
 			>
-				{#if app.lastImport.error}
-					<span>Import failed: {app.lastImport.error}</span>
-				{:else if app.lastImport.result}
-					<span>
-						Imported {app.lastImport.result.files} file(s): {app.lastImport.result.sessions}
-						session(s), {app.lastImport.result.laps} laps.
-					</span>
-				{/if}
+				<span class="break-all">{app.notice.text}</span>
 				<button
 					type="button"
 					class="ml-4 text-xs opacity-70 hover:opacity-100"
-					onclick={() => (app.lastImport = null)}>Dismiss</button
+					onclick={() => (app.notice = null)}>Dismiss</button
 				>
 			</div>
 		{/if}

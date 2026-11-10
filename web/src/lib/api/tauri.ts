@@ -4,12 +4,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import { ApiError, type ApiClient, type Unsubscribe } from './client.ts';
 import type {
 	AppInfo,
 	CompareData,
 	CompareRequest,
+	ExportRequest,
+	ExportResult,
 	ImportProgress,
 	ImportResult,
 	RecorderStatus,
@@ -20,7 +22,12 @@ import type {
 
 /** ApiClient backed by the Rust commands of the desktop app (apps/desktop). */
 export class TauriApi implements ApiClient {
-	readonly capabilities = { importFiles: true, liveRecording: true, localSettings: true };
+	readonly capabilities = {
+		importFiles: true,
+		exportFiles: true,
+		liveRecording: true,
+		localSettings: true
+	};
 
 	getInfo(): Promise<AppInfo> {
 		return call('get_info');
@@ -46,8 +53,12 @@ export class TauriApi implements ApiClient {
 		const picked = await open({
 			multiple: true,
 			directory: false,
-			title: 'Import telemetry',
-			filters: [{ name: 'iRacing telemetry', extensions: ['ibt'] }]
+			title: 'Import',
+			filters: [
+				{ name: 'Rundenzeit export or iRacing telemetry', extensions: ['rzx', 'ibt'] },
+				{ name: 'Rundenzeit export', extensions: ['rzx'] },
+				{ name: 'iRacing telemetry', extensions: ['ibt'] }
+			]
 		});
 		if (!picked || picked.length === 0) return null;
 		return this.importFiles(picked);
@@ -55,6 +66,32 @@ export class TauriApi implements ApiClient {
 
 	importFiles(paths: string[]): Promise<ImportResult> {
 		return call('import_files', { paths });
+	}
+
+	async exportRzx(request: ExportRequest, suggestedName: string): Promise<ExportResult | null> {
+		const path = await save({
+			title: 'Export',
+			defaultPath: `${suggestedName}.rzx`,
+			filters: [{ name: 'Rundenzeit export', extensions: ['rzx'] }]
+		});
+		if (!path) return null;
+		return call('export_rzx', {
+			request: { sessionIds: [], lapIds: [], ...request },
+			path
+		});
+	}
+
+	async exportCsv(lapIds: string[], suggestedName: string): Promise<ExportResult | null> {
+		const path =
+			lapIds.length === 1
+				? await save({
+						title: 'Export lap as CSV',
+						defaultPath: `${suggestedName}.csv`,
+						filters: [{ name: 'CSV', extensions: ['csv'] }]
+					})
+				: await open({ title: `Folder for ${lapIds.length} CSV files`, directory: true });
+		if (!path) return null;
+		return call('export_csv', { lapIds, path });
 	}
 
 	getSettings(): Promise<Settings> {

@@ -122,6 +122,54 @@ fn import_after_live_recording_merges() {
     });
 }
 
+/// M2 acceptance: export on one machine, import on another, the laps and
+/// their telemetry are identical (so is every comparison computed from them).
+#[test]
+fn rzx_roundtrip_with_real_data() {
+    let Some(files) = example("winton national 2026-11-10 17-00-40") else {
+        return;
+    };
+    let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let mut src = shared(a.path());
+    run(&mut IbtSource::open_many(&files).unwrap(), &mut src, opts()).unwrap();
+    let id = src.with(|s| s.list_sessions().unwrap()[0].id);
+    let file = a.path().join("winton.rzx");
+    let stats = src.with(|s| {
+        s.export_rzx(
+            &file,
+            &rz_store::ExportSelection {
+                sessions: vec![id],
+                laps: vec![],
+            },
+            &rz_store::ExportOptions {
+                exporter: "test".into(),
+                driver_name: None,
+                include_setup: false,
+            },
+        )
+        .unwrap()
+    });
+    let size = std::fs::metadata(&file).unwrap().len();
+    println!("{stats:?}, {} KiB", size / 1024);
+
+    let mut dst = Store::open(b.path()).unwrap();
+    dst.import_rzx(&file).unwrap();
+    src.with(|s| {
+        let laps = s.laps(id).unwrap();
+        assert_eq!(dst.laps(id).unwrap(), laps);
+        for lap in &laps {
+            assert_eq!(
+                dst.lap_telemetry(lap.id).unwrap(),
+                s.lap_telemetry(lap.id).unwrap()
+            );
+        }
+        let (mine, theirs) = (s.session(id).unwrap(), dst.session(id).unwrap());
+        assert_eq!(theirs.track_name, mine.track_name);
+        assert_eq!(theirs.started_at, mine.started_at);
+        assert!(theirs.setup.is_none());
+    });
+}
+
 /// Writes all raw records of `files` into a spool (like a live recording
 /// that crashed before processing).
 fn record_spool(store: &SharedStore, files: &[PathBuf]) -> rz_store::SpoolEntry {
