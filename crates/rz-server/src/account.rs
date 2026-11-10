@@ -296,9 +296,9 @@ pub async fn totp_disable(
     let user = &session.user;
     check_password(&state, user.id, &req.password).await?;
     let db = state.conn().await?;
-    if ServerSettings::load(&db).await?.enforce_2fa {
+    if ServerSettings::load(&db).await?.enforce_2fa && !user.has_passkey {
         return Err(ApiError::forbidden(
-            "two-factor authentication is required on this server",
+            "two-factor authentication is required on this server (add a passkey first)",
         ));
     }
     db.execute(

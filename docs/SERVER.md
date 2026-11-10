@@ -4,9 +4,9 @@ The server keeps your sessions and laps, lets you log in from any browser,
 and (soon) syncs with the desktop app and lets you share laps with friends
 and teams. It is meant to be self-hosted: you run it, you own the data.
 
-> Status: milestone M3a. Accounts (password, two-factor authentication), the
-> web UI, uploading `.rzx` files and sync with the desktop app work. Passkeys
-> and sharing follow.
+> Status: milestone M3a done. Accounts (password, TOTP, passkeys), the web UI,
+> uploading `.rzx` files and sync with the desktop app work. Teams and
+> sharing follow (M3b).
 
 ## What you need
 
@@ -65,6 +65,14 @@ everyone, and (later) sharing with everyone on the server.
   password and must choose their own at the first login.
 - Two-factor authentication: Account page → *Set up*, scan the QR code with an
   authenticator app, confirm a code, and keep the 10 recovery codes.
+- Passkeys: Account page → *Passkeys → Add passkey* (phone, Windows Hello,
+  Touch ID, a password manager or a security key). Then *Log in with a
+  passkey* works without username and password, and after a password login a
+  passkey can be the second step. A passkey counts as two-factor
+  authentication, also when an admin requires it.
+  - Passkeys are bound to the server's address (`RZ_PUBLIC_URL`). Browsers
+    only allow them over HTTPS (or on `localhost`). If you change the domain,
+    everyone has to add their passkeys again.
 - Lost the password or the authenticator: an admin resets it on the Admin
   page. If no admin can log in anymore, use the command line:
 
@@ -72,7 +80,8 @@ everyone, and (later) sharing with everyone on the server.
   docker compose -f docker/compose.yml exec server rz-server admin reset-user <name> --admin
   ```
 
-  It prints a temporary password, removes 2FA and ends all sessions.
+  It prints a temporary password, removes 2FA (TOTP and passkeys) and ends
+  all sessions.
 - Failed logins are limited per account (10 per 15 minutes) and per address.
   Logins, failures, 2FA changes and admin actions are in the security log on
   the Admin page.

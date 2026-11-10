@@ -16,7 +16,6 @@ use crate::error::{ApiError, ApiResult};
 use crate::ratelimit::RateLimiter;
 
 /// State shared by all requests.
-#[derive(Debug)]
 pub struct AppState {
     /// Configuration
     pub config: Config,
@@ -28,6 +27,18 @@ pub struct AppState {
     pub secrets: SecretBox,
     /// Failed login counters
     pub limiter: RateLimiter,
+    /// WebAuthn relying party (None if `RZ_PUBLIC_URL` doesn't allow
+    /// passkeys)
+    pub webauthn: Option<webauthn_rs::Webauthn>,
+}
+
+impl std::fmt::Debug for AppState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppState")
+            .field("config", &self.config)
+            .field("passkeys", &self.webauthn.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// Handle to the shared state.

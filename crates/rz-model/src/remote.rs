@@ -27,6 +27,9 @@ pub struct Me {
     pub is_admin: bool,
     /// TOTP is set up
     pub totp_enabled: bool,
+    /// At least one passkey is registered
+    #[serde(default)]
+    pub has_passkey: bool,
     /// Must set a new password first
     pub must_change_password: bool,
     /// Must set up a second factor first (enforced by the admin)

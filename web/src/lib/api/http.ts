@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { ApiError, notAvailable, type ApiClient, type Unsubscribe } from './client.ts';
+import { createPasskey, getPasskey, type JsonOptions } from '../webauthn.ts';
 import type {
 	AdminUser,
 	AppInfo,
@@ -21,6 +22,7 @@ import type {
 	SessionSummary,
 	DeviceInfo,
 	NewDevice,
+	PasskeyInfo,
 	Settings,
 	SyncStatus,
 	TemporaryPassword,
@@ -37,6 +39,14 @@ export interface AccountApi {
 	loginSecondFactor(challenge: string, code: string): Promise<LoginResponse>;
 	register(username: string, password: string, displayName: string): Promise<LoginResponse>;
 	logout(): Promise<void>;
+	/** Passwordless login: the browser asks for one of the user's passkeys. */
+	loginWithPasskey(): Promise<LoginResponse>;
+	/** Second step after the password, with a passkey. */
+	loginSecondFactorPasskey(challenge: string): Promise<LoginResponse>;
+	passkeys(): Promise<PasskeyInfo[]>;
+	/** Creates a passkey in the browser and registers it. */
+	addPasskey(password: string, name: string): Promise<PasskeyInfo>;
+	removePasskey(id: string): Promise<void>;
 	me(): Promise<Me>;
 	updateMe(displayName: string): Promise<void>;
 	changePassword(currentPassword: string, newPassword: string): Promise<void>;
@@ -252,6 +262,58 @@ export class HttpApi implements ApiClient, AccountApi {
 	private loggedIn(r: LoginResponse): LoginResponse {
 		if (r.status === 'ok') this.csrfToken = r.csrfToken;
 		return r;
+	}
+
+	async loginWithPasskey(): Promise<LoginResponse> {
+		const start = await this.request<{ challengeId: string; options: JsonOptions }>(
+			'POST',
+			'/auth/passkey/start',
+			{}
+		);
+		const credential = await getPasskey(start.options);
+		return this.loggedIn(
+			await this.request<LoginResponse>('POST', '/auth/passkey/finish', {
+				challengeId: start.challengeId,
+				credential
+			})
+		);
+	}
+
+	async loginSecondFactorPasskey(challenge: string): Promise<LoginResponse> {
+		const start = await this.request<{ challengeId: string; options: JsonOptions }>(
+			'POST',
+			'/auth/login/second-factor/passkey/start',
+			{ challenge }
+		);
+		const credential = await getPasskey(start.options);
+		return this.loggedIn(
+			await this.request<LoginResponse>('POST', '/auth/login/second-factor/passkey/finish', {
+				challengeId: start.challengeId,
+				credential,
+				challenge
+			})
+		);
+	}
+
+	passkeys(): Promise<PasskeyInfo[]> {
+		return this.request<PasskeyInfo[]>('GET', '/me/passkeys');
+	}
+
+	async addPasskey(password: string, name: string): Promise<PasskeyInfo> {
+		const start = await this.request<{ challengeId: string; options: JsonOptions }>(
+			'POST',
+			'/me/passkeys/register/start',
+			{ password, name }
+		);
+		const credential = await createPasskey(start.options);
+		return this.request<PasskeyInfo>('POST', '/me/passkeys/register/finish', {
+			challengeId: start.challengeId,
+			credential
+		});
+	}
+
+	removePasskey(id: string): Promise<void> {
+		return this.request<void>('DELETE', `/me/passkeys/${encodeURIComponent(id)}`);
 	}
 
 	async logout(): Promise<void> {

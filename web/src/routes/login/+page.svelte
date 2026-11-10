@@ -6,6 +6,7 @@
 	import { page } from '$app/state';
 	import { accountApi, ApiError, type LoginResponse } from '#lib/api/index.ts';
 	import { auth, errorText } from '#lib/app-state.svelte.ts';
+	import { passkeyErrorText, passkeysSupported } from '#lib/webauthn.ts';
 
 	const account = accountApi();
 
@@ -15,6 +16,9 @@
 	let displayName = $state('');
 	let code = $state('');
 	let challenge = $state<string | null>(null);
+	/** Second-factor methods of the account: 'totp', 'passkey' */
+	let methods = $state<string[]>([]);
+	const canPasskey = passkeysSupported();
 	let error = $state<string | null>(null);
 	let busy = $state(false);
 
@@ -35,6 +39,7 @@
 	function done(r: LoginResponse) {
 		if (r.status === 'secondFactor') {
 			challenge = r.challenge;
+			methods = r.methods;
 			code = '';
 			return;
 		}
@@ -68,6 +73,24 @@
 		}
 	}
 
+	async function withPasskey() {
+		if (!account || busy) return;
+		busy = true;
+		error = null;
+		try {
+			done(
+				challenge
+					? await account.loginSecondFactorPasskey(challenge)
+					: await account.loginWithPasskey()
+			);
+		} catch (e) {
+			if (e instanceof ApiError && e.code === 'challenge_expired') challenge = null;
+			error = e instanceof ApiError ? errorText(e) : passkeyErrorText(e);
+		} finally {
+			busy = false;
+		}
+	}
+
 	const input =
 		'w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm focus:border-zinc-400 focus:outline-none';
 </script>
@@ -81,7 +104,20 @@
 		<p class="text-zinc-400">Logging in is only needed on a Rundenzeit server.</p>
 	{:else}
 		<form class="flex flex-col gap-4" onsubmit={submit}>
-			{#if challenge}
+			{#if challenge && methods.includes('passkey')}
+				<button
+					type="button"
+					class="rounded bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
+					disabled={busy || !canPasskey}
+					onclick={withPasskey}
+				>
+					Use a passkey
+				</button>
+				{#if methods.includes('totp')}
+					<p class="text-center text-xs text-zinc-500">or</p>
+				{/if}
+			{/if}
+			{#if challenge && methods.includes('totp')}
 				<label class="flex flex-col gap-1 text-sm">
 					<span class="text-zinc-400">Code from your authenticator app, or a recovery code</span>
 					<!-- svelte-ignore a11y_autofocus -->
@@ -94,7 +130,7 @@
 						autofocus
 					/>
 				</label>
-			{:else}
+			{:else if !challenge}
 				<label class="flex flex-col gap-1 text-sm">
 					<span class="text-zinc-400">Username</span>
 					<input class={input} bind:value={username} autocomplete="username" required />
@@ -125,13 +161,25 @@
 				<p class="text-sm text-red-400" role="alert">{error}</p>
 			{/if}
 
-			<button
-				type="submit"
-				class="rounded bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
-				disabled={busy}
-			>
-				{challenge ? 'Verify' : mode === 'register' ? 'Create account' : 'Log in'}
-			</button>
+			{#if !challenge || methods.includes('totp')}
+				<button
+					type="submit"
+					class="rounded bg-zinc-100 px-3 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
+					disabled={busy}
+				>
+					{challenge ? 'Verify' : mode === 'register' ? 'Create account' : 'Log in'}
+				</button>
+			{/if}
+			{#if !challenge && mode === 'login' && canPasskey}
+				<button
+					type="button"
+					class="rounded border border-zinc-700 px-3 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50"
+					disabled={busy}
+					onclick={withPasskey}
+				>
+					Log in with a passkey
+				</button>
+			{/if}
 
 			{#if challenge}
 				<button

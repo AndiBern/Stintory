@@ -5,10 +5,12 @@
 		accountApi,
 		type BrowserSession,
 		type DeviceInfo,
+		type PasskeyInfo,
 		type TotpSetup
 	} from '#lib/api/index.ts';
 	import { auth, errorText, refreshAuth } from '#lib/app-state.svelte.ts';
 	import { formatDateTime } from '#lib/format.ts';
+	import { passkeyErrorText, passkeysSupported } from '#lib/webauthn.ts';
 
 	const account = accountApi();
 
@@ -35,6 +37,50 @@
 		sessions = (await account?.browserSessions().catch(() => [])) ?? [];
 	}
 	if (account) loadSessions();
+
+	// passkeys
+	let passkeys = $state<PasskeyInfo[]>([]);
+	let passkeyName = $state('');
+	let passkeyPassword = $state('');
+	let passkeyMsg = $state<{ ok: boolean; text: string } | null>(null);
+	const canPasskey = passkeysSupported();
+
+	async function loadPasskeys() {
+		passkeys = (await account?.passkeys().catch(() => [])) ?? [];
+	}
+	if (account) loadPasskeys();
+
+	async function addPasskey(event: SubmitEvent) {
+		event.preventDefault();
+		passkeyMsg = null;
+		try {
+			const p = await account!.addPasskey(passkeyPassword, passkeyName);
+			passkeyName = passkeyPassword = '';
+			passkeyMsg = { ok: true, text: `Passkey "${p.name}" added.` };
+			await loadPasskeys();
+			await refreshAuth();
+		} catch (e) {
+			passkeyMsg = {
+				ok: false,
+				text: e instanceof Error && e.name === 'ApiError' ? e.message : passkeyErrorText(e)
+			};
+		}
+	}
+
+	function removePasskey(p: PasskeyInfo) {
+		if (
+			!confirm(`Remove the passkey "${p.name}"? Remove it from your device's password manager too.`)
+		)
+			return;
+		run(
+			async () => {
+				await account!.removePasskey(p.id);
+				await loadPasskeys();
+				await refreshAuth();
+			},
+			(t) => (passkeyMsg = { ok: false, text: t })
+		);
+	}
 
 	// desktop apps
 	let devices = $state<DeviceInfo[]>([]);
@@ -343,6 +389,63 @@
 			{/if}
 			{#if totpMsg}
 				<p class="mt-2 text-sm" class:text-red-400={!totpMsg.ok} role="status">{totpMsg.text}</p>
+			{/if}
+		</section>
+
+		<section class="mb-6 max-w-2xl rounded border border-zinc-800 p-4">
+			<h2 class="mb-1 font-medium">Passkeys</h2>
+			<p class="mb-3 text-sm text-zinc-400">
+				Log in with your fingerprint, face or device PIN instead of a password (phone, laptop,
+				password manager or security key). A passkey also counts as two-factor authentication.
+			</p>
+			{#if passkeys.length > 0}
+				<table class="mb-3 w-full text-left text-sm">
+					<tbody>
+						{#each passkeys as p (p.id)}
+							<tr class="border-t border-zinc-800 first:border-t-0">
+								<td class="py-1.5">
+									<div class="text-zinc-300">{p.name}</div>
+									<div class="text-xs text-zinc-500">
+										added {formatDateTime(p.createdAt)} · last used {p.lastUsedAt
+											? formatDateTime(p.lastUsedAt)
+											: 'never'}
+									</div>
+								</td>
+								<td class="text-right">
+									<button type="button" class={secondary} onclick={() => removePasskey(p)}
+										>Remove</button
+									>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+			{#if canPasskey}
+				<form class="flex flex-wrap items-end gap-2" onsubmit={addPasskey}>
+					<label class="flex min-w-40 flex-1 flex-col gap-1 text-sm">
+						<span class="text-zinc-400">Name (e.g. "Phone")</span>
+						<input class={input} bind:value={passkeyName} maxlength="64" />
+					</label>
+					<label class="flex min-w-40 flex-1 flex-col gap-1 text-sm">
+						<span class="text-zinc-400">Your password, to confirm</span>
+						<input
+							class={input}
+							type="password"
+							bind:value={passkeyPassword}
+							autocomplete="current-password"
+							required
+						/>
+					</label>
+					<button type="submit" class={button}>Add passkey</button>
+				</form>
+			{:else}
+				<p class="text-sm text-zinc-500">This browser doesn't support passkeys.</p>
+			{/if}
+			{#if passkeyMsg}
+				<p class="mt-2 text-sm" class:text-red-400={!passkeyMsg.ok} role="status">
+					{passkeyMsg.text}
+				</p>
 			{/if}
 		</section>
 

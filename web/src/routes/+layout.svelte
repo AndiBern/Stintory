@@ -44,7 +44,7 @@
 		const path = page.url.pathname;
 		if (!auth.me) {
 			// come back here after logging in (e.g. the desktop app's device login)
-			if (!isPublic) {
+			if (!isPublic && !loggingOut) {
 				const next = encodeURIComponent(path + page.url.search);
 				// eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved path + query
 				goto(`${resolve('/login')}?next=${next}`);
@@ -62,9 +62,15 @@
 		!account || (auth.ready && (!auth.reachable || auth.me !== null || isPublic))
 	);
 
+	/** An explicit logout goes to the plain login page (no "come back"). */
+	let loggingOut = false;
+
 	async function logout() {
+		loggingOut = true;
 		await account?.logout().catch(() => {});
 		auth.me = null;
+		await goto(resolve('/login'));
+		loggingOut = false;
 	}
 </script>
 

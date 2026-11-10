@@ -16,6 +16,7 @@ pub mod data;
 pub mod db;
 pub mod devices;
 pub mod error;
+pub mod passkeys;
 pub mod ratelimit;
 pub mod state;
 pub mod sync;
@@ -55,12 +56,16 @@ pub async fn init(config: Config, search_path: Option<&str>) -> ApiResult<Shared
             .secret_key_bytes()
             .map_err(|e| ApiError::internal(e.to_string()))?,
     );
+    let webauthn = passkeys::relying_party(&config)
+        .map_err(|e| tracing::warn!("{e}; passkeys are disabled"))
+        .ok();
     let state = Arc::new(AppState {
         config,
         db,
         blobs,
         secrets,
         limiter: Default::default(),
+        webauthn,
     });
     bootstrap_admin(&state).await?;
     Ok(state)
@@ -112,6 +117,16 @@ fn api(state: &SharedState) -> Router<SharedState> {
         .route("/auth/login/second-factor", post(auth::second_factor))
         .route("/auth/logout", post(auth::logout))
         .route("/auth/register", post(auth::register))
+        .route("/auth/passkey/start", post(passkeys::login_start))
+        .route("/auth/passkey/finish", post(passkeys::login_finish))
+        .route(
+            "/auth/login/second-factor/passkey/start",
+            post(passkeys::second_factor_start),
+        )
+        .route(
+            "/auth/login/second-factor/passkey/finish",
+            post(passkeys::second_factor_finish),
+        )
         // account
         .route("/me", get(account::me).patch(account::update_me))
         .route("/me/password", post(account::change_password))
@@ -123,6 +138,16 @@ fn api(state: &SharedState) -> Router<SharedState> {
             post(account::regenerate_recovery_codes),
         )
         .route("/me/sessions", get(account::sessions))
+        .route("/me/passkeys", get(passkeys::list))
+        .route(
+            "/me/passkeys/register/start",
+            post(passkeys::register_start),
+        )
+        .route(
+            "/me/passkeys/register/finish",
+            post(passkeys::register_finish),
+        )
+        .route("/me/passkeys/{id}", delete(passkeys::remove))
         .route("/me/sessions/{id}", delete(account::end_session))
         // admin
         .route("/admin/users", get(admin::list_users).post(admin::create))

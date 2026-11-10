@@ -131,7 +131,8 @@
 							{#if u.disabled}<span class="mr-1 rounded bg-red-950 px-1.5 text-red-300"
 									>disabled</span
 								>{/if}
-							{#if u.totpEnabled}<span class="mr-1 rounded bg-zinc-800 px-1.5">2FA</span>{/if}
+							{#if u.totpEnabled}<span class="mr-1 rounded bg-zinc-800 px-1.5">TOTP</span>{/if}
+							{#if u.hasPasskey}<span class="mr-1 rounded bg-zinc-800 px-1.5">passkey</span>{/if}
 							{#if u.mustChangePassword}<span class="rounded bg-amber-950 px-1.5 text-amber-300"
 									>temporary password</span
 								>{/if}
@@ -166,7 +167,7 @@
 										`Set a new temporary password for @${u.username}? They are logged out.`
 									)}>Reset password</button
 							>
-							{#if u.totpEnabled}
+							{#if u.totpEnabled || u.hasPasskey}
 								<button
 									type="button"
 									class={small}
@@ -174,7 +175,7 @@
 										update(
 											u,
 											{ resetTwoFactor: true },
-											`Remove two-factor authentication of @${u.username}?`
+											`Remove two-factor authentication (TOTP and passkeys) of @${u.username}?`
 										)}>Reset 2FA</button
 								>
 							{/if}

@@ -956,3 +956,157 @@ async fn sync_between_two_devices() {
     assert!(!s.state.blobs.contains(&laps[0].0.blob_hash));
     assert_eq!(b.get("/sessions").await.1, json!([]));
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn passkeys_as_second_factor_and_passwordless() {
+    use webauthn_authenticator_rs::WebauthnAuthenticator;
+    use webauthn_authenticator_rs::softpasskey::SoftPasskey;
+    use webauthn_rs_proto::{CreationChallengeResponse, RequestChallengeResponse};
+
+    let Some(s) = server().await else { return };
+    let origin = url::Url::parse("http://localhost:8080").unwrap();
+    // a software authenticator; it can't do user verification, so it claims it
+    let mut key = SoftPasskey::new(true);
+    let mut b = Browser::new(&s);
+    b.login(ADMIN, ADMIN_PW).await;
+
+    // adding needs the password
+    let (st, _) = b
+        .post(
+            "/me/passkeys/register/start",
+            json!({ "password": "wrong!", "name": "x" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    let (st, start) = b
+        .post(
+            "/me/passkeys/register/start",
+            json!({ "password": ADMIN_PW, "name": "Soft key" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{start}");
+    let options: CreationChallengeResponse =
+        serde_json::from_value(start["options"].clone()).unwrap();
+    let credential = key.do_registration(origin.clone(), options).unwrap();
+    let (st, added) = b
+        .post(
+            "/me/passkeys/register/finish",
+            json!({ "challengeId": start["challengeId"], "credential": credential }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{added}");
+    assert_eq!(added["name"], "Soft key");
+    // the same ceremony can't be finished twice
+    let (st, body) = b
+        .post(
+            "/me/passkeys/register/finish",
+            json!({ "challengeId": start["challengeId"], "credential": credential }),
+        )
+        .await;
+    assert_eq!(
+        (st, body["code"].as_str()),
+        (StatusCode::BAD_REQUEST, Some("passkey_expired"))
+    );
+    assert_eq!(b.get("/me").await.1["hasPasskey"], true);
+
+    // a passkey satisfies an enforced 2FA setting
+    ServerSettings {
+        enforce_2fa: true,
+        ..Default::default()
+    }
+    .save(&s.state.conn().await.unwrap())
+    .await
+    .unwrap();
+    assert_eq!(b.get("/sessions").await.0, StatusCode::OK);
+    b.post("/auth/logout", json!({})).await;
+
+    // password + passkey
+    let (_, body) = b.login(ADMIN, ADMIN_PW).await;
+    assert_eq!(body["status"], "secondFactor");
+    assert_eq!(body["methods"], json!(["passkey"]));
+    let challenge = body["challenge"].as_str().unwrap().to_owned();
+    let (st, start) = b
+        .post(
+            "/auth/login/second-factor/passkey/start",
+            json!({ "challenge": challenge }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{start}");
+    let options: RequestChallengeResponse =
+        serde_json::from_value(start["options"].clone()).unwrap();
+    let assertion = key.do_authentication(origin.clone(), options).unwrap();
+    let (st, body) = b
+        .post(
+            "/auth/login/second-factor/passkey/finish",
+            json!({ "challengeId": start["challengeId"], "credential": assertion, "challenge": challenge }),
+        )
+        .await;
+    assert_eq!(
+        (st, &body["status"]),
+        (StatusCode::OK, &json!("ok")),
+        "{body}"
+    );
+    assert_eq!(b.get("/sessions").await.0, StatusCode::OK);
+    b.post("/auth/logout", json!({})).await;
+
+    // passwordless: the browser picks the passkey (the software key can't
+    // offer discoverable credentials, so we name it, like a browser would)
+    let mut nobody = Browser::new(&s);
+    let (st, start) = nobody.post("/auth/passkey/start", json!({})).await;
+    assert_eq!(st, StatusCode::OK, "{start}");
+    let mut options: RequestChallengeResponse =
+        serde_json::from_value(start["options"].clone()).unwrap();
+    assert!(options.public_key.allow_credentials.is_empty());
+    let cred_id = credential.raw_id.clone();
+    options
+        .public_key
+        .allow_credentials
+        .push(webauthn_rs_proto::AllowCredentials {
+            type_: "public-key".into(),
+            id: cred_id,
+            transports: None,
+        });
+    let assertion = key.do_authentication(origin.clone(), options).unwrap();
+    let (st, body) = nobody
+        .post(
+            "/auth/passkey/finish",
+            json!({ "challengeId": start["challengeId"], "credential": assertion }),
+        )
+        .await;
+    assert_eq!(
+        (st, &body["status"]),
+        (StatusCode::OK, &json!("ok")),
+        "{body}"
+    );
+    assert_eq!(body["user"]["username"], ADMIN);
+    // replaying the same assertion with a new ceremony fails
+    let (_, start2) = Browser::new(&s)
+        .post("/auth/passkey/start", json!({}))
+        .await;
+    let (st, _) = Browser::new(&s)
+        .post(
+            "/auth/passkey/finish",
+            json!({ "challengeId": start2["challengeId"], "credential": assertion }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
+
+    // the last second factor can't be removed while 2FA is required
+    let (_, list) = nobody.get("/me/passkeys").await;
+    let id = list[0]["id"].as_str().unwrap().to_owned();
+    assert!(list[0]["lastUsedAt"].is_string());
+    let (st, _) = nobody
+        .call("DELETE", &format!("/me/passkeys/{id}"), json!({}))
+        .await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    ServerSettings::default()
+        .save(&s.state.conn().await.unwrap())
+        .await
+        .unwrap();
+    let (st, _) = nobody
+        .call("DELETE", &format!("/me/passkeys/{id}"), json!({}))
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    nobody.post("/auth/logout", json!({})).await;
+    assert_eq!(nobody.login(ADMIN, ADMIN_PW).await.1["status"], "ok");
+}

@@ -151,6 +151,7 @@ export interface Me {
 	displayName: string;
 	isAdmin: boolean;
 	totpEnabled: boolean;
+	hasPasskey: boolean;
 	/** Must set a new password before anything else */
 	mustChangePassword: boolean;
 	/** Must set up a second factor first (enforced by the admin) */
@@ -195,8 +196,17 @@ export interface AdminUser {
 	isAdmin: boolean;
 	disabled: boolean;
 	totpEnabled: boolean;
+	hasPasskey: boolean;
 	mustChangePassword: boolean;
 	createdAt: string;
+}
+
+/** A passkey of the logged-in user. */
+export interface PasskeyInfo {
+	id: string;
+	name: string;
+	createdAt: string;
+	lastUsedAt: string | null;
 }
 
 export interface UserUpdate {

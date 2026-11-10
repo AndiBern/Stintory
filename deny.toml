@@ -76,6 +76,11 @@ ignore = [
   { id = "RUSTSEC-2026-0370", reason = "zvariant via zbus (keyring, tauri-plugin-opener), unmaintained only" },
   { id = "RUSTSEC-2026-0371", reason = "zbus_names via zbus (keyring, tauri-plugin-opener), unmaintained only" },
   { id = "RUSTSEC-2026-0372", reason = "zvariant_derive via zbus (keyring, tauri-plugin-opener), unmaintained only" },
+  # Marvin attack: timing side channel that recovers an RSA *private* key from
+  # decryption/signing. We use `rsa` only through webauthn-rs to *verify*
+  # RS256 passkey signatures with public keys; the server holds no RSA private
+  # key. No fixed release exists yet.
+  { id = "RUSTSEC-2023-0071", reason = "rsa used for RS256 signature verification only (webauthn-rs), no private keys" },
 ]
 
 [sources]

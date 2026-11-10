@@ -68,11 +68,14 @@ pub struct User {
     pub must_change_password: bool,
     /// TOTP is set up
     pub totp_enabled: bool,
+    /// At least one passkey is registered
+    pub has_passkey: bool,
 }
 
 /// Columns for [`User::from_row`], prefixed with `u.`.
 pub const USER_COLUMNS: &str = "u.id, u.username, u.display_name, u.is_admin, u.disabled, \
-     u.must_change_password, u.totp_enabled_at IS NOT NULL";
+     u.must_change_password, u.totp_enabled_at IS NOT NULL, \
+     EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = u.id)";
 
 impl User {
     /// Reads [`USER_COLUMNS`] starting at column `offset`.
@@ -85,7 +88,13 @@ impl User {
             disabled: row.get(offset + 4),
             must_change_password: row.get(offset + 5),
             totp_enabled: row.get(offset + 6),
+            has_passkey: row.get(offset + 7),
         }
+    }
+
+    /// TOTP or a passkey: what an enforced 2FA setting asks for.
+    pub fn has_second_factor(&self) -> bool {
+        self.totp_enabled || self.has_passkey
     }
 
     /// Loads a user by id.
@@ -110,8 +119,9 @@ pub fn me(user: &User, settings: &ServerSettings) -> Me {
         display_name: user.display_name.clone(),
         is_admin: user.is_admin,
         totp_enabled: user.totp_enabled,
+        has_passkey: user.has_passkey,
         must_change_password: user.must_change_password,
-        two_factor_required: settings.enforce_2fa && !user.totp_enabled,
+        two_factor_required: settings.enforce_2fa && !user.has_second_factor(),
     }
 }
 
@@ -337,7 +347,7 @@ impl FromRequestParts<SharedState> for Auth {
             return Err(ApiError::forbidden("please set a new password first")
                 .with_code("password_change_required"));
         }
-        if !session.user.totp_enabled {
+        if !session.user.has_second_factor() {
             let settings = ServerSettings::load(&state.conn().await?).await?;
             if settings.enforce_2fa {
                 return Err(
@@ -534,7 +544,7 @@ pub async fn login(
         }
     };
 
-    if user.totp_enabled {
+    if user.has_second_factor() {
         let challenge = crypto::new_token();
         db.execute(
             "INSERT INTO login_challenges (token_hash, user_id, expires_at)
@@ -550,14 +560,18 @@ pub async fn login(
             jar,
             Json(LoginResponse::SecondFactor {
                 challenge,
-                methods: vec!["totp".into()],
+                methods: [("totp", user.totp_enabled), ("passkey", user.has_passkey)]
+                    .into_iter()
+                    .filter(|(_, on)| *on)
+                    .map(|(m, _)| m.to_owned())
+                    .collect(),
             }),
         ));
     }
     finish_login(&state, user, &ip, &headers, jar, "password").await
 }
 
-async fn finish_login(
+pub(crate) async fn finish_login(
     state: &SharedState,
     user: User,
     ip: &ClientIp,

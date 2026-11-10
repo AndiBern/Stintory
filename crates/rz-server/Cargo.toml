@@ -43,9 +43,13 @@ tower-http = { version = "0.7", features = ["fs", "trace", "limit", "set-header"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { workspace = true, features = ["v4"] }
+webauthn-rs = { version = "0.6", features = ["danger-allow-state-serialisation", "conditional-ui"] }
+webauthn-rs-proto = "0.6"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+url = "2"
+webauthn-authenticator-rs = { version = "0.6", features = ["softpasskey"] }
 uuid = { workspace = true, features = ["v4"] }
 
 [lints]

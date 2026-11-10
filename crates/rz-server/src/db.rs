@@ -19,6 +19,7 @@ use crate::error::ApiError;
 const MIGRATIONS: &[(i32, &str)] = &[
     (1, include_str!("../migrations/0001_initial.sql")),
     (2, include_str!("../migrations/0002_devices_and_sync.sql")),
+    (3, include_str!("../migrations/0003_passkeys.sql")),
 ];
 
 /// Creates a connection pool. `search_path` selects a schema (tests).

@@ -30,6 +30,8 @@ pub struct AdminUser {
     pub disabled: bool,
     /// Has TOTP
     pub totp_enabled: bool,
+    /// Has a passkey
+    pub has_passkey: bool,
     /// Must change the password
     pub must_change_password: bool,
     /// Created
@@ -61,8 +63,9 @@ pub async fn list_users(
                     is_admin: u.is_admin,
                     disabled: u.disabled,
                     totp_enabled: u.totp_enabled,
+                    has_passkey: u.has_passkey,
                     must_change_password: u.must_change_password,
-                    created_at: r.get(7),
+                    created_at: r.get(8),
                 }
             })
             .collect(),
@@ -130,7 +133,7 @@ pub struct UpdateUser {
     /// Set a new temporary password (ends the user's sessions)
     #[serde(default)]
     pub reset_password: bool,
-    /// Remove TOTP and recovery codes
+    /// Remove TOTP, recovery codes and passkeys
     #[serde(default)]
     pub reset_two_factor: bool,
 }
@@ -236,6 +239,8 @@ pub async fn reset_user(
         .await?;
         db.execute("DELETE FROM recovery_codes WHERE user_id = $1", &[&id])
             .await?;
+        db.execute("DELETE FROM passkeys WHERE user_id = $1", &[&id])
+            .await?;
     }
     db.execute("DELETE FROM web_sessions WHERE user_id = $1", &[&id])
         .await?;
@@ -260,7 +265,7 @@ pub async fn put_settings(
     Json(settings): Json<ServerSettings>,
 ) -> ApiResult<Json<ServerSettings>> {
     let db = state.conn().await?;
-    if settings.enforce_2fa && !admin.user.totp_enabled {
+    if settings.enforce_2fa && !admin.user.has_second_factor() {
         return Err(ApiError::bad_request(
             "set up two-factor authentication for yourself before requiring it",
         ));
