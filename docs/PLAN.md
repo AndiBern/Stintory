@@ -6,7 +6,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 
 | Topic | Decision |
 |---|---|
-| Stack | **Rust** for capture, storage, analysis and server. **Tauri 2** desktop client with a **TypeScript** web frontend that is reused as the server's web UI |
+| Stack | **Rust** for capture, storage, analysis and server. **Tauri 2** desktop client with a **Svelte 5 + TypeScript** web frontend (SvelteKit, static SPA build) that is reused as the server's web UI |
 | Capture platforms | iRacing, F1 25, LMU capture on **Windows only**. Future Proton games get a small in-prefix helper (`rz-bridge.exe`) |
 | Linux client | Full viewer: browse, compare, import/export, sync. Plus `.ibt` file import |
 | MVP game | **iRacing** |
@@ -15,7 +15,8 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 | License | Open source. **AGPL-3.0-or-later** for apps (client, server, web UI), **MIT OR Apache-2.0** for reusable library crates (see §12) |
 | Parsers | **Written from scratch** from official game specs/SDKs and our own recordings. No code from, and no dependency on, other telemetry tools (TinyPedal, CrewChief, SimHub, kerb, pyirsdk, …) |
 | Recorded data | **Player's own car only.** Other cars' telemetry and other drivers' personal data (names, IDs, ratings) are never stored (§5.2) |
-| Sharing | Users create **teams** and invite others. Sessions/laps can be shared with **individual users and/or teams**. Per-user default plus per-session/lap override (§9.2) |
+| Sharing | Users create **teams** and invite others. Sessions/laps can be shared with **individual users, teams and/or everyone on the server**. Per-user default plus per-session/lap override (§9.2) |
+| Export format | `.rzx` bundles (§8) |
 | Login | **Username + password**, **passkeys** (WebAuthn) and **TOTP** 2FA. OIDC later (§9.3) |
 | Raw data | Raw game data is spooled to disk and **deleted once processed**. A debug setting keeps the raw files (§5.1) |
 
@@ -25,7 +26,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 - Automatically record every session/lap while driving, with no clicks needed
 - Session and lap browser, lap view with traces over distance, **compare two laps** (delta trace, track map, synced cursor)
 - Export selected sessions/laps to a file; import files (own or other people's)
-- Optional sync to a self-hosted server; teams; share with users/teams, with a per-user default plus per-session/lap override
+- Optional sync to a self-hosted server; teams; share with users/teams/everyone, with a per-user default plus per-session/lap override
 - Secure login: password, passkeys, TOTP
 - Web UI on the server with the same analysis views
 
@@ -73,10 +74,11 @@ crates/
   rz-bridge/               # (later) Windows helper for Proton prefixes
 apps/
   desktop/                 # Tauri 2 app (src-tauri/ + uses web/ build)
-web/                       # TypeScript frontend (shared by desktop + server)
-  src/api/                 # ApiClient interface + TauriApi + HttpApi
-  src/views/               # SessionList, SessionDetail, LapView, Compare, Settings
-  src/charts/              # uPlot wrappers, track map canvas
+web/                       # SvelteKit app (adapter-static, SPA mode), shared by desktop + server
+  src/lib/api/             # ApiClient interface + TauriApi + HttpApi
+  src/lib/charts/          # uPlot wrapper components, track map canvas
+  src/lib/components/      # shared UI components (tables, dialogs, share picker …)
+  src/routes/              # sessions, session detail, lap view/compare, teams, account, settings
 docker/                    # Dockerfile, docker-compose.yml example
 fixtures/                  # recorded raw telemetry for tests (see §10)
 docs/
@@ -95,7 +97,7 @@ LICENSES/                  # REUSE-style full texts: AGPL-3.0-or-later, MIT, Apa
 | Telemetry blobs | **Parquet** (`arrow`/`parquet` crates, zstd compression), one file per lap | Columnar + compressed; users can open their data in pandas/DuckDB/Excel-ish tools ("it's my data") |
 | Server | `axum` + `sqlx` + **PostgreSQL**, blobs on local volume (S3-compatible optional) | Standard, easy Docker deploy |
 | Auth | `argon2` (password hashes), `webauthn-rs` (passkeys), `totp-rs` (TOTP), cookie sessions for the web UI, per-device API tokens for clients. Later `openidconnect` | Self-hosters often have no IdP. Passkeys + TOTP give strong security without one |
-| Frontend | TypeScript + React (or Svelte), **uPlot** for traces, Canvas for track map | uPlot handles 100k+ points smoothly with cursor sync across charts |
+| Frontend | **Svelte 5** (runes) + TypeScript, **SvelteKit** with `adapter-static` (SPA, no SSR), Vite, **uPlot** for traces, Canvas for track map, shadcn-svelte/Bits UI for UI components, TanStack Table for lap tables. Tests: Vitest + Playwright | Little boilerplate, easy to learn, built-in reactivity/state. A static build runs unchanged in Tauri and served by axum. uPlot handles 100k+ points smoothly with cursor sync across charts |
 | Packaging | Tauri bundler: MSI/NSIS (Windows), AppImage/deb/rpm (Linux). Server: multi-stage Docker image | |
 | CI | GitHub Actions: `cargo test` on windows + linux, frontend lint/test, build artifacts, Docker image, `reuse lint` + `cargo deny check licenses` | License checks keep the license split (§12) enforced |
 
@@ -218,7 +220,7 @@ Frontend gets resampled arrays (not raw) for comparison. These are computed on d
 4. **Lap view / Compare**: stacked traces vs distance (speed, throttle/brake, steering, gear, RPM, delta). Track map with synced cursor. Zoom/pan synced across charts. Choose "reference" = own best / any lap / imported / lap shared with me.
 5. **Library of references**: laps from imports and laps shared with me (by users or teams) for the same track+car.
 6. **Import/Export**: select sessions/laps → export bundle. Drag & drop `.rzx` / `.ibt` to import.
-7. **Share dialog** (session or lap): "Use my default" or a custom list of users and teams (picker), with a summary of who can see it.
+7. **Share dialog** (session or lap): "Use my default" or custom: an "Everyone on this server" toggle plus a picker for users and teams, with a summary of who can see it.
 8. **Teams** (when connected to a server): my teams, create team, invite (by username or invite link), pending invites to accept/decline, members and roles, leave team.
 9. **Account** (when connected): login via browser (§9.3), change password, manage passkeys, set up TOTP + recovery codes, list/revoke devices.
 10. **Settings**: data directory, enabled games, F1 UDP port/forwarding, server URL, default sharing, auto-sync on/off. **Advanced/Debug:** "Keep raw recordings" + raw folder size/open/delete, log level.
@@ -254,7 +256,7 @@ Team           id, name, created_by, created_at
 TeamMember     team_id, user_id, role (owner | admin | member), joined_at
 TeamInvite     id, team_id, invited_by, kind (user: invitee_id | link: token_hash, max_uses, uses),
                expires_at, status (pending | accepted | declined | revoked | expired)
-ShareGrant     object_kind (session | lap | user_default), object_id, grantee_kind (user | team), grantee_id
+ShareGrant     object_kind (session | lap | user_default), object_id, grantee_kind (user | team | everyone), grantee_id (null for everyone)
 Sharing mode   on Session and Lap: inherit | custom
 ```
 
@@ -264,9 +266,10 @@ Sharing mode   on Session and Lap: inherit | custom
 - Members can leave a team at any time.
 
 **Sharing**
-- Audience = any set of **users and teams**. An empty set means private.
+- Audience = any combination of **users, teams and "Everyone on this server"**. An empty set means private. "Everyone" covers all active accounts, including ones created later.
+- Server setting `allow_share_everyone` (default on): admins of larger or public servers can disable the "Everyone" option. Existing "everyone" grants then stop counting, and the UI shows those items as "not shared (everyone disabled by admin)".
 - Resolution: a lap with mode `custom` uses its own grants. A lap with `inherit` uses its session's. A session with `inherit` uses the owner's **default grants** (`user_default`). New users default to private.
-- Access check: user U may read a lap if U is the owner, or U is directly granted, or U is a member of a granted team. Team access is evaluated **live**: whoever joins later sees team-shared laps, and whoever leaves loses access.
+- Access check: user U may read a lap if U is the owner, or U is directly granted, or U is a member of a granted team, or there is an `everyone` grant (and it's allowed on the server). Team access is evaluated **live**: whoever joins later sees team-shared laps, and whoever leaves loses access.
 - Changing the default affects everything still on `inherit`. The UI says so explicitly ("applies to 37 sessions using your default").
 - Sharing grants read access to session/lap metadata and telemetry only. Others can never edit, re-share or delete.
 - Revocation: clients that cached a foreign lap (used as a reference) get the lost-access list on their next sync and delete the cached copy. Copies already exported to `.rzx` can't be recalled; the share dialog mentions this.
@@ -307,7 +310,7 @@ GET  /me   PATCH /me   POST /me/password
 POST /me/totp/setup  POST /me/totp/confirm  DELETE /me/totp  POST /me/recovery-codes
 POST /me/passkeys/register/start  POST /me/passkeys/register/finish  GET /me/passkeys  DELETE /me/passkeys/{id}
 GET  /me/tokens  POST /me/tokens  DELETE /me/tokens/{id}   GET /me/sessions  DELETE /me/sessions/{id}
-GET  /me/default-sharing  PUT /me/default-sharing   {grants:[{user|team}]}
+GET  /me/default-sharing  PUT /me/default-sharing   {grants:[{user:id} | {team:id} | {everyone:true}]}
 GET  /users/lookup?username=…    GET /users/suggest?q=…  (team co-members only)
 # teams
 GET/POST /teams   GET/PATCH/DELETE /teams/{id}
@@ -324,7 +327,7 @@ GET  /laps/{id}  GET /laps/{id}/blob  GET /laps/{id}/resampled?step=1
 GET  /tracks/{game}/{track}/{layout}/laps?car=…&shared_with_me=true   (best first)
 POST /analysis/compare  {laps:[a,b], step}  → resampled channels + delta
 # admin
-GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, admin flag)  GET/PUT /admin/settings (registration mode, enforce 2FA)
+GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, admin flag)  GET/PUT /admin/settings (registration mode, enforce 2FA, allow_share_everyone)
 ```
 
 ### 9.5 Sync protocol (client side, `rz-sync`)
@@ -345,7 +348,7 @@ Developing on Linux without the games running is a real constraint, so **record 
 - The **raw spool files** (§5.1) are the fixture format. Turn on "Keep raw recordings" on Windows, drive a few laps, and copy the `.rzraw` files.
 - **Replay sources**: one per game, feeding `.rzraw` files through the exact same parser + recorder. Crash recovery uses the same code path. These are used in unit/integration tests and for UI development on Linux.
 - Privacy test: a fixture recorded with other cars on track → stored data contains only the player (§5.2).
-- Server tests: access-control matrix (owner / direct grant / team member / ex-member / stranger × inherit/custom at session and lap level), invite flows, auth flows (password, TOTP, recovery code, passkey via a software authenticator in tests).
+- Server tests: access-control matrix (owner / direct grant / team member / ex-member / everyone grant with the server setting on and off / stranger × inherit/custom at session and lap level), invite flows, auth flows (password, TOTP, recovery code, passkey via a software authenticator in tests).
 - Fixtures in `fixtures/` (small, a few laps each). Larger ones via Git LFS or a download script.
 - `.ibt` sample files also serve as iRacing fixtures.
 - Golden tests: fixture → expected lap count, lap times (must match the game's official times within 1 ms), validity flags.
@@ -423,8 +426,6 @@ All game parsers are written **from scratch**. We don't build on other telemetry
 | Access-control bugs in sharing | Single central authorization function on the server, used by every data endpoint. Exhaustive test matrix (§10) |
 | Lost 2FA device / passkey | Recovery codes, multiple passkeys, admin reset, CLI reset for the first admin |
 
-## 14. Open questions for you
+## 14. Open questions
 
-1. **"Everyone on this server" as a share target**: IDEA.md says users can share "with other users" by default. Should there be an extra audience "all users of this server" besides users and teams? It's handy for small private servers. Teams could cover it, though.
-2. **Frontend framework**: React (bigger ecosystem) or Svelte (smaller, simpler)? No strong technical reason either way. Do you have a preference?
-3. **Name of files/brand**: is `.rzx` OK as the export extension?
+None at the moment. All decisions are in §1.
