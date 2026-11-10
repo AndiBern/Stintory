@@ -3,18 +3,29 @@
 <script lang="ts">
 	import './layout.css';
 	import favicon from '#lib/assets/favicon.svg';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { app, connect } from '#lib/app-state.svelte.ts';
+	import { accountApi, api } from '#lib/api/index.ts';
+	import { app, auth, connect, connectAuth } from '#lib/app-state.svelte.ts';
 	import { formatLapTime, formatGame } from '#lib/format.ts';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
 
-	const nav = [
+	const client = api();
+	const account = accountApi();
+
+	/** Pages that work without login. */
+	const publicPaths: string[] = [resolve('/login')];
+	const isPublic = $derived(publicPaths.includes(page.url.pathname));
+
+	const nav = $derived([
 		{ href: resolve('/'), label: 'Sessions' },
-		{ href: resolve('/settings'), label: 'Settings' }
-	];
+		...(account && auth.me ? [{ href: resolve('/account'), label: 'Account' }] : []),
+		...(auth.me?.isAdmin ? [{ href: resolve('/admin'), label: 'Admin' }] : []),
+		{ href: resolve('/settings'), label: client.capabilities.localSettings ? 'Settings' : 'About' }
+	]);
 
 	function isActive(href: string): boolean {
 		return href === resolve('/')
@@ -25,6 +36,31 @@
 	}
 
 	$effect(() => connect());
+	$effect(() => connectAuth());
+
+	// server: log in first; restricted accounts go to the account page
+	$effect(() => {
+		if (!account || !auth.ready || !auth.reachable) return;
+		const path = page.url.pathname;
+		if (!auth.me) {
+			if (!isPublic) goto(resolve('/login'));
+		} else if (
+			(auth.me.mustChangePassword || auth.me.twoFactorRequired) &&
+			path !== resolve('/account')
+		) {
+			goto(resolve('/account'));
+		}
+	});
+
+	// on the server, pages render only once it's clear who is logged in
+	const showPage = $derived(
+		!account || (auth.ready && (!auth.reachable || auth.me !== null || isPublic))
+	);
+
+	async function logout() {
+		await account?.logout().catch(() => {});
+		auth.me = null;
+	}
 </script>
 
 <svelte:head>
@@ -35,37 +71,51 @@
 <div class="flex h-screen bg-zinc-950 text-zinc-100">
 	<nav class="flex w-52 shrink-0 flex-col gap-1 border-r border-zinc-800 p-3" aria-label="Main">
 		<div class="mb-4 px-2 text-lg font-semibold tracking-tight">Rundenzeit</div>
-		{#each nav as item (item.href)}
-			<a
-				href={item.href}
-				class="rounded px-2 py-1.5 text-sm hover:bg-zinc-800"
-				class:bg-zinc-800={isActive(item.href)}
-				aria-current={isActive(item.href) ? 'page' : undefined}
-			>
-				{item.label}
-			</a>
-		{/each}
+		{#if !account || auth.me || !auth.reachable}
+			{#each nav as item (item.href)}
+				<a
+					href={item.href}
+					class="rounded px-2 py-1.5 text-sm hover:bg-zinc-800"
+					class:bg-zinc-800={isActive(item.href)}
+					aria-current={isActive(item.href) ? 'page' : undefined}
+				>
+					{item.label}
+				</a>
+			{/each}
+		{/if}
 
-		<div
-			class="mt-auto rounded border border-zinc-800 p-2 text-xs"
-			role="status"
-			aria-live="polite"
-		>
-			{#if app.recorder?.state === 'recording'}
-				<div class="flex items-center gap-1.5 font-medium text-red-400">
-					<span class="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500"></span>
-					Recording {app.recorder.game ? formatGame(app.recorder.game) : ''}
+		{#if account}
+			{#if auth.me}
+				<div class="mt-auto rounded border border-zinc-800 p-2 text-xs">
+					<div class="truncate text-zinc-300">{auth.me.displayName}</div>
+					<div class="truncate text-zinc-500">@{auth.me.username}</div>
+					<button type="button" class="mt-2 text-zinc-400 hover:text-zinc-100" onclick={logout}>
+						Log out
+					</button>
 				</div>
-				<div class="mt-1 truncate text-zinc-300">{app.recorder.trackName}</div>
-				<div class="text-zinc-400">
-					{app.recorder.laps} laps · last {formatLapTime(app.recorder.lastLapMs)}
-				</div>
-			{:else if app.recorder?.state === 'waiting'}
-				<div class="text-zinc-400">Waiting for a game…</div>
-			{:else if app.recorder?.state === 'unsupported'}
-				<div class="text-zinc-500">Live recording: Windows only</div>
 			{/if}
-		</div>
+		{:else}
+			<div
+				class="mt-auto rounded border border-zinc-800 p-2 text-xs"
+				role="status"
+				aria-live="polite"
+			>
+				{#if app.recorder?.state === 'recording'}
+					<div class="flex items-center gap-1.5 font-medium text-red-400">
+						<span class="inline-block h-2 w-2 animate-pulse rounded-full bg-red-500"></span>
+						Recording {app.recorder.game ? formatGame(app.recorder.game) : ''}
+					</div>
+					<div class="mt-1 truncate text-zinc-300">{app.recorder.trackName}</div>
+					<div class="text-zinc-400">
+						{app.recorder.laps} laps · last {formatLapTime(app.recorder.lastLapMs)}
+					</div>
+				{:else if app.recorder?.state === 'waiting'}
+					<div class="text-zinc-400">Waiting for a game…</div>
+				{:else if app.recorder?.state === 'unsupported'}
+					<div class="text-zinc-500">Live recording: Windows only</div>
+				{/if}
+			</div>
+		{/if}
 	</nav>
 	<main class="flex-1 overflow-auto p-6">
 		{#if app.importing}
@@ -94,6 +144,8 @@
 				>
 			</div>
 		{/if}
-		{@render children()}
+		{#if showPage}
+			{@render children()}
+		{/if}
 	</main>
 </div>

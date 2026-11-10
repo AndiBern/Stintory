@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[package]
+name = "rz-server"
+description = "Rundenzeit server: accounts, sync and web UI"
+license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "rz-server"
+path = "src/main.rs"
+
+[dependencies]
+argon2 = "0.6"
+axum = { version = "0.8", features = ["macros"] }
+axum-extra = { version = "0.12", features = ["cookie"] }
+base64 = "0.23"
+chacha20poly1305 = "0.11"
+clap = { version = "4", features = ["derive", "env"] }
+hex.workspace = true
+hmac = "0.12"
+http-body-util = "0.1"
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+rand = "0.10"
+rz-analysis.workspace = true
+rz-model.workspace = true
+rz-store.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+deadpool-postgres = "0.14"
+tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-time-0_3", "with-serde_json-1"] }
+sha1 = "0.10"
+sha2.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "fs", "net"] }
+tower-http = { version = "0.7", features = ["fs", "trace", "limit", "set-header"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { workspace = true, features = ["v4"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+uuid = { workspace = true, features = ["v4"] }
+
+[lints]
+workspace = true

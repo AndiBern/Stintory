@@ -1,7 +1,14 @@
 // SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { api, type ImportProgress, type ImportResult, type RecorderStatus } from './api/index.ts';
+import {
+	accountApi,
+	api,
+	type ImportProgress,
+	type ImportResult,
+	type Me,
+	type RecorderStatus
+} from './api/index.ts';
 
 /** A message shown at the top of the page until dismissed. */
 export interface Notice {
@@ -56,7 +63,10 @@ export async function runImport(start: () => Promise<ImportResult | null>): Prom
 	app.notice = null;
 	try {
 		const result = await start();
-		if (result) app.notice = { tone: 'ok', text: importSummary(result) };
+		if (result) {
+			app.notice = { tone: 'ok', text: importSummary(result) };
+			app.sessionsVersion++; // the server sends no change events
+		}
 	} catch (e) {
 		app.notice = { tone: 'error', text: `Import failed: ${errorText(e)}` };
 	} finally {
@@ -67,4 +77,47 @@ export async function runImport(start: () => Promise<ImportResult | null>): Prom
 /** Message of an error of any kind. */
 export function errorText(e: unknown): string {
 	return e instanceof Error ? e.message : String(e);
+}
+
+/** Login state when talking to rz-server (unused in the desktop app). */
+export const auth = $state({
+	/** The first status check finished */
+	ready: false,
+	/** The server answered (false: e.g. the static preview without server) */
+	reachable: true,
+	me: null as Me | null,
+	registrationOpen: false
+});
+
+/** Asks the server who is logged in. */
+export async function refreshAuth(): Promise<void> {
+	const account = accountApi();
+	if (!account) {
+		auth.ready = true;
+		return;
+	}
+	try {
+		const s = await account.status();
+		auth.me = s.user;
+		auth.registrationOpen = s.registrationOpen;
+		auth.reachable = true;
+	} catch {
+		auth.reachable = false;
+	} finally {
+		auth.ready = true;
+	}
+}
+
+/** Watches for lost sessions. Returns a cleanup function. */
+export function connectAuth(): () => void {
+	const account = accountApi();
+	if (!account) {
+		auth.ready = true;
+		return () => {};
+	}
+	account.onUnauthorized(() => {
+		auth.me = null;
+	});
+	void refreshAuth();
+	return () => account.onUnauthorized(() => {});
 }

@@ -31,7 +31,9 @@
 	}
 </script>
 
-<h1 class="mb-4 text-2xl font-semibold">Settings</h1>
+<h1 class="mb-4 text-2xl font-semibold">
+	{client.capabilities.localSettings ? 'Settings' : 'About'}
+</h1>
 
 {#if client.capabilities.localSettings}
 	<section class="mb-6 max-w-2xl rounded border border-zinc-800 p-4">

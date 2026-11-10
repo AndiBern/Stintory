@@ -23,3 +23,7 @@ Thumbs.db
 # Third party files for developing
 /sdks/
 /telemetry_examples/
+
+# server deployment secrets
+/docker/.env
+/data/

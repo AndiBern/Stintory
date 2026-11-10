@@ -38,6 +38,18 @@ jobs:
   rust:
     name: Rust
     runs-on: ubuntu-latest
+    # rz-server's API tests need Postgres (they are skipped without it)
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: rundenzeit
+          POSTGRES_PASSWORD: rundenzeit
+          POSTGRES_DB: rundenzeit
+        options: >-
+          --health-cmd "pg_isready -U rundenzeit" --health-interval 2s --health-timeout 3s --health-retries 30
+    env:
+      RZ_TEST_DATABASE_URL: postgres://rundenzeit:rundenzeit@postgres:5432/rundenzeit
     steps:
       - uses: https://github.com/actions/checkout@v5
       - name: Install system dependencies (Tauri)

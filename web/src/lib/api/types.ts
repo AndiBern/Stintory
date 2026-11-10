@@ -141,3 +141,86 @@ export interface RecorderStatus {
 	laps: number;
 	lastLapMs: number | null;
 }
+
+// ----- server accounts (HttpApi only) -----
+
+/** The logged-in user. */
+export interface Me {
+	id: string;
+	username: string;
+	displayName: string;
+	isAdmin: boolean;
+	totpEnabled: boolean;
+	/** Must set a new password before anything else */
+	mustChangePassword: boolean;
+	/** Must set up a second factor first (enforced by the admin) */
+	twoFactorRequired: boolean;
+}
+
+export interface AuthStatus {
+	user: Me | null;
+	csrfToken: string | null;
+	registrationOpen: boolean;
+}
+
+export type LoginResponse =
+	| { status: 'ok'; user: Me; csrfToken: string }
+	| { status: 'secondFactor'; challenge: string; methods: string[] };
+
+export interface TotpSetup {
+	/** Base32, for manual entry */
+	secret: string;
+	uri: string;
+	qrSvg: string;
+}
+
+export interface RecoveryCodes {
+	recoveryCodes: string[];
+}
+
+/** A browser session of the user (account page). */
+export interface BrowserSession {
+	id: string;
+	current: boolean;
+	userAgent: string | null;
+	ip: string | null;
+	createdAt: string;
+	lastSeenAt: string;
+}
+
+export interface AdminUser {
+	id: string;
+	username: string;
+	displayName: string;
+	isAdmin: boolean;
+	disabled: boolean;
+	totpEnabled: boolean;
+	mustChangePassword: boolean;
+	createdAt: string;
+}
+
+export interface UserUpdate {
+	disabled?: boolean;
+	isAdmin?: boolean;
+	resetPassword?: boolean;
+	resetTwoFactor?: boolean;
+}
+
+export interface TemporaryPassword {
+	id: string | null;
+	temporaryPassword: string | null;
+}
+
+export interface ServerSettings {
+	registration: 'closed' | 'open';
+	enforce2fa: boolean;
+	allowShareEveryone: boolean;
+}
+
+export interface AuditEntry {
+	at: string;
+	username: string | null;
+	event: string;
+	ip: string | null;
+	details: Record<string, unknown>;
+}

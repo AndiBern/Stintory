@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Postgres for developing and testing rz-server (not for production; see
+# docker/compose.yml). Reachable only from this machine.
+#
+#   docker compose -f docker/compose.dev.yml up -d
+#   export RZ_TEST_DATABASE_URL=postgres://rundenzeit:rundenzeit@127.0.0.1:55432/rundenzeit
+#   cargo test -p rz-server
+
+name: rundenzeit-dev
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: rundenzeit
+      POSTGRES_PASSWORD: rundenzeit
+      POSTGRES_DB: rundenzeit
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rundenzeit"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:

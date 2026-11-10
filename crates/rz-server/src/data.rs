@@ -1,0 +1,405 @@
+// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+//! Sessions and laps of the logged-in user: the same views the desktop app
+//! has (sessions list, session detail, lap comparison), plus `.rzx` upload.
+//!
+//! Telemetry files are content addressed on disk ([`rz_store::BlobStore`]);
+//! the database has the metadata.
+
+use std::io::Write;
+
+use axum::Json;
+use axum::body::Body;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use deadpool_postgres::GenericClient;
+use http_body_util::BodyExt;
+use rz_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
+use rz_model::api::{
+    AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ImportResult, LapSummary,
+    SessionDetail, SessionSummary,
+};
+use rz_model::rzx::RzxReader;
+use rz_model::{BlobHash, Lap, LapId, LapTelemetry, Origin, Session, SessionId};
+use tokio_postgres::Row;
+use uuid::Uuid;
+
+use crate::auth::Auth;
+use crate::error::{ApiError, ApiResult};
+use crate::state::SharedState;
+
+/// `GET /info`
+pub async fn info() -> Json<AppInfo> {
+    Json(AppInfo {
+        name: "Rundenzeit".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        backend: BackendKind::Server,
+    })
+}
+
+fn parse<T: std::str::FromStr>(value: &str, column: &str) -> ApiResult<T> {
+    value
+        .parse()
+        .map_err(|_| ApiError::internal(format!("bad value in {column}: {value:?}")))
+}
+
+/// Laps that count for "best lap": valid, complete, not out-/in-lap.
+const CLEAN_LAP: &str = "l.valid
+    AND NOT coalesce((l.flags->>'out_lap')::boolean, false)
+    AND NOT coalesce((l.flags->>'in_lap')::boolean, false)
+    AND NOT coalesce((l.flags->>'incomplete')::boolean, false)";
+
+fn summary_from_row(r: &Row) -> ApiResult<SessionSummary> {
+    let origin: Origin = serde_json::from_value(r.get(8))?;
+    Ok(SessionSummary {
+        id: SessionId::from_uuid(r.get(0)),
+        game: parse(r.get(1), "sessions.game")?,
+        track_key: r.get(2),
+        car_key: r.get(3),
+        session_type: parse(r.get(4), "sessions.session_type")?,
+        started_at: r.get(5),
+        track_name: r.get(6),
+        car_name: r.get(7),
+        lap_count: u32::try_from(r.get::<_, i64>(9)).unwrap_or(0),
+        best_lap_ms: r.get::<_, Option<i32>>(10).map(|v| v as u32),
+        origin: origin.into(),
+    })
+}
+
+async fn summaries(
+    db: &impl GenericClient,
+    owner: Uuid,
+    session: Option<Uuid>,
+) -> ApiResult<Vec<SessionSummary>> {
+    let rows = db
+        .query(
+            &format!(
+                "SELECT s.id, s.game, s.track_key, s.car_key, s.session_type, s.started_at,
+                        s.track_name, s.car_name, s.origin, count(l.id),
+                        min(CASE WHEN {CLEAN_LAP} THEN l.lap_time_ms END)
+                 FROM sessions s
+                 LEFT JOIN laps l ON l.owner_id = s.owner_id AND l.session_id = s.id
+                 WHERE s.owner_id = $1 AND ($2::uuid IS NULL OR s.id = $2)
+                 GROUP BY s.owner_id, s.id
+                 ORDER BY s.started_at DESC"
+            ),
+            &[&owner, &session],
+        )
+        .await?;
+    rows.iter().map(summary_from_row).collect()
+}
+
+/// `GET /sessions`: the user's sessions, newest first.
+pub async fn list_sessions(
+    State(state): State<SharedState>,
+    Auth(session): Auth,
+) -> ApiResult<Json<Vec<SessionSummary>>> {
+    Ok(Json(
+        summaries(&state.conn().await?, session.user.id, None).await?,
+    ))
+}
+
+const LAP_COLUMNS: &str = "id, session_id, number, lap_time_ms, sector_times_ms, valid, \
+     invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, start_time_s";
+
+fn lap_from_row(r: &Row) -> ApiResult<Lap> {
+    Ok(Lap {
+        id: LapId::from_uuid(r.get(0)),
+        session_id: SessionId::from_uuid(r.get(1)),
+        number: u32::try_from(r.get::<_, i32>(2)).unwrap_or(0),
+        lap_time_ms: r.get::<_, Option<i32>>(3).map(|v| v as u32),
+        sector_times_ms: serde_json::from_value(r.get(4))?,
+        valid: r.get(5),
+        invalid_reason: r.get(6),
+        flags: serde_json::from_value(r.get(7))?,
+        blob_hash: parse(r.get(8), "laps.blob_hash")?,
+        sample_rate_hz: r.get(9),
+        sample_count: u32::try_from(r.get::<_, i32>(10)).unwrap_or(0),
+        start_time_s: r.get(11),
+    })
+}
+
+/// `GET /sessions/{id}`
+pub async fn get_session(
+    State(state): State<SharedState>,
+    Auth(session): Auth,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<SessionDetail>> {
+    let db = state.conn().await?;
+    let owner = session.user.id;
+    let summary = summaries(&db, owner, Some(id))
+        .await?
+        .pop()
+        .ok_or_else(|| ApiError::not_found("session"))?;
+    let row = db
+        .query_one(
+            "SELECT ended_at, game_version, conditions FROM sessions
+             WHERE owner_id = $1 AND id = $2",
+            &[&owner, &id],
+        )
+        .await?;
+    let conditions: rz_model::session::Conditions = serde_json::from_value(row.get(2))?;
+    let laps = db
+        .query(
+            &format!(
+                "SELECT {LAP_COLUMNS} FROM laps WHERE owner_id = $1 AND session_id = $2
+                 ORDER BY number, id"
+            ),
+            &[&owner, &id],
+        )
+        .await?;
+    let laps = laps
+        .iter()
+        .map(lap_from_row)
+        .collect::<ApiResult<Vec<_>>>()?;
+    Ok(Json(SessionDetail {
+        summary,
+        ended_at: row.get(0),
+        game_version: row.get(1),
+        conditions: ConditionsView::from(&conditions),
+        laps: laps.iter().map(LapSummary::from).collect(),
+    }))
+}
+
+/// `DELETE /sessions/{id}`: deletes the session with its laps; telemetry
+/// files nobody references anymore are removed.
+pub async fn delete_session(
+    State(state): State<SharedState>,
+    Auth(session): Auth,
+    Path(id): Path<Uuid>,
+) -> ApiResult<StatusCode> {
+    let mut db = state.conn().await?;
+    let tx = db.transaction().await?;
+    let hashes: Vec<String> = tx
+        .query(
+            "SELECT DISTINCT blob_hash FROM laps WHERE owner_id = $1 AND session_id = $2",
+            &[&session.user.id, &id],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let n = tx
+        .execute(
+            "DELETE FROM sessions WHERE owner_id = $1 AND id = $2",
+            &[&session.user.id, &id],
+        )
+        .await?;
+    if n == 0 {
+        return Err(ApiError::not_found("session"));
+    }
+    let orphans: Vec<String> = tx
+        .query(
+            "DELETE FROM blobs b WHERE b.hash = ANY($1)
+               AND NOT EXISTS (SELECT 1 FROM laps l WHERE l.blob_hash = b.hash)
+             RETURNING b.hash",
+            &[&hashes],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    tx.commit().await?;
+    for hash in orphans {
+        if let Ok(hash) = hash.parse::<BlobHash>() {
+            state.blobs.remove(&hash)?;
+        }
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// `POST /analysis/compare`: like the desktop app, for the user's own laps.
+pub async fn compare(
+    State(state): State<SharedState>,
+    Auth(session): Auth,
+    Json(request): Json<CompareRequest>,
+) -> ApiResult<Json<CompareData>> {
+    if request.lap_ids.is_empty() || request.lap_ids.len() > 8 {
+        return Err(ApiError::bad_request("select 1 to 8 laps"));
+    }
+    let step = request.step_m.unwrap_or(DEFAULT_STEP_M).max(MIN_STEP_M);
+    let db = state.conn().await?;
+    let mut laps = Vec::new();
+    for id in &request.lap_ids {
+        let row = db
+            .query_opt(
+                &format!("SELECT {LAP_COLUMNS} FROM laps WHERE owner_id = $1 AND id = $2"),
+                &[&session.user.id, id.as_uuid()],
+            )
+            .await?
+            .ok_or_else(|| ApiError::not_found("lap"))?;
+        laps.push(lap_from_row(&row)?);
+    }
+    let state2 = state.clone();
+    let data = tokio::task::spawn_blocking(move || -> ApiResult<CompareData> {
+        let telemetry = laps
+            .iter()
+            .map(|l| {
+                let bytes = state2.blobs.get(&l.blob_hash)?;
+                LapTelemetry::from_parquet(bytes)
+                    .map_err(|e| ApiError::internal(format!("telemetry of lap {}: {e}", l.id)))
+            })
+            .collect::<ApiResult<Vec<_>>>()?;
+        let refs: Vec<_> = laps.iter().zip(&telemetry).collect();
+        rz_analysis::compare(&refs, step).map_err(|e| ApiError::bad_request(e.to_string()))
+    })
+    .await??;
+    Ok(Json(data))
+}
+
+// ----- storing ----------------------------------------------------------
+
+/// Stores a session for `owner` unless it exists. Returns true if new.
+pub async fn insert_session(db: &impl GenericClient, owner: Uuid, s: &Session) -> ApiResult<bool> {
+    let n = db
+        .execute(
+            "INSERT INTO sessions (owner_id, id, game, game_version, track_key, track_name, car_key,
+                car_name, session_type, started_at, ended_at, conditions, setup, session_info, origin)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+             ON CONFLICT (owner_id, id) DO NOTHING",
+            &[
+                &owner,
+                s.id.as_uuid(),
+                &s.game.as_str(),
+                &s.game_version,
+                &s.track_key,
+                &s.track_name,
+                &s.car_key,
+                &s.car_name,
+                &s.session_type.as_str(),
+                &s.started_at,
+                &s.ended_at,
+                &serde_json::to_value(&s.conditions)?,
+                &s.setup,
+                &s.session_info,
+                &serde_json::to_value(&s.origin)?,
+            ],
+        )
+        .await?;
+    Ok(n > 0)
+}
+
+/// Stores a lap whose telemetry file is stored already. Returns true if new.
+pub async fn insert_lap(
+    db: &impl GenericClient,
+    owner: Uuid,
+    lap: &Lap,
+    blob_size: u64,
+) -> ApiResult<bool> {
+    db.execute(
+        "INSERT INTO blobs (hash, size) VALUES ($1, $2) ON CONFLICT (hash) DO NOTHING",
+        &[&lap.blob_hash.as_str(), &(blob_size as i64)],
+    )
+    .await?;
+    let n = db
+        .execute(
+            "INSERT INTO laps (owner_id, id, session_id, number, lap_time_ms, sector_times_ms,
+                valid, invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, start_time_s)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             ON CONFLICT (owner_id, id) DO NOTHING",
+            &[
+                &owner,
+                lap.id.as_uuid(),
+                lap.session_id.as_uuid(),
+                &(lap.number as i32),
+                &lap.lap_time_ms.map(|v| v as i32),
+                &serde_json::to_value(&lap.sector_times_ms)?,
+                &lap.valid,
+                &lap.invalid_reason,
+                &serde_json::to_value(lap.flags)?,
+                &lap.blob_hash.as_str(),
+                &lap.sample_rate_hz,
+                &(lap.sample_count as i32),
+                &lap.start_time_s,
+            ],
+        )
+        .await?;
+    Ok(n > 0)
+}
+
+/// What an `.rzx` file contains, telemetry already in the blob store.
+struct Bundle {
+    sessions: Vec<Session>,
+    laps: Vec<(Lap, u64)>,
+}
+
+/// Reads an `.rzx` file and stores its telemetry files (blocking).
+fn read_bundle(state: &SharedState, file: std::fs::File) -> ApiResult<Bundle> {
+    let bad = |e: rz_model::rzx::RzxError| ApiError::bad_request(e.to_string());
+    let mut reader = RzxReader::open(std::io::BufReader::new(file)).map_err(bad)?;
+    let driver_name = reader.manifest().driver_name.clone();
+    let mut sessions = reader.sessions().map_err(bad)?;
+    for s in &mut sessions {
+        s.origin = match std::mem::replace(&mut s.origin, Origin::Own) {
+            Origin::Own => Origin::Imported {
+                driver_name: driver_name.clone(),
+            },
+            Origin::Imported { driver_name } => Origin::Imported { driver_name },
+            Origin::Synced { owner, .. } => Origin::Imported {
+                driver_name: Some(owner),
+            },
+        };
+    }
+    let mut laps = Vec::new();
+    for mut lap in reader.laps().map_err(bad)? {
+        let bytes = reader.telemetry(&lap).map_err(bad)?;
+        let telemetry = LapTelemetry::from_parquet(bytes.clone())
+            .map_err(|e| ApiError::bad_request(format!("telemetry of lap {}: {e}", lap.id)))?;
+        lap.sample_count = u32::try_from(telemetry.len()).unwrap_or(u32::MAX);
+        state.blobs.put(&bytes)?;
+        laps.push((lap, bytes.len() as u64));
+    }
+    Ok(Bundle { sessions, laps })
+}
+
+/// `POST /import`: uploads an `.rzx` file (request body). Sessions and laps
+/// the user already has are kept as they are.
+pub async fn import(
+    State(state): State<SharedState>,
+    Auth(session): Auth,
+    body: Body,
+) -> ApiResult<Json<ImportResult>> {
+    // stream the upload into a temporary file (bounded by the body limit)
+    let tmp_dir = state.config.data_dir.join("tmp");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(&tmp_dir)?;
+    let mut body = body;
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|e| {
+            ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, format!("upload failed: {e}"))
+        })?;
+        if let Some(data) = frame.data_ref() {
+            tmp.write_all(data)?;
+        }
+    }
+    tmp.flush()?;
+    let file = tmp.reopen()?;
+    let state2 = state.clone();
+    let bundle = tokio::task::spawn_blocking(move || read_bundle(&state2, file)).await??;
+    drop(tmp);
+
+    let owner = session.user.id;
+    let mut db = state.conn().await?;
+    let tx = db.transaction().await?;
+    let mut result = ImportResult {
+        files: 1,
+        sessions: 0,
+        laps: 0,
+        skipped_laps: 0,
+    };
+    for s in &bundle.sessions {
+        if insert_session(&tx, owner, s).await? {
+            result.sessions += 1;
+        }
+    }
+    for (lap, size) in &bundle.laps {
+        if insert_lap(&tx, owner, lap, *size).await? {
+            result.laps += 1;
+        } else {
+            result.skipped_laps += 1;
+        }
+    }
+    tx.commit().await?;
+    Ok(Json(result))
+}

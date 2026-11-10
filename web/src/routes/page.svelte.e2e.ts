@@ -9,8 +9,9 @@ test('shows the sessions page with navigation', async ({ page }) => {
 	await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible();
 });
 
-test('navigates to settings', async ({ page }) => {
+test('navigates to the about page', async ({ page }) => {
+	// in the browser (no desktop app) the settings page only has "About"
 	await page.goto('/');
-	await page.getByRole('link', { name: 'Settings' }).click();
-	await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+	await page.getByRole('link', { name: 'About' }).click();
+	await expect(page.getByRole('heading', { name: 'About', level: 1 })).toBeVisible();
 });

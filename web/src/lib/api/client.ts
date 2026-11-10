@@ -75,7 +75,9 @@ export interface ApiClient {
 export class ApiError extends Error {
 	constructor(
 		message: string,
-		readonly status?: number
+		readonly status?: number,
+		/** Machine-readable reason from the server, e.g. `wrong_code` */
+		readonly code?: string
 	) {
 		super(message);
 		this.name = 'ApiError';

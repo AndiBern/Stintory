@@ -26,10 +26,12 @@
 		void app.sessionsVersion; // refetch when sessions changed
 		const pending = client.listSessions();
 		sessions = pending;
-		pending.then((l) => {
-			list = l;
-			selected = selected.filter((id) => l.some((s) => s.id === id));
-		});
+		pending
+			.then((l) => {
+				list = l;
+				selected = selected.filter((id) => l.some((s) => s.id === id));
+			})
+			.catch(() => {}); // shown by the {#await} block
 	});
 
 	function open(id: string) {
@@ -102,10 +104,12 @@
 		<div class="rounded border border-dashed border-zinc-700 p-8 text-center text-zinc-400">
 			<p>No sessions yet.</p>
 			<p class="mt-1 text-sm">
-				Start driving – sessions are recorded automatically.
-				{#if client.capabilities.importFiles}
-					Or import Rundenzeit <code>.rzx</code> or iRacing <code>.ibt</code> files (drag them onto this
-					window).
+				{#if client.capabilities.liveRecording}
+					Start driving – sessions are recorded automatically. Or import Rundenzeit <code>.rzx</code
+					>
+					or iRacing <code>.ibt</code> files (drag them onto this window).
+				{:else}
+					Sync from the desktop app, or upload <code>.rzx</code> files exported there with "Import…".
 				{/if}
 			</p>
 		</div>

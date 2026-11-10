@@ -51,6 +51,10 @@ crate = "rz-analysis"
 allow = ["AGPL-3.0-or-later"]
 crate = "rundenzeit-desktop"
 
+[[licenses.exceptions]]
+allow = ["AGPL-3.0-or-later"]
+crate = "rz-server"
+
 [bans]
 multiple-versions = "allow"
 wildcards = "deny"
