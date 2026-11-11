@@ -60,6 +60,7 @@ pub fn run() {
             commands::get_session,
             commands::delete_session,
             commands::compare_laps,
+            commands::reference_laps,
             commands::import_files,
             commands::export_bundle,
             commands::export_csv,

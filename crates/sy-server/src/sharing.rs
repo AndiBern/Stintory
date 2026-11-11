@@ -27,12 +27,15 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use deadpool_postgres::GenericClient;
 use serde::{Deserialize, Serialize};
-use sy_model::api::{ConditionsView, LapSummary, OriginView, SessionDetail, SessionSummary};
+use sy_model::api::{
+    ConditionsView, LapSummary, OriginView, REFERENCE_LAPS_MAX, REFERENCE_LAPS_PER_DRIVER,
+    ReferenceLap, ReferenceScope, SessionDetail, SessionSummary,
+};
 use sy_model::remote::{
     ForeignLapCheck, ForeignLapCheckResult, SharedSession, SharedSessionDetail,
-    SharedSessionDownload, UserRef,
+    SharedSessionDownload, SharedTrack, UserRef,
 };
-use sy_model::{Origin, Session, SessionId};
+use sy_model::{LapId, Origin, Session, SessionId};
 use tokio_postgres::Row;
 use uuid::Uuid;
 
@@ -821,25 +824,68 @@ pub async fn check_foreign(
     }))
 }
 
+/// A lap the user may read, with who drove it.
+#[derive(Debug, Clone)]
+pub struct ReadableLap {
+    /// The lap
+    pub lap: sy_model::Lap,
+    /// The owner, if it isn't the user's own lap
+    pub owner: Option<UserRef>,
+    /// Origin of the lap's session (as stored for its owner)
+    pub origin: Origin,
+}
+
+impl ReadableLap {
+    /// Who drove the lap if not the user (see [`sy_model::api::LapTrace`]).
+    pub fn driver(&self) -> Option<String> {
+        match (&self.owner, &self.origin) {
+            (Some(owner), _) if owner.display_name.is_empty() => Some(owner.username.clone()),
+            (Some(owner), _) => Some(owner.display_name.clone()),
+            (None, Origin::Imported { driver_name }) => driver_name.clone(),
+            (None, _) => None,
+        }
+    }
+}
+
 /// A lap the user may read by id: their own, else one shared with them.
 pub async fn readable_lap(
     db: &impl GenericClient,
     viewer: Uuid,
     id: Uuid,
-) -> ApiResult<Option<sy_model::Lap>> {
+) -> ApiResult<Option<ReadableLap>> {
     let everyone = everyone_allowed(db).await?;
-    db.query_opt(
-        &format!(
-            "SELECT {columns} FROM laps l WHERE l.id = $3 AND {readable}
-             ORDER BY (l.owner_id = $1) DESC, l.owner_id LIMIT 1",
-            columns = crate::data::LAP_COLUMNS,
-            readable = lap_readable_with_session("$1", "$2")
-        ),
-        &[&viewer, &everyone, &id],
-    )
-    .await?
-    .map(|r| lap_from_row(&r))
-    .transpose()
+    let columns = crate::data::LAP_COLUMNS
+        .split(", ")
+        .map(|c| format!("l.{c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let Some(r) = db
+        .query_opt(
+            &format!(
+                "SELECT {columns}, u.id, u.username, u.display_name, s.origin
+                 FROM laps l
+                 JOIN sessions s ON s.owner_id = l.owner_id AND s.id = l.session_id
+                 JOIN users u ON u.id = l.owner_id
+                 WHERE l.id = $3 AND {readable}
+                 ORDER BY (l.owner_id = $1) DESC, l.owner_id LIMIT 1",
+                readable = lap_readable("$1", "$2")
+            ),
+            &[&viewer, &everyone, &id],
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    let owner_id: Uuid = r.get(12);
+    Ok(Some(ReadableLap {
+        lap: lap_from_row(&r)?,
+        owner: (owner_id != viewer).then(|| UserRef {
+            id: owner_id,
+            username: r.get(13),
+            display_name: r.get(14),
+        }),
+        origin: serde_json::from_value(r.get(15))?,
+    }))
 }
 
 /// True if the user may read a lap with this telemetry file.
@@ -855,4 +901,178 @@ pub async fn blob_readable(db: &impl GenericClient, viewer: Uuid, hash: &str) ->
         )
         .await?
         .is_some())
+}
+
+// ----- reference laps by track and car -------------------------------------
+
+/// `GET /shared/tracks`: tracks and cars with laps others shared with the
+/// user, most recently driven first.
+pub async fn shared_tracks(
+    State(state): State<SharedState>,
+    Auth(session): Auth,
+) -> ApiResult<Json<Vec<SharedTrack>>> {
+    let db = state.conn().await?;
+    let everyone = everyone_allowed(&db).await?;
+    let rows = db
+        .query(
+            &format!(
+                "WITH shared AS (
+                    SELECT s.game, s.track_key, s.track_name, s.car_key, s.car_name,
+                           s.started_at, l.owner_id,
+                           CASE WHEN {CLEAN_LAP} THEN l.lap_time_ms END AS clean_ms
+                    FROM laps l
+                    JOIN sessions s ON s.owner_id = l.owner_id AND s.id = l.session_id
+                    WHERE l.owner_id <> $1 AND {readable}
+                 ), tracks AS (
+                    SELECT game, track_key, max(track_name) AS track_name,
+                           car_key, max(car_name) AS car_name,
+                           count(clean_ms) AS laps, count(DISTINCT owner_id) AS drivers,
+                           min(clean_ms) AS best_ms,
+                           (array_agg(owner_id ORDER BY clean_ms)
+                               FILTER (WHERE clean_ms IS NOT NULL))[1] AS best_owner,
+                           max(started_at) AS latest
+                    FROM shared GROUP BY game, track_key, car_key
+                 )
+                 SELECT t.game, t.track_key, t.track_name, t.car_key, t.car_name, t.laps,
+                        t.drivers, t.best_ms, u.id, u.username, u.display_name,
+                        (SELECT min(l.lap_time_ms) FROM laps l
+                         JOIN sessions s ON s.owner_id = l.owner_id AND s.id = l.session_id
+                         WHERE l.owner_id = $1 AND s.track_key = t.track_key
+                           AND s.car_key = t.car_key AND {CLEAN_LAP}),
+                        t.latest
+                 FROM tracks t LEFT JOIN users u ON u.id = t.best_owner
+                 ORDER BY t.latest DESC, t.track_key, t.car_key
+                 LIMIT 500",
+                readable = lap_readable("$1", "$2")
+            ),
+            &[&session.user.id, &everyone],
+        )
+        .await?;
+    let tracks = rows
+        .iter()
+        .map(|r| {
+            Ok(SharedTrack {
+                game: bad(r.get(0), "sessions.game")?,
+                track_key: r.get(1),
+                track_name: r.get(2),
+                car_key: r.get(3),
+                car_name: r.get(4),
+                laps: u32::try_from(r.get::<_, i64>(5)).unwrap_or(0),
+                drivers: u32::try_from(r.get::<_, i64>(6)).unwrap_or(0),
+                best_lap_ms: r.get::<_, Option<i32>>(7).map(|v| v as u32),
+                best_driver: r.get::<_, Option<Uuid>>(8).map(|id| UserRef {
+                    id,
+                    username: r.get(9),
+                    display_name: r.get(10),
+                }),
+                own_best_lap_ms: r.get::<_, Option<i32>>(11).map(|v| v as u32),
+                latest_at: r.get(12),
+            })
+        })
+        .collect::<ApiResult<Vec<_>>>()?;
+    Ok(Json(tracks))
+}
+
+/// `GET /reference-laps?track=&car=&scope=`
+#[derive(Debug, Deserialize)]
+pub struct ReferenceQuery {
+    /// Canonical track key
+    pub track: String,
+    /// Canonical car key
+    pub car: String,
+    /// Own laps, shared laps or both
+    #[serde(default)]
+    pub scope: ReferenceScope,
+}
+
+/// Laps to compare with for one track and car, fastest first: the user's
+/// own (recorded and imported) and those others shared with them. Only
+/// laps that count for a best lap, at most [`REFERENCE_LAPS_PER_DRIVER`]
+/// per driver.
+pub async fn reference_laps(
+    State(state): State<SharedState>,
+    Auth(session): Auth,
+    Query(q): Query<ReferenceQuery>,
+) -> ApiResult<Json<Vec<ReferenceLap>>> {
+    let db = state.conn().await?;
+    let viewer = session.user.id;
+    let everyone = everyone_allowed(&db).await?;
+    let mine = q.scope != ReferenceScope::Shared;
+    let shared = q.scope != ReferenceScope::Mine;
+    let rows = db
+        .query(
+            &format!(
+                "WITH candidates AS (
+                    SELECT l.id, l.session_id, l.number, l.lap_time_ms, l.sector_times_ms,
+                           s.game, s.track_key, s.track_name, s.car_key, s.car_name,
+                           s.session_type, s.started_at, s.origin, l.owner_id,
+                           row_number() OVER (
+                               PARTITION BY l.owner_id, s.origin->>'kind',
+                                            coalesce(s.origin->>'driver_name', '')
+                               ORDER BY l.lap_time_ms, s.started_at, l.id) AS rank
+                    FROM laps l
+                    JOIN sessions s ON s.owner_id = l.owner_id AND s.id = l.session_id
+                    WHERE s.track_key = $3 AND s.car_key = $4
+                      AND l.lap_time_ms IS NOT NULL AND {CLEAN_LAP}
+                      AND (($5 AND l.owner_id = $1)
+                           OR ($6 AND l.owner_id <> $1 AND {readable}))
+                 )
+                 SELECT c.id, c.session_id, c.number, c.lap_time_ms, c.sector_times_ms,
+                        c.game, c.track_key, c.track_name, c.car_key, c.car_name,
+                        c.session_type, c.started_at, c.origin,
+                        u.id, u.username, u.display_name
+                 FROM candidates c JOIN users u ON u.id = c.owner_id
+                 WHERE c.rank <= $7
+                 ORDER BY c.lap_time_ms, c.started_at, c.id
+                 LIMIT $8",
+                readable = lap_readable("$1", "$2")
+            ),
+            &[
+                &viewer,
+                &everyone,
+                &q.track,
+                &q.car,
+                &mine,
+                &shared,
+                &(REFERENCE_LAPS_PER_DRIVER as i64),
+                &(REFERENCE_LAPS_MAX as i64),
+            ],
+        )
+        .await?;
+    let laps = rows
+        .iter()
+        .map(|r| {
+            let owner_id: Uuid = r.get(13);
+            let owner = (owner_id != viewer).then(|| UserRef {
+                id: owner_id,
+                username: r.get(14),
+                display_name: r.get(15),
+            });
+            let origin = match &owner {
+                Some(o) => OriginView::Synced {
+                    server: state.config.public_url.clone(),
+                    owner: o.username.clone(),
+                },
+                None => serde_json::from_value::<Origin>(r.get(12))?.into(),
+            };
+            Ok(ReferenceLap {
+                lap_id: LapId::from_uuid(r.get(0)),
+                session_id: SessionId::from_uuid(r.get(1)),
+                number: u32::try_from(r.get::<_, i32>(2)).unwrap_or(0),
+                lap_time_ms: u32::try_from(r.get::<_, i32>(3)).unwrap_or(0),
+                sector_times_ms: serde_json::from_value(r.get(4))?,
+                game: bad(r.get(5), "sessions.game")?,
+                track_key: r.get(6),
+                track_name: r.get(7),
+                car_key: r.get(8),
+                car_name: r.get(9),
+                session_type: bad(r.get(10), "sessions.session_type")?,
+                session_started_at: r.get(11),
+                origin,
+                owner,
+                remote: false,
+            })
+        })
+        .collect::<ApiResult<Vec<_>>>()?;
+    Ok(Json(laps))
 }

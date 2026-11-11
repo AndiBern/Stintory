@@ -7,6 +7,7 @@
 	import { api, type LapSummary, type SessionDetail } from '#lib/api/index.ts';
 	import { app, sharingAvailable } from '#lib/app-state.svelte.ts';
 	import ExportDialog, { type ExportScope } from '#lib/components/ExportDialog.svelte';
+	import ReferencePicker, { type ReferenceTarget } from '#lib/components/ReferencePicker.svelte';
 	import ShareDialog, { type ShareTarget } from '#lib/components/ShareDialog.svelte';
 	import {
 		fileDate,
@@ -31,6 +32,7 @@
 	let showAll = $state(false);
 	let exporting = $state(false);
 	let sharing = $state<ShareTarget | null>(null);
+	let picking = $state<ReferenceTarget | null>(null);
 
 	/** Someone else's session: nothing to share, nothing to delete on the server */
 	const foreign = $derived(detail?.summary.origin.kind === 'synced');
@@ -72,15 +74,33 @@
 		else if (selected.length < MAX_COMPARE) selected = [...selected, lapId];
 	}
 
-	function compare() {
-		if (!detail) return;
-		// reference = fastest selected lap
+	/** The selected laps, fastest first. */
+	function selectedByTime(): string[] {
 		const time = (lapId: string) =>
-			detail!.laps.find((l) => l.id === lapId)?.lapTimeMs ?? Number.MAX_SAFE_INTEGER;
-		const ordered = [...selected].sort((a, b) => time(a) - time(b));
+			detail?.laps.find((l) => l.id === lapId)?.lapTimeMs ?? Number.MAX_SAFE_INTEGER;
+		return [...selected].sort((a, b) => time(a) - time(b));
+	}
+
+	function openCompare(lapIds: string[]) {
 		const query = owner ? `?owner=${encodeURIComponent(owner)}` : '';
 		// eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved path + query
-		goto(resolve('/compare/[laps]', { laps: ordered.join(',') }) + query);
+		goto(resolve('/compare/[laps]', { laps: lapIds.join(',') }) + query);
+	}
+
+	/** Reference = fastest selected lap. */
+	function compare() {
+		openCompare(selectedByTime());
+	}
+
+	function pickReference() {
+		if (!detail) return;
+		const s = detail.summary;
+		picking = {
+			trackKey: s.trackKey,
+			carKey: s.carKey,
+			trackName: s.trackName,
+			carName: s.carName
+		};
 	}
 
 	async function remove() {
@@ -173,6 +193,15 @@
 			>
 				{selected.length > 1 ? `Compare ${selected.length} laps` : 'Show lap'}
 			</button>
+			<button
+				type="button"
+				class="rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+				title="Compare the selected laps with your other laps or laps shared with you"
+				disabled={selected.length >= MAX_COMPARE}
+				onclick={pickReference}
+			>
+				Compare with…
+			</button>
 			{#if client.capabilities.exportFiles}
 				<button
 					type="button"
@@ -207,6 +236,14 @@
 	{#if canShare}
 		<ShareDialog bind:target={sharing} onsaved={() => app.sessionsVersion++} />
 	{/if}
+
+	<!-- the chosen laps become the reference, the selected ones follow -->
+	<ReferencePicker
+		bind:target={picking}
+		exclude={selected}
+		max={MAX_COMPARE - selected.length}
+		onpick={(laps) => openCompare([...laps.map((l) => l.lapId), ...selectedByTime()])}
+	/>
 
 	{#if client.capabilities.exportFiles}
 		<ExportDialog bind:open={exporting} scopes={exportScopes} />

@@ -7,6 +7,7 @@ import type {
 	InviteLinkPreview,
 	MyInvite,
 	SharedSession,
+	SharedTrack,
 	SharingState,
 	SharingUpdate,
 	TeamDetail,
@@ -59,6 +60,8 @@ export interface ServerApi {
 
 	/** Sessions others shared with the user, newest first. */
 	sharedSessions(): Promise<SharedSession[]>;
+	/** Tracks and cars with laps others shared with the user, most recent first. */
+	sharedTracks(): Promise<SharedTrack[]>;
 }
 
 /** Sends one request of the server API (`path` relative to `/api/v1`). */
@@ -174,6 +177,10 @@ export class ServerApiClient implements ServerApi {
 
 	sharedSessions(): Promise<SharedSession[]> {
 		return this.send('GET', '/shared/sessions');
+	}
+
+	sharedTracks(): Promise<SharedTrack[]> {
+		return this.send('GET', '/shared/tracks');
 	}
 }
 

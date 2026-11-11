@@ -11,6 +11,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::api::{SessionDetail, SessionSummary};
+use crate::game::GameId;
 use crate::ids::{LapId, SessionId};
 use crate::session::{Lap, Session};
 
@@ -220,4 +221,34 @@ pub struct ForeignLapCheck {
 pub struct ForeignLapCheckResult {
     /// Laps the user may not see anymore: the client deletes its copies
     pub lost: Vec<LapId>,
+}
+
+/// A track and car with laps others shared with the user
+/// (`GET /shared/tracks`), most recently driven first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedTrack {
+    /// Game
+    pub game: GameId,
+    /// Canonical track key
+    pub track_key: String,
+    /// Track name
+    pub track_name: String,
+    /// Canonical car key
+    pub car_key: String,
+    /// Car name
+    pub car_name: String,
+    /// Laps shared with the user that count for a best lap
+    pub laps: u32,
+    /// People who shared them
+    pub drivers: u32,
+    /// Fastest of those laps
+    pub best_lap_ms: Option<u32>,
+    /// Who drove it
+    pub best_driver: Option<UserRef>,
+    /// The user's own fastest lap here (recorded or imported)
+    pub own_best_lap_ms: Option<u32>,
+    /// Start of the newest session with a shared lap
+    #[serde(with = "time::serde::rfc3339")]
+    pub latest_at: OffsetDateTime,
 }

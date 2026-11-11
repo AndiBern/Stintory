@@ -17,6 +17,8 @@ import type {
 	ImportProgress,
 	ImportResult,
 	RecorderStatus,
+	ReferenceLap,
+	ReferenceScope,
 	SessionDetail,
 	SessionSummary,
 	Settings
@@ -66,6 +68,21 @@ export class TauriApi implements ApiClient {
 
 	compareLaps(request: CompareRequest): Promise<CompareData> {
 		return call('compare_laps', { request });
+	}
+
+	referenceLaps(
+		trackKey: string,
+		carKey: string,
+		scope: ReferenceScope = 'all'
+	): Promise<ReferenceLap[]> {
+		return call('reference_laps', { trackKey, carKey, scope });
+	}
+
+	/** Keeps the sessions of laps that are only on the server as local references. */
+	async prepareLaps(laps: ReferenceLap[]): Promise<void> {
+		const sessions = new Map<string, string>();
+		for (const l of laps) if (l.remote && l.owner) sessions.set(l.sessionId, l.owner.id);
+		for (const [id, owner] of sessions) await call('open_shared_session', { owner, id });
 	}
 
 	async pickAndImportFiles(): Promise<ImportResult | null> {

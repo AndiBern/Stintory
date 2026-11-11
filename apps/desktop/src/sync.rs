@@ -273,6 +273,23 @@ impl SyncManager {
         }
     }
 
+    /// Laps others shared with the user for a track and car, from the
+    /// server. None when not connected.
+    pub async fn shared_reference_laps(
+        &self,
+        track_key: &str,
+        car_key: &str,
+    ) -> SyncResult<Option<Vec<sy_model::api::ReferenceLap>>> {
+        if self.status().server_url.is_none() {
+            return Ok(None);
+        }
+        let client = self.client().await?;
+        match client.shared_reference_laps(track_key, car_key).await {
+            Ok(v) => Ok(Some(v)),
+            Err(e) => Err(self.check_revoked(e).await),
+        }
+    }
+
     /// Keeps a session someone shared as a local reference (or refreshes
     /// the copy); returns the id of the local session.
     pub async fn open_shared(&self, owner: uuid::Uuid, id: SessionId) -> SyncResult<SessionId> {

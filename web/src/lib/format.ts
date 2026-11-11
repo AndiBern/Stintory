@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { Grantee, Origin } from './api/types.ts';
+import type { Grantee, Origin, UserRef } from './api/types.ts';
 
 /** Formats a lap time in milliseconds as `m:ss.mmm` (e.g. `1:23.456`). */
 export function formatLapTime(ms: number | null | undefined): string {
@@ -126,4 +126,20 @@ export function formatAudience(grants: Grantee[]): string {
 	if (grants.length === 0) return 'Only you';
 	if (grants.some((g) => g.kind === 'everyone')) return 'Everyone on this server';
 	return grants.map(formatGrantee).join(', ');
+}
+
+/**
+ * Who drove a lap: `You` for the user's own laps, else the owner of a shared
+ * lap or the driver named in an imported file.
+ */
+export function formatDriver(lap: { owner?: UserRef | null; origin: Origin }): string {
+	if (lap.owner) return lap.owner.displayName || `@${lap.owner.username}`;
+	switch (lap.origin.kind) {
+		case 'own':
+			return 'You';
+		case 'imported':
+			return lap.origin.driverName ? lap.origin.driverName : 'Imported';
+		case 'synced':
+			return `@${lap.origin.owner}`;
+	}
 }

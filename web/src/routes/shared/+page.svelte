@@ -6,6 +6,7 @@
 	import { api, type DefaultSharing, type Grantee, type SharedSession } from '#lib/api/index.ts';
 	import { app, errorText, sharingAvailable } from '#lib/app-state.svelte.ts';
 	import GranteePicker from '#lib/components/GranteePicker.svelte';
+	import SharingTabs from '#lib/components/SharingTabs.svelte';
 	import {
 		formatAudience,
 		formatDateTime,
@@ -98,6 +99,8 @@
 		share with you.
 	</p>
 {:else}
+	<SharingTabs />
+
 	{#if error}
 		<p class="mb-4 text-sm text-red-400" role="alert">{error}</p>
 	{/if}

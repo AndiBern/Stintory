@@ -8,6 +8,7 @@ import {
 	formatAudience,
 	formatBytes,
 	formatDelta,
+	formatDriver,
 	formatLapTime,
 	formatOrigin,
 	formatSessionType
@@ -99,5 +100,19 @@ describe('formatAudience', () => {
 		expect(
 			formatAudience([{ kind: 'team', id: 't', name: 'Sim Racers' }, { kind: 'everyone' }])
 		).toBe('Everyone on this server');
+	});
+});
+
+describe('formatDriver', () => {
+	it('names who drove a lap', () => {
+		const ben = { id: 'b', username: 'ben', displayName: 'Ben B.' };
+		const synced = { kind: 'synced', server: 'https://laps.example', owner: 'ben' } as const;
+		expect(formatDriver({ owner: null, origin: { kind: 'own' } })).toBe('You');
+		expect(formatDriver({ owner: ben, origin: synced })).toBe('Ben B.');
+		expect(formatDriver({ owner: { ...ben, displayName: '' }, origin: synced })).toBe('@ben');
+		// a kept copy in the desktop app only knows the username
+		expect(formatDriver({ owner: null, origin: synced })).toBe('@ben');
+		expect(formatDriver({ origin: { kind: 'imported', driverName: 'Max' } })).toBe('Max');
+		expect(formatDriver({ origin: { kind: 'imported', driverName: null } })).toBe('Imported');
 	});
 });

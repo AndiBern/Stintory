@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use reqwest::{RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
+use sy_model::api::ReferenceLap;
 use sy_model::remote::{
     BlobHashes, CurrentDevice, ForeignLap, ForeignLapCheck, ForeignLapCheckResult, MissingBlobs,
     NewDevice, SharedSessionDownload, SyncChanges, SyncPush, SyncPushResult, TokenRequest,
@@ -234,6 +235,22 @@ impl Client {
                 .get(self.url(&format!("/shared/sessions/{owner}/{id}/download"))),
         )
         .await
+    }
+
+    /// Laps others shared with the user for a track and car, fastest
+    /// first (`GET /reference-laps`).
+    pub async fn shared_reference_laps(
+        &self,
+        track_key: &str,
+        car_key: &str,
+    ) -> Result<Vec<ReferenceLap>, SyncError> {
+        let mut url = reqwest::Url::parse(&self.url("/reference-laps"))
+            .map_err(|e| SyncError::Login(format!("invalid server address: {e}")))?;
+        url.query_pairs_mut()
+            .append_pair("track", track_key)
+            .append_pair("car", car_key)
+            .append_pair("scope", "shared");
+        self.json(self.http.get(url)).await
     }
 
     /// Which of the kept laps of other users the user may not see anymore.

@@ -51,4 +51,10 @@ describe('ServerApiClient', () => {
 			{ method: 'GET', path: '/users/lookup?username=Max', body: undefined }
 		]);
 	});
+
+	it('lists shared laps by track and car', async () => {
+		const { calls, api } = recorder();
+		await api.sharedTracks();
+		expect(calls).toEqual([{ method: 'GET', path: '/shared/tracks', body: undefined }]);
+	});
 });

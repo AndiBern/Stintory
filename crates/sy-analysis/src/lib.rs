@@ -211,6 +211,8 @@ pub fn compare(laps: &[(&Lap, &LapTelemetry)], step_m: f32) -> Result<CompareDat
             valid: lap.valid,
             channels,
             delta_s,
+            driver: None,
+            owner: None,
         });
     }
     Ok(CompareData {

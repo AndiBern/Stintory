@@ -11,6 +11,8 @@ import type {
 	ImportProgress,
 	ImportResult,
 	RecorderStatus,
+	ReferenceLap,
+	ReferenceScope,
 	SessionDetail,
 	SessionSummary,
 	Settings
@@ -60,6 +62,16 @@ export interface ApiClient {
 	getSession(id: string, owner?: string): Promise<SessionDetail>;
 	deleteSession(id: string): Promise<void>;
 	compareLaps(request: CompareRequest): Promise<CompareData>;
+	/**
+	 * Laps to compare with for a track and car, fastest first: the user's own
+	 * (recorded and imported) and those others shared with them.
+	 */
+	referenceLaps(trackKey: string, carKey: string, scope?: ReferenceScope): Promise<ReferenceLap[]>;
+	/**
+	 * Makes chosen reference laps ready for {@link compareLaps}. The desktop app
+	 * keeps a local copy of shared laps that are only on the server so far.
+	 */
+	prepareLaps(laps: ReferenceLap[]): Promise<void>;
 
 	/** Opens a file picker and imports the chosen files; null if cancelled. */
 	pickAndImportFiles(): Promise<ImportResult | null>;

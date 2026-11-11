@@ -231,6 +231,8 @@ fn api(state: &SharedState) -> Router<SharedState> {
             get(sharing::download_shared),
         )
         .route("/shared/check", post(sharing::check_foreign))
+        .route("/shared/tracks", get(sharing::shared_tracks))
+        .route("/reference-laps", get(sharing::reference_laps))
         .route(
             "/import",
             post(data::import).layer(DefaultBodyLimit::max(upload_limit)),

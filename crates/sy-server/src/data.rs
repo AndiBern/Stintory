@@ -217,14 +217,20 @@ pub async fn compare(
     let data = tokio::task::spawn_blocking(move || -> ApiResult<CompareData> {
         let telemetry = laps
             .iter()
-            .map(|l| {
-                let bytes = state2.blobs.get(&l.blob_hash)?;
+            .map(|r| {
+                let bytes = state2.blobs.get(&r.lap.blob_hash)?;
                 LapTelemetry::from_parquet(bytes)
-                    .map_err(|e| ApiError::internal(format!("telemetry of lap {}: {e}", l.id)))
+                    .map_err(|e| ApiError::internal(format!("telemetry of lap {}: {e}", r.lap.id)))
             })
             .collect::<ApiResult<Vec<_>>>()?;
-        let refs: Vec<_> = laps.iter().zip(&telemetry).collect();
-        sy_analysis::compare(&refs, step).map_err(|e| ApiError::bad_request(e.to_string()))
+        let refs: Vec<_> = laps.iter().map(|r| &r.lap).zip(&telemetry).collect();
+        let mut data =
+            sy_analysis::compare(&refs, step).map_err(|e| ApiError::bad_request(e.to_string()))?;
+        for (trace, r) in data.laps.iter_mut().zip(&laps) {
+            trace.driver = r.driver();
+            trace.owner = r.owner.clone();
+        }
+        Ok(data)
     })
     .await??;
     Ok(Json(data))

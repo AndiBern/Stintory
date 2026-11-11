@@ -530,7 +530,7 @@ where
 }
 
 /// Reads column `idx` as text and parses it with `FromStr`.
-fn parse<T>(row: &Row<'_>, idx: usize, column: &'static str) -> Result<T>
+pub(crate) fn parse<T>(row: &Row<'_>, idx: usize, column: &'static str) -> Result<T>
 where
     T: std::str::FromStr,
     T::Err: std::fmt::Display,
@@ -542,7 +542,7 @@ where
     })
 }
 
-fn json<T: serde::de::DeserializeOwned>(row: &Row<'_>, idx: usize) -> Result<Option<T>> {
+pub(crate) fn json<T: serde::de::DeserializeOwned>(row: &Row<'_>, idx: usize) -> Result<Option<T>> {
     let s: Option<String> = row.get(idx)?;
     Ok(s.map(|s| serde_json::from_str(&s)).transpose()?)
 }

@@ -21,6 +21,7 @@
 mod blobs;
 mod bundle;
 mod migrations;
+mod references;
 mod settings;
 mod shared;
 mod spools;

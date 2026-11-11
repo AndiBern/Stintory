@@ -4,9 +4,9 @@ The server keeps your sessions and laps, lets you log in from any browser,
 syncs with the desktop app and lets you share laps with friends and teams.
 It is meant to be self-hosted: you run it, you own the data.
 
-> Status: milestone M3b done. Accounts (password, TOTP, passkeys), the web UI,
-> uploading `.stintory` files, sync with the desktop app, teams and sharing
-> work.
+> Status: milestone M4 done. Accounts (password, TOTP, passkeys), the web UI,
+> uploading `.stintory` files, sync with the desktop app, teams and sharing,
+> and comparing your laps with the ones others share with you work.
 
 ## What you need
 
@@ -123,7 +123,14 @@ Nothing is shared until a user says so.
   something else. It applies to everything that still uses the default, and
   to new recordings. Imported sessions are never shared by default.
 - **Shared with me** (page *Sharing*): sessions others share with you. Open
-  one to look at the laps and compare them.
+  one to look at the laps and compare them. *By track and car* lists every
+  track and car with shared laps, the fastest one and how far your best lap
+  is from it; open one to pick laps (yours and theirs) and compare them.
+- **Comparing with others**: on a session page, select your lap and click
+  *Compare with…*: it lists the fastest laps of the same track and car,
+  yours (also imported ones) and those shared with you. The lap you choose
+  becomes the reference; on the comparison page *Use as reference* changes
+  it and *Add laps…* adds more.
 - Others can only look: they can't change, delete or share your laps. They
   get the laps and the session's basic data (track, car, conditions), not
   your car setup.
@@ -132,7 +139,8 @@ Nothing is shared until a user says so.
   shared with the team. Deleting a team does the same for everyone.
 - In the desktop app, *Sharing* and *Teams* appear once it is connected to
   the server. A shared session you open there is kept on the computer as a
-  reference; the next sync deletes it when it isn't shared with you anymore,
+  reference (also a lap you choose under *Compare with…*); the next sync
+  deletes it when it isn't shared with you anymore,
   and disconnecting from the server deletes all such copies. Exported files
   can't be taken back.
 - Admins can turn off "everyone on this server" on the Admin page (useful on

@@ -1134,7 +1134,15 @@ async fn user<'a>(s: &'a TestServer, admin: &mut Browser<'_>, name: &str) -> (Br
 
 /// Stores `sample()` as a session the user recorded (sync push).
 async fn push_sample(b: &mut Browser<'_>) -> (Session, Vec<Lap>) {
-    let (session, laps) = sample();
+    push_sample_with(b, &[]).await
+}
+
+/// `push_sample` with other lap times (as many as given).
+async fn push_sample_with(b: &mut Browser<'_>, times: &[u32]) -> (Session, Vec<Lap>) {
+    let (session, mut laps) = sample();
+    for ((lap, _), ms) in laps.iter_mut().zip(times) {
+        lap.lap_time_ms = Some(*ms);
+    }
     for (lap, bytes) in &laps {
         let req = b
             .request("PUT", &format!("/sync/blobs/{}", lap.blob_hash))
@@ -1901,4 +1909,139 @@ async fn imported_sessions_do_not_use_the_default() {
         .await;
     assert_eq!(st, StatusCode::OK, "{cmp}");
     assert_eq!(cmp["laps"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reference_laps_of_team_mates() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut ben, ben_id) = user(&s, &mut admin, "ben").await;
+    let (mut me, _) = user(&s, &mut admin, "andi").await;
+    let (mut stranger, _) = user(&s, &mut admin, "stranger").await;
+
+    let (_, team) = ben.post("/teams", json!({ "name": "Team" })).await;
+    let t = team["id"].as_str().unwrap().to_owned();
+    let (_, link) = ben
+        .post(&format!("/teams/{t}/invites"), json!({ "link": {} }))
+        .await;
+    let token = link["url"].as_str().unwrap().rsplit('/').next().unwrap();
+    let accept = format!("/invites/link/{token}/accept");
+    assert_eq!(me.post(&accept, json!({})).await.0, StatusCode::OK);
+
+    // ben shares everything he records with the team; he is faster
+    put(
+        &mut ben,
+        "/me/default-sharing",
+        json!({ "grants": [{ "kind": "team", "id": t }] }),
+    )
+    .await;
+    let (_, ben_laps) = push_sample_with(&mut ben, &[9_100, 9_000]).await;
+    // my own recording, and an imported file of someone else
+    let (_, my_laps) = push_sample(&mut me).await;
+    let (file, _, imported_laps) = bundle();
+    let req = me
+        .request("POST", "/import")
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .body(Body::from(file))
+        .unwrap();
+    assert_eq!(me.send(req).await.0, StatusCode::OK);
+
+    let (st, tracks) = me.get("/shared/tracks").await;
+    assert_eq!(st, StatusCode::OK, "{tracks}");
+    assert_eq!(tracks.as_array().unwrap().len(), 1, "{tracks}");
+    let track = &tracks[0];
+    assert_eq!(track["trackKey"], "iracing:439");
+    assert_eq!(track["carKey"], "iracing:67");
+    assert_eq!(track["laps"], 2);
+    assert_eq!(track["drivers"], 1);
+    assert_eq!(track["bestLapMs"], 9_000);
+    assert_eq!(track["bestDriver"]["username"], "ben");
+    assert_eq!(track["ownBestLapMs"], 9_998);
+    assert_eq!(ben.get("/shared/tracks").await.1, json!([]), "not his own");
+
+    let refs =
+        |scope: &str| format!("/reference-laps?track=iracing%3A439&car=iracing%3A67&scope={scope}");
+    let (st, all) = me.get(&refs("all")).await;
+    assert_eq!(st, StatusCode::OK, "{all}");
+    let times: Vec<u64> = all
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["lapTimeMs"].as_u64().unwrap())
+        .collect();
+    assert_eq!(
+        times,
+        [9_000, 9_100, 9_998, 9_998, 9_999, 9_999],
+        "fastest first"
+    );
+    assert_eq!(all[0]["lapId"], ben_laps[1].id.to_string());
+    assert_eq!(all[0]["owner"]["id"], ben_id);
+    assert_eq!(all[0]["origin"]["kind"], "synced");
+    assert_eq!(all[0]["trackName"], "Winton");
+    assert!(all[2]["owner"].is_null());
+    let kinds: Vec<&str> = all.as_array().unwrap()[2..]
+        .iter()
+        .map(|l| l["origin"]["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds.iter().filter(|k| **k == "imported").count(), 2);
+    let (_, shared) = me.get(&refs("shared")).await;
+    assert_eq!(shared.as_array().unwrap().len(), 2);
+    assert!(
+        shared
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|l| l["owner"]["username"] == "ben")
+    );
+    let (_, mine) = me.get(&refs("mine")).await;
+    assert_eq!(mine.as_array().unwrap().len(), 4);
+    assert!(
+        mine.as_array()
+            .unwrap()
+            .iter()
+            .all(|l| l["owner"].is_null())
+    );
+    let (_, other_car) = me
+        .get("/reference-laps?track=iracing%3A439&car=iracing%3A1")
+        .await;
+    assert_eq!(other_car, json!([]));
+
+    // own lap against a team mate's: the comparison says who drove what
+    let (st, cmp) = me
+        .post(
+            "/analysis/compare",
+            json!({ "lapIds": [ben_laps[1].id, my_laps[0].id, imported_laps[0].id] }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{cmp}");
+    assert_eq!(cmp["laps"][0]["owner"]["username"], "ben");
+    assert_eq!(
+        cmp["laps"][0]["driver"], "ben",
+        "no display name: the username"
+    );
+    assert!(cmp["laps"][1]["driver"].is_null());
+    assert!(cmp["laps"][1]["owner"].is_null());
+    assert_eq!(cmp["laps"][2]["driver"], "Andi");
+    assert!(cmp["laps"][2]["owner"].is_null());
+
+    // others see nothing of it
+    assert_eq!(stranger.get("/shared/tracks").await.1, json!([]));
+    assert_eq!(stranger.get(&refs("all")).await.1, json!([]));
+    assert_eq!(
+        stranger
+            .post("/analysis/compare", json!({ "lapIds": [ben_laps[1].id] }))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+
+    // leaving the team ends it
+    assert_eq!(
+        me.post(&format!("/teams/{t}/leave"), json!({})).await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(me.get("/shared/tracks").await.1, json!([]));
+    assert_eq!(me.get(&refs("shared")).await.1, json!([]));
+    assert_eq!(me.get(&refs("all")).await.1.as_array().unwrap().len(), 4);
 }

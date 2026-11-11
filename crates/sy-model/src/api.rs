@@ -14,6 +14,7 @@ use time::OffsetDateTime;
 
 use crate::game::{GameId, SessionType};
 use crate::ids::{LapId, SessionId};
+use crate::remote::UserRef;
 use crate::session::{Conditions, Lap, Origin};
 
 /// Which backend serves the API.
@@ -216,6 +217,14 @@ pub struct LapTrace {
     /// Time difference to the reference lap at each grid point, seconds
     /// (positive = slower than the reference)
     pub delta_s: Vec<f32>,
+    /// Who drove the lap, if not the user: the owner of a lap someone
+    /// shared, the driver named in an imported file. Set by the backends.
+    #[serde(default)]
+    pub driver: Option<String>,
+    /// The owner of a lap someone shared on the server (server only: the
+    /// desktop app keeps such laps as local copies)
+    #[serde(default)]
+    pub owner: Option<UserRef>,
 }
 
 /// Laps resampled onto a common distance grid, ready for charts.
@@ -231,6 +240,66 @@ pub struct CompareData {
     /// The laps, reference first
     pub laps: Vec<LapTrace>,
 }
+
+/// A lap to compare with: one of the user's own (recorded or imported) or
+/// one someone shared, for a given track and car. Lists of them are sorted
+/// by lap time, fastest first.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceLap {
+    /// Lap id
+    pub lap_id: LapId,
+    /// Session of the lap
+    pub session_id: SessionId,
+    /// Lap number
+    pub number: u32,
+    /// Lap time in ms
+    pub lap_time_ms: u32,
+    /// Sector times in ms
+    pub sector_times_ms: Vec<u32>,
+    /// Game
+    pub game: GameId,
+    /// Canonical track key
+    pub track_key: String,
+    /// Track name
+    pub track_name: String,
+    /// Canonical car key
+    pub car_key: String,
+    /// Car name
+    pub car_name: String,
+    /// Session type
+    pub session_type: SessionType,
+    /// Session start
+    #[serde(with = "time::serde::rfc3339")]
+    pub session_started_at: OffsetDateTime,
+    /// Where the session came from
+    pub origin: OriginView,
+    /// The owner, for laps someone shared on the server; None for the
+    /// user's own laps
+    pub owner: Option<UserRef>,
+    /// Desktop app: the lap is only on the server so far. It is kept as a
+    /// local copy once chosen (see `ApiClient.prepareLaps` in the frontend)
+    #[serde(default)]
+    pub remote: bool,
+}
+
+/// Which laps a reference list contains.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceScope {
+    /// The user's own laps and laps shared with them
+    #[default]
+    All,
+    /// Only the user's own laps (recorded and imported)
+    Mine,
+    /// Only laps others shared with the user
+    Shared,
+}
+
+/// Most laps per driver in a reference list.
+pub const REFERENCE_LAPS_PER_DRIVER: usize = 10;
+/// Most laps in a reference list.
+pub const REFERENCE_LAPS_MAX: usize = 200;
 
 /// Result of importing files.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

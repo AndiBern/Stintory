@@ -18,6 +18,8 @@ import type {
 	Me,
 	RecorderStatus,
 	RecoveryCodes,
+	ReferenceLap,
+	ReferenceScope,
 	ServerSettings,
 	SessionDetail,
 	SessionSummary,
@@ -132,6 +134,20 @@ export class HttpApi implements ApiClient, AccountApi {
 
 	compareLaps(request: CompareRequest): Promise<CompareData> {
 		return this.request<CompareData>('POST', '/analysis/compare', request);
+	}
+
+	referenceLaps(
+		trackKey: string,
+		carKey: string,
+		scope: ReferenceScope = 'all'
+	): Promise<ReferenceLap[]> {
+		const q = new URLSearchParams({ track: trackKey, car: carKey, scope });
+		return this.request<ReferenceLap[]>('GET', `/reference-laps?${q}`);
+	}
+
+	/** Nothing to do: the server compares any lap the user may read. */
+	prepareLaps(): Promise<void> {
+		return Promise.resolve();
 	}
 
 	/** Lets the user pick .stintory files and uploads them one by one. */

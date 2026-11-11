@@ -11,10 +11,10 @@ use sy_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
 use sy_capture::pipeline::{self, RunOptions};
 use sy_model::api::{
     AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ExportRequest, ExportResult,
-    ImportProgress, ImportResult, LapSummary, RecorderStatus, SessionDetail, SessionSummary,
-    Settings, SyncStatus,
+    ImportProgress, ImportResult, LapSummary, OriginView, REFERENCE_LAPS_MAX, RecorderStatus,
+    ReferenceLap, ReferenceScope, SessionDetail, SessionSummary, Settings, SyncStatus,
 };
-use sy_model::{LapId, SessionId};
+use sy_model::{LapId, Origin, SessionId};
 use sy_source_iracing::IbtSource;
 use sy_store::{
     EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, KEEP_RAW_RECORDINGS, SpoolState, Store,
@@ -129,17 +129,80 @@ pub async fn compare_laps(
     let laps = state
         .with_store(move |store| {
             ids.into_iter()
-                .map(|id| Ok((store.lap(id)?, store.lap_telemetry(id)?)))
+                .map(|id| {
+                    let lap = store.lap(id)?;
+                    let driver = match store.session(lap.session_id)?.origin {
+                        Origin::Own => None,
+                        Origin::Imported { driver_name } => driver_name,
+                        Origin::Synced { owner, .. } => Some(owner),
+                    };
+                    Ok((lap, store.lap_telemetry(id)?, driver))
+                })
                 .collect::<std::result::Result<Vec<_>, sy_store::StoreError>>()
         })
         .await?;
     tauri::async_runtime::spawn_blocking(move || {
-        let refs: Vec<_> = laps.iter().map(|(l, t)| (l, t)).collect();
-        sy_analysis::compare(&refs, step)
+        let refs: Vec<_> = laps.iter().map(|(l, t, _)| (l, t)).collect();
+        let mut data = sy_analysis::compare(&refs, step)?;
+        for (trace, (_, _, driver)) in data.laps.iter_mut().zip(&laps) {
+            trace.driver = driver.clone();
+        }
+        Ok::<_, sy_analysis::AnalysisError>(data)
     })
     .await
     .map_err(|e| CommandError::BadRequest(e.to_string()))?
     .map_err(Into::into)
+}
+
+/// Laps to compare with for a track and car, fastest first: own and
+/// imported laps and kept copies of shared laps (local), plus the laps
+/// others share on the server when connected (`remote` until opened).
+/// Without a connection the local laps are returned.
+#[tauri::command]
+pub async fn reference_laps(
+    state: State<'_, AppState>,
+    sync: State<'_, Arc<SyncManager>>,
+    track_key: String,
+    car_key: String,
+    scope: Option<ReferenceScope>,
+) -> CmdResult<Vec<ReferenceLap>> {
+    let scope = scope.unwrap_or_default();
+    let (track, car) = (track_key.clone(), car_key.clone());
+    let local = state
+        .with_store(move |store| store.reference_laps(&track, &car, scope))
+        .await?;
+    let remote = if scope == ReferenceScope::Mine {
+        None
+    } else {
+        sync.shared_reference_laps(&track_key, &car_key)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::info!(error = %e, "shared reference laps not available");
+                None
+            })
+    };
+    Ok(merge_reference_laps(local, remote.unwrap_or_default()))
+}
+
+/// Local laps plus those only on the server, fastest first. A kept copy
+/// gets its owner from the server's entry.
+fn merge_reference_laps(
+    mut local: Vec<ReferenceLap>,
+    remote: Vec<ReferenceLap>,
+) -> Vec<ReferenceLap> {
+    for r in remote {
+        match local.iter_mut().find(|l| l.lap_id == r.lap_id) {
+            Some(l) => {
+                if matches!(l.origin, OriginView::Synced { .. }) {
+                    l.owner = r.owner;
+                }
+            }
+            None => local.push(ReferenceLap { remote: true, ..r }),
+        }
+    }
+    local.sort_by_key(|l| (l.lap_time_ms, l.session_started_at));
+    local.truncate(REFERENCE_LAPS_MAX);
+    local
 }
 
 fn has_extension(path: &Path, ext: &str) -> bool {
@@ -482,6 +545,7 @@ fn is_sharing_path(path: &str) -> bool {
         ["teams", ..]
             | ["invites", ..]
             | ["shared", "sessions", ..]
+            | ["shared", "tracks"]
             | ["me", "invites"]
             | ["me", "default-sharing"]
             | ["users", "lookup"]
@@ -536,6 +600,7 @@ mod tests {
             "/users/lookup?username=max",
             "/users/suggest?q=m",
             "/shared/sessions",
+            "/shared/tracks",
             "/sessions/0190/sharing",
             "/laps/0190/sharing",
         ] {
@@ -557,5 +622,59 @@ mod tests {
         ] {
             assert!(!is_sharing_path(bad), "{bad}");
         }
+    }
+
+    fn reference(ms: u32, origin: OriginView) -> ReferenceLap {
+        ReferenceLap {
+            lap_id: LapId::new(),
+            session_id: SessionId::new(),
+            number: 1,
+            lap_time_ms: ms,
+            sector_times_ms: vec![],
+            game: sy_model::GameId::Iracing,
+            track_key: "iracing:1".into(),
+            track_name: "T".into(),
+            car_key: "iracing:2".into(),
+            car_name: "C".into(),
+            session_type: sy_model::SessionType::Practice,
+            session_started_at: time::macros::datetime!(2026-11-10 18:00 UTC),
+            origin,
+            owner: None,
+            remote: false,
+        }
+    }
+
+    #[test]
+    fn reference_laps_merge_local_and_server() {
+        let synced = OriginView::Synced {
+            server: "https://laps.example".into(),
+            owner: "ben".into(),
+        };
+        let ben = sy_model::remote::UserRef {
+            id: uuid::Uuid::from_u128(7),
+            username: "ben".into(),
+            display_name: "Ben".into(),
+        };
+        let own = reference(90_000, OriginView::Own);
+        let kept = reference(89_000, synced.clone());
+        let mut kept_on_server = kept.clone();
+        kept_on_server.owner = Some(ben.clone());
+        let mut only_on_server = reference(88_000, synced);
+        only_on_server.owner = Some(ben.clone());
+
+        let merged = merge_reference_laps(
+            vec![own.clone(), kept.clone()],
+            vec![only_on_server.clone(), kept_on_server],
+        );
+        let ids: Vec<LapId> = merged.iter().map(|l| l.lap_id).collect();
+        assert_eq!(ids, [only_on_server.lap_id, kept.lap_id, own.lap_id]);
+        assert!(merged[0].remote, "not kept here yet");
+        assert!(!merged[1].remote);
+        assert_eq!(
+            merged[1].owner.as_ref(),
+            Some(&ben),
+            "owner from the server"
+        );
+        assert_eq!(merged[2].owner, None);
     }
 }

@@ -68,4 +68,16 @@ describe('HttpApi', () => {
 		await gone.login('a', 'b').catch(() => {});
 		expect(lost).toBe(1);
 	});
+
+	it('asks for reference laps by track and car', async () => {
+		const urls: string[] = [];
+		const api = new HttpApi('/api/v1', async (url) => {
+			urls.push(String(url));
+			return new Response('[]', { status: 200, headers: { 'Content-Type': 'application/json' } });
+		});
+		await expect(api.referenceLaps('iracing:439:Full Course', 'iracing:67')).resolves.toEqual([]);
+		expect(urls).toEqual([
+			'/api/v1/reference-laps?track=iracing%3A439%3AFull+Course&car=iracing%3A67&scope=all'
+		]);
+	});
 });

@@ -83,6 +83,40 @@ export interface LapTrace {
 	channels: Record<string, (number | null)[]>;
 	/** seconds vs. the reference lap, positive = slower */
 	deltaS: (number | null)[];
+	/**
+	 * Who drove the lap, if not the user: the owner of a lap someone shared,
+	 * the driver named in an imported file
+	 */
+	driver?: string | null;
+	/** The owner of a lap someone shared (server only) */
+	owner?: UserRef | null;
+}
+
+/** Which laps a reference list contains. */
+export type ReferenceScope = 'all' | 'mine' | 'shared';
+
+/**
+ * A lap to compare with: one of the user's own (recorded or imported) or one
+ * someone shared, for a track and car. Lists are sorted fastest first.
+ */
+export interface ReferenceLap {
+	lapId: string;
+	sessionId: string;
+	number: number;
+	lapTimeMs: number;
+	sectorTimesMs: number[];
+	game: GameId;
+	trackKey: string;
+	trackName: string;
+	carKey: string;
+	carName: string;
+	sessionType: SessionType;
+	sessionStartedAt: string;
+	origin: Origin;
+	/** The owner, for laps someone shared on the server; null for own laps */
+	owner: UserRef | null;
+	/** Desktop app: only on the server so far ({@link ApiClient.prepareLaps} keeps a copy) */
+	remote: boolean;
 }
 
 export interface CompareData {
@@ -372,4 +406,23 @@ export interface DefaultSharing {
 /** A session someone shared with the user. */
 export interface SharedSession extends SessionSummary {
 	owner: UserRef;
+}
+
+/** A track and car with laps others shared with the user. */
+export interface SharedTrack {
+	game: GameId;
+	trackKey: string;
+	trackName: string;
+	carKey: string;
+	carName: string;
+	/** Shared laps that count for a best lap */
+	laps: number;
+	/** People who shared them */
+	drivers: number;
+	bestLapMs: number | null;
+	bestDriver: UserRef | null;
+	/** The user's own fastest lap here */
+	ownBestLapMs: number | null;
+	/** Start of the newest session with a shared lap */
+	latestAt: string;
 }
