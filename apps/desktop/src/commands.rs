@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Tauri commands called by the frontend (`web/src/lib/api/tauri.ts`).
@@ -6,20 +6,20 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rz_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
-use rz_capture::pipeline::{self, RunOptions};
-use rz_model::api::{
+use serde::Serialize;
+use sy_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
+use sy_capture::pipeline::{self, RunOptions};
+use sy_model::api::{
     AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ExportRequest, ExportResult,
     ImportProgress, ImportResult, LapSummary, RecorderStatus, SessionDetail, SessionSummary,
     Settings, SyncStatus,
 };
-use rz_model::{LapId, SessionId};
-use rz_source_iracing::IbtSource;
-use rz_store::{
+use sy_model::{LapId, SessionId};
+use sy_source_iracing::IbtSource;
+use sy_store::{
     EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, KEEP_RAW_RECORDINGS, SpoolState, Store,
     StoreError,
 };
-use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::state::AppState;
@@ -35,13 +35,13 @@ pub const EVENT_IMPORT_PROGRESS: &str = "import-progress";
 pub enum CommandError {
     /// Store error
     #[error(transparent)]
-    Store(#[from] rz_store::StoreError),
+    Store(#[from] sy_store::StoreError),
     /// Pipeline (import) error
     #[error(transparent)]
     Pipeline(#[from] pipeline::PipelineError),
     /// Analysis error
     #[error(transparent)]
-    Analysis(#[from] rz_analysis::AnalysisError),
+    Analysis(#[from] sy_analysis::AnalysisError),
     /// Bad input from the frontend
     #[error("{0}")]
     BadRequest(String),
@@ -64,7 +64,7 @@ fn parse_id<T: std::str::FromStr>(s: &str) -> CmdResult<T> {
 #[tauri::command]
 pub fn get_info() -> AppInfo {
     AppInfo {
-        name: "Rundenzeit".to_owned(),
+        name: "Stintory".to_owned(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
         backend: BackendKind::Desktop,
     }
@@ -88,7 +88,7 @@ pub async fn get_session(state: State<'_, AppState>, id: String) -> CmdResult<Se
                 .list_sessions()?
                 .into_iter()
                 .find(|s| s.id == id)
-                .ok_or(rz_store::StoreError::SessionNotFound(id))?;
+                .ok_or(sy_store::StoreError::SessionNotFound(id))?;
             Ok(SessionDetail {
                 summary,
                 ended_at: session.ended_at,
@@ -130,12 +130,12 @@ pub async fn compare_laps(
         .with_store(move |store| {
             ids.into_iter()
                 .map(|id| Ok((store.lap(id)?, store.lap_telemetry(id)?)))
-                .collect::<std::result::Result<Vec<_>, rz_store::StoreError>>()
+                .collect::<std::result::Result<Vec<_>, sy_store::StoreError>>()
         })
         .await?;
     tauri::async_runtime::spawn_blocking(move || {
         let refs: Vec<_> = laps.iter().map(|(l, t)| (l, t)).collect();
-        rz_analysis::compare(&refs, step)
+        sy_analysis::compare(&refs, step)
     })
     .await
     .map_err(|e| CommandError::BadRequest(e.to_string()))?
@@ -147,7 +147,7 @@ fn has_extension(path: &Path, ext: &str) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case(ext))
 }
 
-/// Imports files: Rundenzeit exports (`.rzx`) and iRacing telemetry
+/// Imports files: Stintory exports (`.stintory`) and iRacing telemetry
 /// (`.ibt`). `.ibt` files of the same session are merged; laps already
 /// stored are skipped.
 #[tauri::command]
@@ -160,16 +160,16 @@ pub async fn import_files(
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
     if let Some(bad) = paths
         .iter()
-        .find(|p| !has_extension(p, "ibt") && !has_extension(p, rz_model::rzx::EXTENSION))
+        .find(|p| !has_extension(p, "ibt") && !has_extension(p, sy_model::bundle::EXTENSION))
     {
         return Err(CommandError::BadRequest(format!(
-            "unsupported file: {} (supported: Rundenzeit .rzx, iRacing .ibt)",
+            "unsupported file: {} (supported: .stintory, iRacing .ibt)",
             bad.display()
         )));
     }
     let (bundles, ibts): (Vec<PathBuf>, Vec<PathBuf>) = paths
         .into_iter()
-        .partition(|p| has_extension(p, rz_model::rzx::EXTENSION));
+        .partition(|p| has_extension(p, sy_model::bundle::EXTENSION));
     let mut result = ImportResult {
         files: (bundles.len() + ibts.len()) as u32,
         sessions: 0,
@@ -182,7 +182,7 @@ pub async fn import_files(
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
-        let stats = match state.with_store(move |s| s.import_rzx(&path)).await {
+        let stats = match state.with_store(move |s| s.import_bundle(&path)).await {
             Ok(s) => s,
             Err(e) => {
                 // earlier files may have been imported
@@ -240,17 +240,17 @@ async fn import_ibts(
     Ok(stats)
 }
 
-/// Writes sessions and/or laps to an `.rzx` file at `path`. Remembers the
+/// Writes sessions and/or laps to an `.stintory` file at `path`. Remembers the
 /// driver name for the next export.
 #[tauri::command]
-pub async fn export_rzx(
+pub async fn export_bundle(
     state: State<'_, AppState>,
     request: ExportRequest,
     path: String,
 ) -> CmdResult<ExportResult> {
     let mut path = PathBuf::from(path);
-    if !has_extension(&path, rz_model::rzx::EXTENSION) {
-        path.set_extension(rz_model::rzx::EXTENSION);
+    if !has_extension(&path, sy_model::bundle::EXTENSION) {
+        path.set_extension(sy_model::bundle::EXTENSION);
     }
     let driver_name = request
         .driver_name
@@ -261,7 +261,7 @@ pub async fn export_rzx(
         laps: request.lap_ids,
     };
     let options = ExportOptions {
-        exporter: format!("Rundenzeit {}", env!("CARGO_PKG_VERSION")),
+        exporter: format!("Stintory {}", env!("CARGO_PKG_VERSION")),
         driver_name,
         include_setup: request.include_setup,
     };
@@ -269,7 +269,7 @@ pub async fn export_rzx(
     let stats = state
         .with_store(move |s| {
             s.set_setting(EXPORT_DRIVER_NAME, &options.driver_name)?;
-            s.export_rzx(&path, &selection, &options)
+            s.export_bundle(&path, &selection, &options)
         })
         .await?;
     Ok(ExportResult {

@@ -1,11 +1,11 @@
-# Running a Rundenzeit server
+# Running a Stintory server
 
 The server keeps your sessions and laps, lets you log in from any browser,
 and (soon) syncs with the desktop app and lets you share laps with friends
 and teams. It is meant to be self-hosted: you run it, you own the data.
 
 > Status: milestone M3a done. Accounts (password, TOTP, passkeys), the web UI,
-> uploading `.rzx` files and sync with the desktop app work. Teams and
+> uploading `.stintory` files and sync with the desktop app work. Teams and
 > sharing follow (M3b).
 
 ## What you need
@@ -17,10 +17,10 @@ and teams. It is meant to be self-hosted: you run it, you own the data.
 ## Start
 
 ```sh
-git clone <repository> rundenzeit && cd rundenzeit
+git clone <repository> stintory && cd stintory
 cp docker/.env.example docker/.env
-# fill in docker/.env: RZ_PUBLIC_URL, RZ_SECRET_KEY, POSTGRES_PASSWORD,
-# RZ_ADMIN_USERNAME / RZ_ADMIN_PASSWORD (at least 12 characters)
+# fill in docker/.env: STINTORY_PUBLIC_URL, STINTORY_SECRET_KEY, POSTGRES_PASSWORD,
+# STINTORY_ADMIN_USERNAME / STINTORY_ADMIN_PASSWORD (at least 12 characters)
 docker compose -f docker/compose.yml --env-file docker/.env up -d --build
 ```
 
@@ -35,24 +35,24 @@ laps.example.com {
 
 Open `https://laps.example.com` and log in with the admin account. The admin
 account is only created when the database has no users yet; you can remove
-`RZ_ADMIN_PASSWORD` from `docker/.env` afterwards.
+`STINTORY_ADMIN_PASSWORD` from `docker/.env` afterwards.
 
 ## Configuration
 
 All settings are environment variables (or command-line flags, see
-`rz-server --help`).
+`sy-server --help`).
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `RZ_DATABASE_URL` | – | Postgres connection URL |
-| `RZ_PUBLIC_URL` | `http://localhost:8080` | URL users open; must match what the browser shows (login requests from other origins are rejected) |
-| `RZ_SECRET_KEY` | – | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts two-factor secrets: **keep it**, changing it disables everyone's 2FA |
-| `RZ_DATA_DIR` | `/data` (image) | Telemetry files |
-| `RZ_LISTEN` | `0.0.0.0:8080` | Listen address |
-| `RZ_TRUST_PROXY` | `false` (`true` in compose) | Take the client address from `X-Forwarded-For`. Only enable behind a proxy that sets it |
-| `RZ_MAX_UPLOAD_MB` | `512` | Largest `.rzx` upload |
-| `RZ_DB_WAIT_SECONDS` | `300` | How long to wait at startup for the database. Every failed attempt is logged with the reason (wrong password, unknown host …) |
-| `RZ_ADMIN_USERNAME`, `RZ_ADMIN_PASSWORD` | – | First admin, created if there are no users |
+| `STINTORY_DATABASE_URL` | – | Postgres connection URL |
+| `STINTORY_PUBLIC_URL` | `http://localhost:8080` | URL users open; must match what the browser shows (login requests from other origins are rejected) |
+| `STINTORY_SECRET_KEY` | – | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts two-factor secrets: **keep it**, changing it disables everyone's 2FA |
+| `STINTORY_DATA_DIR` | `/data` (image) | Telemetry files |
+| `STINTORY_LISTEN` | `0.0.0.0:8080` | Listen address |
+| `STINTORY_TRUST_PROXY` | `false` (`true` in compose) | Take the client address from `X-Forwarded-For`. Only enable behind a proxy that sets it |
+| `STINTORY_MAX_UPLOAD_MB` | `512` | Largest `.stintory` upload |
+| `STINTORY_DB_WAIT_SECONDS` | `300` | How long to wait at startup for the database. Every failed attempt is logged with the reason (wrong password, unknown host …) |
+| `STINTORY_ADMIN_USERNAME`, `STINTORY_ADMIN_PASSWORD` | – | First admin, created if there are no users |
 | `RUST_LOG` | `info` | Log level |
 
 Settings that change at runtime are on the **Admin** page: who may create an
@@ -70,14 +70,14 @@ everyone, and (later) sharing with everyone on the server.
   passkey* works without username and password, and after a password login a
   passkey can be the second step. A passkey counts as two-factor
   authentication, also when an admin requires it.
-  - Passkeys are bound to the server's address (`RZ_PUBLIC_URL`). Browsers
+  - Passkeys are bound to the server's address (`STINTORY_PUBLIC_URL`). Browsers
     only allow them over HTTPS (or on `localhost`). If you change the domain,
     everyone has to add their passkeys again.
 - Lost the password or the authenticator: an admin resets it on the Admin
   page. If no admin can log in anymore, use the command line:
 
   ```sh
-  docker compose -f docker/compose.yml exec server rz-server admin reset-user <name> --admin
+  docker compose -f docker/compose.yml exec server sy-server admin reset-user <name> --admin
   ```
 
   It prints a temporary password, removes 2FA (TOTP and passkeys) and ends
@@ -103,7 +103,7 @@ after imports and deletions, and every few minutes.
 - If the browser login can't reach the app (unusual setups), create a token on
   the Account page (*Desktop apps → Create a token by hand*) and paste it in the
   app (*Use a device token instead*).
-- Headless machines: `cargo run -p rz-sync --example sync -- <data-dir> <server-url>`
+- Headless machines: `cargo run -p sy-sync --example sync -- <data-dir> <server-url>`
   connects and syncs a data directory from the command line.
 
 ## Backups
@@ -112,9 +112,9 @@ Back up both volumes: the database (`pg_dump`) and the data directory with
 the telemetry files.
 
 ```sh
-docker compose -f docker/compose.yml exec postgres pg_dump -U rundenzeit rundenzeit > rundenzeit.sql
-docker run --rm -v rundenzeit_data:/data -v "$PWD":/backup debian:trixie-slim \
-    tar czf /backup/rundenzeit-data.tgz -C /data .
+docker compose -f docker/compose.yml exec postgres pg_dump -U stintory stintory > stintory.sql
+docker run --rm -v stintory_data:/data -v "$PWD":/backup debian:trixie-slim \
+    tar czf /backup/stintory-data.tgz -C /data .
 ```
 
 ## Privacy note
@@ -127,11 +127,11 @@ own.
 
 ```sh
 docker compose -f docker/compose.dev.yml up -d   # Postgres on 127.0.0.1:55432
-export RZ_TEST_DATABASE_URL=postgres://rundenzeit:rundenzeit@127.0.0.1:55432/rundenzeit
-cargo test -p rz-server                           # API tests, one schema each
+export STINTORY_TEST_DATABASE_URL=postgres://stintory:stintory@127.0.0.1:55432/stintory
+cargo test -p sy-server                           # API tests, one schema each
 
 npm run build -w web
-RZ_DATABASE_URL=$RZ_TEST_DATABASE_URL RZ_SECRET_KEY=$(openssl rand -base64 32) \
-RZ_ADMIN_USERNAME=admin RZ_ADMIN_PASSWORD='admin password 123' \
-cargo run -p rz-server
+STINTORY_DATABASE_URL=$STINTORY_TEST_DATABASE_URL STINTORY_SECRET_KEY=$(openssl rand -base64 32) \
+STINTORY_ADMIN_USERNAME=admin STINTORY_ADMIN_PASSWORD='admin password 123' \
+cargo run -p sy-server
 ```

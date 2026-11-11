@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 [workspace]
@@ -9,18 +9,18 @@ members = ["crates/*", "apps/desktop"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.99"
-authors = ["The Rundenzeit Contributors"]
+authors = ["The Stintory Contributors"]
 # Each crate sets its own `license` (see docs/PLAN.md §12.1).
 
 [workspace.dependencies]
 # internal
-rz-model = { path = "crates/rz-model", version = "0.1.0" }
-rz-store = { path = "crates/rz-store", version = "0.1.0" }
-rz-capture = { path = "crates/rz-capture", version = "0.1.0" }
-rz-analysis = { path = "crates/rz-analysis", version = "0.1.0" }
-rz-source-iracing = { path = "crates/rz-source-iracing", version = "0.1.0" }
-rz-server = { path = "crates/rz-server", version = "0.1.0" }
-rz-sync = { path = "crates/rz-sync", version = "0.1.0" }
+sy-model = { path = "crates/sy-model", version = "0.1.0" }
+sy-store = { path = "crates/sy-store", version = "0.1.0" }
+sy-capture = { path = "crates/sy-capture", version = "0.1.0" }
+sy-analysis = { path = "crates/sy-analysis", version = "0.1.0" }
+sy-source-iracing = { path = "crates/sy-source-iracing", version = "0.1.0" }
+sy-server = { path = "crates/sy-server", version = "0.1.0" }
+sy-sync = { path = "crates/sy-sync", version = "0.1.0" }
 
 # external
 arrow-array = "60"

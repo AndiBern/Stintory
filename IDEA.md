@@ -1,4 +1,4 @@
-# Rundenzeit Vision
+# Stintory Vision
 As a passionate sim racer I want a tool to track my lap times to be able to review them afterwards to understand where I can improve. 
 Currently, there are only apps that send your data to their servers to be able to compare it to all other users.
 But I want a tool that does not send my data to any company. I want tool that saves all data locally or in a self-hosted server.

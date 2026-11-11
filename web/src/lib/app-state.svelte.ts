@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {
@@ -93,7 +93,7 @@ export function errorText(e: unknown): string {
 	return e instanceof Error ? e.message : String(e);
 }
 
-/** Login state when talking to rz-server (unused in the desktop app). */
+/** Login state when talking to sy-server (unused in the desktop app). */
 export const auth = $state({
 	/** The first status check finished */
 	ready: false,

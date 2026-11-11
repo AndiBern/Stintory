@@ -1,8 +1,8 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Data transfer types shared by both backends (Tauri desktop and rz-server).
-// They mirror the Rust types in `rz-model` (crates/rz-model/src/api.rs).
+// Data transfer types shared by both backends (Tauri desktop and sy-server).
+// They mirror the Rust types in `sy-model` (crates/sy-model/src/api.rs).
 // Keep both sides in sync until we generate these from Rust.
 
 export type BackendKind = 'desktop' | 'server';
@@ -94,7 +94,7 @@ export interface ImportResult {
 	files: number;
 	sessions: number;
 	laps: number;
-	/** Laps of .rzx files that were already stored */
+	/** Laps of .stintory files that were already stored */
 	skippedLaps: number;
 }
 

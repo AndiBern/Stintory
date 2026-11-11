@@ -1,8 +1,8 @@
-# Rundenzeit
+# Stintory
 
 Record, review and compare your sim racing lap times. **Your data stays yours.** Everything is stored locally, with optional sync to a server you host yourself.
 
-> Status: early development (milestone M3a). iRacing live recording (Windows), `.ibt` import, session/lap browser and lap comparison work. Sessions and laps can be exported to `.rzx` files (and CSV) and imported on another installation. A self-hosted server (Docker) with accounts (password, TOTP, passkeys) and the web UI syncs your sessions between your computers.
+> Status: early development (milestone M3a). iRacing live recording (Windows), `.ibt` import, session/lap browser and lap comparison work. Sessions and laps can be exported to `.stintory` files (and CSV) and imported on another installation. A self-hosted server (Docker) with accounts (password, TOTP, passkeys) and the web UI syncs your sessions between your computers.
 
 - Vision: [IDEA.md](IDEA.md)
 - Research on game telemetry and existing tools: [docs/RESEARCH.md](docs/RESEARCH.md)
@@ -23,6 +23,6 @@ The desktop client runs on Windows and Linux. On Linux it can view, compare, imp
 ## License
 
 - Apps (desktop client, server, web UI): [AGPL-3.0-or-later](LICENSE)
-- Library crates (`rz-model`, game parsers `rz-source-*`): MIT OR Apache-2.0
+- Library crates (`sy-model`, game parsers `sy-source-*`): MIT OR Apache-2.0
 
 See [docs/PLAN.md §12](docs/PLAN.md) for details.

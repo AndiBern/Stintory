@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 # cargo-deny configuration: https://embarkstudios.github.io/cargo-deny/
@@ -37,27 +37,27 @@ ignore = false
 
 [[licenses.exceptions]]
 allow = ["AGPL-3.0-or-later"]
-crate = "rz-store"
+crate = "sy-store"
 
 [[licenses.exceptions]]
 allow = ["AGPL-3.0-or-later"]
-crate = "rz-capture"
+crate = "sy-capture"
 
 [[licenses.exceptions]]
 allow = ["AGPL-3.0-or-later"]
-crate = "rz-analysis"
+crate = "sy-analysis"
 
 [[licenses.exceptions]]
 allow = ["AGPL-3.0-or-later"]
-crate = "rundenzeit-desktop"
+crate = "stintory-desktop"
 
 [[licenses.exceptions]]
 allow = ["AGPL-3.0-or-later"]
-crate = "rz-server"
+crate = "sy-server"
 
 [[licenses.exceptions]]
 allow = ["AGPL-3.0-or-later"]
-crate = "rz-sync"
+crate = "sy-sync"
 
 [bans]
 multiple-versions = "allow"

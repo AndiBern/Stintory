@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { describe, expect, it } from 'vitest';
@@ -15,7 +15,7 @@ function fakeFetch(status: number, body: unknown): typeof fetch {
 
 describe('HttpApi', () => {
 	it('parses JSON responses', async () => {
-		const info = { name: 'Rundenzeit', version: '0.1.0', backend: 'server' };
+		const info = { name: 'Stintory', version: '0.1.0', backend: 'server' };
 		const api = new HttpApi('/api/v1', fakeFetch(200, info));
 		await expect(api.getInfo()).resolves.toEqual(info);
 	});

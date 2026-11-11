@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors -->
+<!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
@@ -57,11 +57,7 @@
 				fileName:
 					chosen.length === 1
 						? fileName(first.trackName, first.carName, fileDate(first.startedAt))
-						: fileName(
-								'Rundenzeit',
-								`${chosen.length} sessions`,
-								fileDate(new Date().toISOString())
-							)
+						: fileName('Stintory', `${chosen.length} sessions`, fileDate(new Date().toISOString()))
 			}
 		];
 	});
@@ -105,11 +101,12 @@
 			<p>No sessions yet.</p>
 			<p class="mt-1 text-sm">
 				{#if client.capabilities.liveRecording}
-					Start driving – sessions are recorded automatically. Or import Rundenzeit <code>.rzx</code
+					Start driving – sessions are recorded automatically. Or import Stintory <code
+						>.stintory</code
 					>
 					or iRacing <code>.ibt</code> files (drag them onto this window).
 				{:else}
-					Sync from the desktop app, or upload <code>.rzx</code> files exported there with "Import…".
+					Sync from the desktop app, or upload <code>.stintory</code> files exported there with "Import…".
 				{/if}
 			</p>
 		</div>

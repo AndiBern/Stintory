@@ -1,6 +1,6 @@
 # iRacing – verified behaviour
 
-Implementation: `crates/rz-source-iracing`. Sources: the official iRacing SDK 1.20 (`irsdk_defines.h`, `irsdk_utils.cpp`, `irsdk_diskclient.cpp`) plus analysis of our own `.ibt` recordings (Snetterton 300 / GR86, Summit Point / MX-5, Oschersleben GP / Ray FF1600, Winton National / MX-5 incl. a live recording on Windows, Nov 2026, sim build 2026.11.02.01). Everything below was checked against those recordings.
+Implementation: `crates/sy-source-iracing`. Sources: the official iRacing SDK 1.20 (`irsdk_defines.h`, `irsdk_utils.cpp`, `irsdk_diskclient.cpp`) plus analysis of our own `.ibt` recordings (Snetterton 300 / GR86, Summit Point / MX-5, Oschersleben GP / Ray FF1600, Winton National / MX-5 incl. a live recording on Windows, Nov 2026, sim build 2026.11.02.01). Everything below was checked against those recordings.
 
 ## Format
 

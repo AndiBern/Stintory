@@ -1,4 +1,4 @@
-# Rundenzeit – Implementation Plan
+# Stintory – Implementation Plan
 
 See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor analysis this plan is based on.
 
@@ -7,7 +7,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 | Topic | Decision |
 |---|---|
 | Stack | **Rust** for capture, storage, analysis and server. **Tauri 2** desktop client with a **Svelte 5 + TypeScript** web frontend (SvelteKit, static SPA build) that is reused as the server's web UI |
-| Capture platforms | iRacing, F1 25, LMU capture on **Windows only**. Future Proton games get a small in-prefix helper (`rz-bridge.exe`) |
+| Capture platforms | iRacing, F1 25, LMU capture on **Windows only**. Future Proton games get a small in-prefix helper (`sy-bridge.exe`) |
 | Linux client | Full viewer: browse, compare, import/export, sync. Plus `.ibt` file import |
 | MVP game | **iRacing** |
 | Server | Docker container: sync + sharing + **web UI** for browsing/comparing laps |
@@ -16,7 +16,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 | Parsers | **Written from scratch** from official game specs/SDKs and our own recordings. No code from, and no dependency on, other telemetry tools (TinyPedal, CrewChief, SimHub, kerb, pyirsdk, …) |
 | Recorded data | **Player's own car only.** Other cars' telemetry and other drivers' personal data (names, IDs, ratings) are never stored (§5.2) |
 | Sharing | Users create **teams** and invite others. Sessions/laps can be shared with **individual users, teams and/or everyone on the server**. Per-user default plus per-session/lap override (§9.2) |
-| Export format | `.rzx` bundles (§8) |
+| Export format | `.stintory` bundles (§8) |
 | Login | **Username + password**, **passkeys** (WebAuthn) and **TOTP** 2FA. OIDC later (§9.3) |
 | Raw data | Raw game data is spooled to disk and **deleted once processed**. A debug setting keeps the raw files (§5.1) |
 
@@ -39,7 +39,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 ```
  Windows PC (driving)                                     Self-hosted server (Docker)
 ┌───────────────────────────────────────────────┐        ┌──────────────────────────────┐
-│ Game ──shm/UDP──► Source adapter (rz-capture) │        │ rz-server (axum)             │
+│ Game ──shm/UDP──► Source adapter (sy-capture) │        │ sy-server (axum)             │
 │                    │ normalized Frames         │  HTTPS │  REST API  /api/v1/...       │
 │                    ▼                           │◄──────►│  auth, sharing, sync         │
 │               Recorder / lap segmenter         │  sync  │  PostgreSQL (metadata)       │
@@ -47,31 +47,31 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 │                    ▼                           │        │  serves web UI (same TS app) │
 │      Local store: SQLite + Parquet blobs       │        └──────────────────────────────┘
 │                    ▲                           │                    ▲
-│  Tauri backend (rz-analysis, rz-store)         │                    │ browser
+│  Tauri backend (sy-analysis, sy-store)         │                    │ browser
 │                    ▲ invoke()                  │             Any device (Linux …)
 │  Web frontend (TS): sessions, lap view, compare│
 └───────────────────────────────────────────────┘
  Linux PC: same client, without the Windows-only source adapters (viewer + import + sync)
- Proton (later): game ─shm─► rz-bridge.exe (in prefix) ─localhost TCP─► client
+ Proton (later): game ─shm─► sy-bridge.exe (in prefix) ─localhost TCP─► client
 ```
 
-Key idea: **the frontend talks to one API shape** (`ApiClient` interface). In the desktop app it calls the Tauri backend (`invoke`). In the browser it calls the server over HTTP. Both backends use the same Rust crates (`rz-model`, `rz-analysis`), so resampling, delta computation, etc. exist exactly once.
+Key idea: **the frontend talks to one API shape** (`ApiClient` interface). In the desktop app it calls the Tauri backend (`invoke`). In the browser it calls the server over HTTP. Both backends use the same Rust crates (`sy-model`, `sy-analysis`), so resampling, delta computation, etc. exist exactly once.
 
 ### 3.1 Repository layout (monorepo)
 
 ```
 Cargo.toml                 # workspace
 crates/
-  rz-model/                # domain types: Session, Lap, Channel, Units, IDs, (de)serialization
-  rz-capture/              # Source trait, raw spool + crash recovery, player-only filter hooks, recorder/lap segmenter
-  rz-source-iracing/       # shm reader (cfg windows) + .ibt parser (all platforms)
-  rz-source-f1/            # UDP parser 2025/2026 formats (all platforms)
-  rz-source-lmu/           # LMU_Data reader (cfg windows) + REST poller
-  rz-store/                # local SQLite + Parquet blob store, export/import bundles
-  rz-analysis/             # distance resampling, delta, track map, sectors, (later) corners
-  rz-sync/                 # sync client (HTTP)
-  rz-server/               # axum server binary
-  rz-bridge/               # (later) Windows helper for Proton prefixes
+  sy-model/                # domain types: Session, Lap, Channel, Units, IDs, (de)serialization
+  sy-capture/              # Source trait, raw spool + crash recovery, player-only filter hooks, recorder/lap segmenter
+  sy-source-iracing/       # shm reader (cfg windows) + .ibt parser (all platforms)
+  sy-source-f1/            # UDP parser 2025/2026 formats (all platforms)
+  sy-source-lmu/           # LMU_Data reader (cfg windows) + REST poller
+  sy-store/                # local SQLite + Parquet blob store, export/import bundles
+  sy-analysis/             # distance resampling, delta, track map, sectors, (later) corners
+  sy-sync/                 # sync client (HTTP)
+  sy-server/               # axum server binary
+  sy-bridge/               # (later) Windows helper for Proton prefixes
 apps/
   desktop/                 # Tauri 2 app (src-tauri/ + uses web/ build)
 web/                       # SvelteKit app (adapter-static, SPA mode), shared by desktop + server
@@ -150,7 +150,7 @@ Storage: samples at the **native rate** (iRacing 60 Hz, F1 = configured rate, LM
 
 ## 5. Capture pipeline
 
-The adapter interface lives in `rz_model::capture` (MIT/Apache), so the permissively licensed game crates can implement it. The recorder and the spool are in `rz-capture` (AGPL).
+The adapter interface lives in `sy_model::capture` (MIT/Apache), so the permissively licensed game crates can implement it. The recorder and the spool are in `sy-capture` (AGPL).
 
 ```rust
 trait RawSource {                 // per game: shared memory, UDP, file
@@ -173,7 +173,7 @@ enum SourceEvent {
 ```
 
 ```text
-live:      RawSource ─► spool file (.rzraw) ─┐
+live:      RawSource ─► spool file (.syraw) ─┐
                      └──────────────────────► Decoder ─► Recorder ─► Store
 recovery:  spool file ─────────────────────► Decoder ─► Recorder ─► Store
 import:    file RawSource (.ibt) ──────────► Decoder ─► Recorder ─► Store
@@ -185,14 +185,14 @@ import:    file RawSource (.ibt) ──────────► Decoder ─�
 
 Pipeline: `game → reader → raw spool file (append) → parser → recorder → Parquet + SQLite`.
 
-- Every raw sample the reader receives is first appended to a **spool file** `<data>/raw/<game>-<session-uuid>.rzraw`. The format is a small header + length-prefixed, timestamped records, compressed in zstd frames so a crash only loses the last frame.
+- Every raw sample the reader receives is first appended to a **spool file** `<data>/raw/<game>-<session-uuid>.syraw`. The format is a small header + length-prefixed, timestamped records, compressed in zstd frames so a crash only loses the last frame.
   - iRacing: the var header table (once and on change), the player-filtered session YAML (on change) and one data buffer per tick.
   - F1: UDP datagrams (filtered, §5.2).
   - LMU: only the `generic` block, the player's `VehicleTelemetry`, `ScoringInfo` and the player's `VehicleScoring` per update. Not the whole ~MB `LMU_Data` map.
 - The parser consumes the live stream as usual. A spool file's state becomes `processed` once the session has ended **and** every lap from it is committed (Parquet written + SQLite row). Then the file is **deleted**.
 - **Crash recovery:** at startup, spool files in state `recording`/`processing` are replayed through the same parser + recorder (dedup by lap ID). After a crash or power loss, nothing is lost, not even the lap in progress.
 - `failed` (parser error): the file is kept and the UI shows "1 recording could not be processed", with an option to retry after an update or delete it. This is very useful after game updates that change layouts.
-- **Debug setting "Keep raw recordings"** (Settings → Advanced/Debug, off by default): processed spool files are kept instead of deleted. The UI shows folder size, an "open folder" button and a "delete all raw files" button. Raw files are **never synced and never exported** in `.rzx`. A user can attach them manually to a bug report.
+- **Debug setting "Keep raw recordings"** (Settings → Advanced/Debug, off by default): processed spool files are kept instead of deleted. The UI shows folder size, an "open folder" button and a "delete all raw files" button. Raw files are **never synced and never exported** in `.stintory`. A user can attach them manually to a bug report.
 - Size (measured): iRacing ≈ 60 rows/s × ~1.1 KB. With zstd that comes to **~73 MB per hour** (18.7 MB for a 15-minute race). Only matters when "keep" is on, because processed spools are deleted.
 - `.ibt` import: the user's `.ibt` file is the raw source. It is read in place and never modified or deleted.
 
@@ -215,7 +215,7 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
 - **F1 specifics (M5):** bind UDP port (configurable, default 20777). Group by `sessionUID`. Merge packets of the same `frameIdentifier` into one Frame (Motion + Telemetry + LapData + Status + MotionEx + Telemetry2). Branch on `packetFormat` 2025/2026. Player index from header. Optional UDP forwarding to other tools (many users run several F1 apps).
 - **LMU specifics (M6):** open `LMU_Data`. Detect updates via `generic.events.SME_UPDATE_TELEMETRY` counter. Copy the struct and verify consistency (re-read if the counter changed during copy). Interpolate lap distance from 5 Hz scoring. Poll REST at ~1 Hz for virtual energy/setup/session info. Show a clear hint in the UI if the map is missing ("Enable Plugins in LMU Gameplay settings and restart").
 
-## 6. Analysis (`rz-analysis`)
+## 6. Analysis (`sy-analysis`)
 
 1. **Distance resampling**: resample each lap onto a fixed distance grid (e.g. every 1 m, or 0.5 m for short tracks) with linear interpolation (step for gear/booleans).
 2. **Time delta**: Δt(d) = t_A(d) − t_B(d). Also the delta's derivative to highlight where time is gained/lost.
@@ -233,7 +233,7 @@ Frontend gets resampled arrays (not raw) for comparison. These are computed on d
 3. **Session detail**: lap table (time, sectors, valid, flags, fuel, tyres); select laps for comparison; share dialog; notes/tags.
 4. **Lap view / Compare**: stacked traces vs distance (speed, throttle/brake, steering, gear, RPM, delta). Track map with synced cursor. Zoom/pan synced across charts. Choose "reference" = own best / any lap / imported / lap shared with me.
 5. **Library of references**: laps from imports and laps shared with me (by users or teams) for the same track+car.
-6. **Import/Export**: select sessions/laps → export bundle. Drag & drop `.rzx` / `.ibt` to import.
+6. **Import/Export**: select sessions/laps → export bundle. Drag & drop `.stintory` / `.ibt` to import.
 7. **Share dialog** (session or lap): "Use my default" or custom: an "Everyone on this server" toggle plus a picker for users and teams, with a summary of who can see it.
 8. **Teams** (when connected to a server): my teams, create team, invite (by username or invite link), pending invites to accept/decline, members and roles, leave team.
 9. **Account** (when connected): login via browser (§9.3), change password, manage passkeys, set up TOTP + recovery codes, list/revoke devices.
@@ -241,9 +241,9 @@ Frontend gets resampled arrays (not raw) for comparison. These are computed on d
 
 ## 8. Export / import format
 
-`*.rzx` = ZIP (implemented in `rz-model::rzx`, MIT OR Apache-2.0):
+`*.stintory` = ZIP (implemented in `sy-model::bundle`, MIT OR Apache-2.0):
 ```
-manifest.json        format "rundenzeit-export", format_version "1.0", exported_at, exporter, driver_name (optional), counts
+manifest.json        format "stintory-export", format_version "1.0", exported_at, exporter, driver_name (optional), counts
 sessions/<id>.json   session metadata (incl. track/car keys)
 laps/<id>.json       lap metadata
 laps/<id>.parquet    telemetry (same file as in the local store, stored uncompressed in the ZIP; hash verified on import)
@@ -288,7 +288,7 @@ Sharing mode   on Session and Lap: inherit | custom
 - Access check: user U may read a lap if U is the owner, or U is directly granted, or U is a member of a granted team, or there is an `everyone` grant (and it's allowed on the server). Team access is evaluated **live**: whoever joins later sees team-shared laps, and whoever leaves loses access.
 - Changing the default affects everything still on `inherit`. The UI says so explicitly ("applies to 37 sessions using your default").
 - Sharing grants read access to session/lap metadata and telemetry only. Others can never edit, re-share or delete.
-- Revocation: clients that cached a foreign lap (used as a reference) get the lost-access list on their next sync and delete the cached copy. Copies already exported to `.rzx` can't be recalled; the share dialog mentions this.
+- Revocation: clients that cached a foreign lap (used as a reference) get the lost-access list on their next sync and delete the cached copy. Copies already exported to `.stintory` can't be recalled; the share dialog mentions this.
 - User lookup for the picker: exact username, or autocomplete among people you share a team with. There is no full user directory, so usernames on a server aren't enumerable.
 
 ### 9.3 Authentication
@@ -298,7 +298,7 @@ Sharing mode   on Session and Lap: inherit | custom
 - **TOTP** (RFC 6238, 30 s, 6 digits) as a second factor. Setup with QR code + confirm code. 10 single-use **recovery codes** (stored hashed). Secrets are encrypted at rest with a server key from the environment.
 - **Passkeys** (WebAuthn, `webauthn-rs`): usable for **passwordless login** (discoverable credentials) or as a second factor. A user can register several passkeys and remove them. Requires HTTPS and a stable origin: the RP ID = the server's domain from config (`localhost` works for testing).
 - A user must keep at least one usable login method. Admin can enforce 2FA (TOTP or passkey) for all users.
-- Account recovery: an admin can reset a user's password and 2FA. CLI command `rz-server admin reset-user <name>` for the very first admin.
+- Account recovery: an admin can reset a user's password and 2FA. CLI command `sy-server admin reset-user <name>` for the very first admin.
 - **OIDC (later):** "Login with Authentik/Keycloak/…" via `openidconnect`, linking the external identity to a user.
 
 **Web UI sessions:** server-side sessions in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie, CSRF token on state-changing requests, session list with "log out other sessions".
@@ -346,7 +346,7 @@ POST /analysis/compare  {laps:[a,b], step}  → resampled channels + delta
 GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, admin flag)  GET/PUT /admin/settings (registration mode, enforce 2FA, allow_share_everyone)
 ```
 
-### 9.5 Sync protocol (client side, `rz-sync`)
+### 9.5 Sync protocol (client side, `sy-sync`)
 - Push: on lap completion (if auto-sync) or manually. Send manifest diff → upload missing blobs → upsert metadata. Retries with backoff and works offline-first (outbox table in SQLite).
 - Pull: own data from other devices (e.g. view on Linux what was recorded on Windows), and **on-demand** fetch of laps shared with me when chosen as a reference (no full mirror). Teams and invites are refreshed on each sync. Cached foreign laps that lost access are deleted.
 - Sharing changes made offline go into the outbox and apply on the next sync. The picker offers users/teams from the last cached list.
@@ -354,15 +354,15 @@ GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, adm
 - Deleting: tombstones synced both ways. Deleting on the server removes the blob when no other reference exists.
 
 ### 9.6 Deployment
-- `docker-compose.yml`: `rundenzeit-server` + `postgres`. Volume for blobs. Env vars for public base URL (= WebAuthn origin/RP ID), secret key (TOTP encryption, cookies), admin bootstrap, registration mode (closed / invite-only / open).
+- `docker-compose.yml`: `stintory-server` + `postgres`. Volume for blobs. Env vars for public base URL (= WebAuthn origin/RP ID), secret key (TOTP encryption, cookies), admin bootstrap, registration mode (closed / invite-only / open).
 - TLS via the user's reverse proxy (Caddy/Traefik/nginx). Documented, not built in. It is required for passkeys and secure cookies.
 - Note in docs: the server admin can technically read all data on their server. That is fine for self-hosting, but we state it.
 
 ## 10. Testing & development strategy
 
 Developing on Linux without the games running is a real constraint, so **record once, replay forever**:
-- The **raw spool files** (§5.1) are the fixture format. Turn on "Keep raw recordings" on Windows, drive a few laps, and copy the `.rzraw` files.
-- **Replay sources**: one per game, feeding `.rzraw` files through the exact same parser + recorder. Crash recovery uses the same code path. These are used in unit/integration tests and for UI development on Linux.
+- The **raw spool files** (§5.1) are the fixture format. Turn on "Keep raw recordings" on Windows, drive a few laps, and copy the `.syraw` files.
+- **Replay sources**: one per game, feeding `.syraw` files through the exact same parser + recorder. Crash recovery uses the same code path. These are used in unit/integration tests and for UI development on Linux.
 - Privacy test: a fixture recorded with other cars on track → stored data contains only the player (§5.2).
 - Server tests: access-control matrix (owner / direct grant / team member / ex-member / everyone grant with the server setting on and off / stranger × inherit/custom at session and lap level), invite flows, auth flows (password, TOTP, recovery code, passkey via a software authenticator in tests).
 - Fixtures in `fixtures/` (small, a few laps each). Larger ones via Git LFS or a download script.
@@ -374,15 +374,15 @@ Developing on Linux without the games running is a real constraint, so **record 
 
 | Milestone | Content | Done when |
 |---|---|---|
-| **M0 – Skeleton** | Cargo workspace, Tauri app shell, `web/` with ApiClient abstraction, CI for Windows+Linux, `rz-model` + Parquet read/write, SQLite schema + migrations, license setup (per-crate `license` fields, SPDX headers, `CONTRIBUTING.md` with DCO, `deny.toml`) | CI green incl. license checks; empty app starts on Windows and Linux |
+| **M0 – Skeleton** | Cargo workspace, Tauri app shell, `web/` with ApiClient abstraction, CI for Windows+Linux, `sy-model` + Parquet read/write, SQLite schema + migrations, license setup (per-crate `license` fields, SPDX headers, `CONTRIBUTING.md` with DCO, `deny.toml`) | CI green incl. license checks; empty app starts on Windows and Linux |
 | **M1 – iRacing MVP** | iRacing shm source, raw spool + crash recovery + "keep raw" debug setting, player-only filtering, lap segmenter, local store, `.ibt` import (also on Linux), sessions list, session detail, lap view, compare 2 laps with delta + track map | Drive 10 laps → all laps appear with correct times. Kill the client mid-lap → after restart nothing is lost. Spool files are gone after processing (kept with debug setting). Compare best vs. second best with delta + map. Same data visible on Linux via `.ibt` import |
-| **M2 – Export/Import** | `.rzx` bundles, CSV export, import with dedupe, "imported" origin in UI | Export on Windows → import on Linux → identical comparison |
-| **M3a – Server, auth, own sync** | Part 1 (done): axum server, Postgres, Docker image + compose, admin bootstrap + CLI reset, password login, TOTP + recovery codes, web sessions with CSRF protection, rate limiting, audit log, admin page, web UI on server data, `.rzx` upload. Part 2 (done): browser-based device login (loopback + PKCE) + device tokens (keychain, file fallback), sync push/pull of own data (`rz-sync`, change feed with per-user ordering, tombstones), DB wait at startup. Part 3 (done): passkeys (webauthn-rs, passwordless + second factor, count as 2FA) | Log in with each method. Record on Windows → appears in the Linux client via sync. Revoking a device token stops its sync |
+| **M2 – Export/Import** | `.stintory` bundles, CSV export, import with dedupe, "imported" origin in UI | Export on Windows → import on Linux → identical comparison |
+| **M3a – Server, auth, own sync** | Part 1 (done): axum server, Postgres, Docker image + compose, admin bootstrap + CLI reset, password login, TOTP + recovery codes, web sessions with CSRF protection, rate limiting, audit log, admin page, web UI on server data, `.stintory` upload. Part 2 (done): browser-based device login (loopback + PKCE) + device tokens (keychain, file fallback), sync push/pull of own data (`sy-sync`, change feed with per-user ordering, tombstones), DB wait at startup. Part 3 (done): passkeys (webauthn-rs, passwordless + second factor, count as 2FA) | Log in with each method. Record on Windows → appears in the Linux client via sync. Revoking a device token stops its sync |
 | **M3b – Teams & sharing** | Teams, roles, invites (username + link), share grants with inherit/custom, default sharing, share dialog + teams UI in client, revocation of cached foreign laps | Access-control test matrix green. User B sees only laps shared with B or B's teams. Leaving a team removes access |
 | **M4 – Web UI** | Serve `web/` from server with HttpApi; account/teams/sharing pages; "shared with me" browser per track/car | Compare own lap vs a team mate's shared lap in the browser |
 | **M5 – F1 25** | UDP source (2025 + 2026 formats), flashback handling, UDP forwarding, console note in docs | Time trial + race laps recorded with correct validity. Flashback laps flagged |
 | **M6 – LMU** | `LMU_Data` source, scoring interpolation, REST poller (VE, setup), setup hint UI | Laps recorded with correct times; VE/TC/ABS traces visible |
-| **M7 – Proton bridge + more games** | `rz-bridge.exe` (localhost TCP), Steam launch-option docs; next games by demand (ACC, AC EVO, AMS2, rF2, Forza…) | A Proton game captured on Linux end-to-end |
+| **M7 – Proton bridge + more games** | `sy-bridge.exe` (localhost TCP), Steam launch-option docs; next games by demand (ACC, AC EVO, AMS2, rF2, Forza…) | A Proton game captured on Linux end-to-end |
 | **Later** | OIDC login, corner insights, micro-sectors, theoretical best, MoTeC export, setups, live overlay | – |
 
 M1 is the biggest milestone. A useful internal split is M1a (capture + store + session list) and M1b (lap view + compare).
@@ -393,8 +393,8 @@ M1 is the biggest milestone. A useful internal split is M1a (capture + store + s
 
 | Component | License | Reason |
 |---|---|---|
-| `rz-server`, `apps/desktop`, `web/`, `rz-capture`, `rz-store`, `rz-sync`, `rz-analysis`, `rz-bridge` | **AGPL-3.0-or-later** | Anyone who changes these and distributes them, or runs them as a network service, must publish their changes. Nobody can turn Rundenzeit into a closed hosted service |
-| `rz-model` (incl. `.rzx` format), `rz-source-iracing`, `rz-source-f1`, `rz-source-lmu` | **MIT OR Apache-2.0** | Other tools can use the parsers and read/write the export format. That helps data portability and the format becomes a de-facto standard |
+| `sy-server`, `apps/desktop`, `web/`, `sy-capture`, `sy-store`, `sy-sync`, `sy-analysis`, `sy-bridge` | **AGPL-3.0-or-later** | Anyone who changes these and distributes them, or runs them as a network service, must publish their changes. Nobody can turn Stintory into a closed hosted service |
+| `sy-model` (incl. `.stintory` format), `sy-source-iracing`, `sy-source-f1`, `sy-source-lmu` | **MIT OR Apache-2.0** | Other tools can use the parsers and read/write the export format. That helps data portability and the format becomes a de-facto standard |
 
 Rules:
 - Permissive crates must **never depend on AGPL crates**. Enforced with `cargo deny` (the dependency direction model/sources → capture → store/analysis → apps makes this natural).

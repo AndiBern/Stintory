@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { invoke } from '@tauri-apps/api/core';
@@ -57,8 +57,8 @@ export class TauriApi implements ApiClient {
 			directory: false,
 			title: 'Import',
 			filters: [
-				{ name: 'Rundenzeit export or iRacing telemetry', extensions: ['rzx', 'ibt'] },
-				{ name: 'Rundenzeit export', extensions: ['rzx'] },
+				{ name: 'Stintory export or iRacing telemetry', extensions: ['stintory', 'ibt'] },
+				{ name: 'Stintory export', extensions: ['stintory'] },
 				{ name: 'iRacing telemetry', extensions: ['ibt'] }
 			]
 		});
@@ -70,14 +70,14 @@ export class TauriApi implements ApiClient {
 		return call('import_files', { paths });
 	}
 
-	async exportRzx(request: ExportRequest, suggestedName: string): Promise<ExportResult | null> {
+	async exportBundle(request: ExportRequest, suggestedName: string): Promise<ExportResult | null> {
 		const path = await save({
 			title: 'Export',
-			defaultPath: `${suggestedName}.rzx`,
-			filters: [{ name: 'Rundenzeit export', extensions: ['rzx'] }]
+			defaultPath: `${suggestedName}.stintory`,
+			filters: [{ name: 'Stintory export', extensions: ['stintory'] }]
 		});
 		if (!path) return null;
-		return call('export_rzx', {
+		return call('export_bundle', {
 			request: { sessionIds: [], lapIds: [], ...request },
 			path
 		});

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {
@@ -23,7 +23,7 @@ export type Unsubscribe = () => void;
  * The one API shape the frontend talks to.
  *
  * - In the desktop app it is implemented by {@link TauriApi} (Tauri `invoke`).
- * - In the browser it is implemented by {@link HttpApi} (rz-server REST API).
+ * - In the browser it is implemented by {@link HttpApi} (sy-server REST API).
  *
  * Views must only use this interface, never a concrete implementation.
  * Features that only exist on the desktop (file import, live recording,
@@ -33,13 +33,13 @@ export interface ApiClient {
 	readonly capabilities: {
 		/** Import telemetry files from the local disk */
 		importFiles: boolean;
-		/** Export to files on the local disk (.rzx, CSV) */
+		/** Export to files on the local disk (.stintory, CSV) */
 		exportFiles: boolean;
 		/** Live recording while driving */
 		liveRecording: boolean;
 		/** Local client settings */
 		localSettings: boolean;
-		/** Sync with a Rundenzeit server (desktop app) */
+		/** Sync with a Stintory server (desktop app) */
 		serverSync: boolean;
 	};
 
@@ -53,10 +53,10 @@ export interface ApiClient {
 	pickAndImportFiles(): Promise<ImportResult | null>;
 	importFiles(paths: string[]): Promise<ImportResult>;
 	/**
-	 * Asks where to save, then writes an .rzx file; null if cancelled.
+	 * Asks where to save, then writes an .stintory file; null if cancelled.
 	 * `suggestedName` is the file name proposed in the dialog.
 	 */
-	exportRzx(request: ExportRequest, suggestedName: string): Promise<ExportResult | null>;
+	exportBundle(request: ExportRequest, suggestedName: string): Promise<ExportResult | null>;
 	/**
 	 * Writes lap telemetry as CSV: asks for a file (one lap) or a folder
 	 * (several laps); null if cancelled.

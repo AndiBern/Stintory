@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors -->
+<!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
@@ -101,7 +101,7 @@
 	</h1>
 
 	{#if !account}
-		<p class="text-zinc-400">Logging in is only needed on a Rundenzeit server.</p>
+		<p class="text-zinc-400">Logging in is only needed on a Stintory server.</p>
 	{:else}
 		<form class="flex flex-col gap-4" onsubmit={submit}>
 			{#if challenge && methods.includes('passkey')}

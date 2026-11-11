@@ -4628,29 +4628,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rundenzeit-desktop"
-version = "0.1.0"
-dependencies = [
- "keyring",
- "rz-analysis",
- "rz-capture",
- "rz-model",
- "rz-source-iracing",
- "rz-store",
- "rz-sync",
- "serde",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "thiserror 2.0.21",
- "time",
- "tokio",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "rusqlite"
 version = "0.41.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4787,140 +4764,6 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
-
-[[package]]
-name = "rz-analysis"
-version = "0.1.0"
-dependencies = [
- "rz-model",
- "serde_json",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "rz-capture"
-version = "0.1.0"
-dependencies = [
- "rz-model",
- "rz-source-iracing",
- "rz-store",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "time",
- "tracing",
- "zstd",
-]
-
-[[package]]
-name = "rz-model"
-version = "0.1.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "bytes",
- "hex",
- "parquet",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.21",
- "time",
- "uuid",
- "zip",
-]
-
-[[package]]
-name = "rz-server"
-version = "0.1.0"
-dependencies = [
- "argon2 0.6.0",
- "axum",
- "axum-extra",
- "base64 0.23.1",
- "chacha20poly1305",
- "clap",
- "deadpool-postgres",
- "hex",
- "hmac 0.12.1",
- "http-body-util",
- "qrcode",
- "rand",
- "rz-analysis",
- "rz-model",
- "rz-store",
- "serde",
- "serde_json",
- "sha1 0.10.7",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.21",
- "time",
- "tokio",
- "tokio-postgres",
- "tower",
- "tower-http 0.7.1",
- "tracing",
- "tracing-subscriber",
- "url",
- "uuid",
- "webauthn-authenticator-rs",
- "webauthn-rs",
- "webauthn-rs-proto",
-]
-
-[[package]]
-name = "rz-source-iracing"
-version = "0.1.0"
-dependencies = [
- "rz-model",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "time",
- "tracing",
- "windows",
-]
-
-[[package]]
-name = "rz-store"
-version = "0.1.0"
-dependencies = [
- "rusqlite",
- "rz-model",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 2.0.21",
- "time",
- "tracing",
-]
-
-[[package]]
-name = "rz-sync"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64 0.23.1",
- "rand",
- "reqwest",
- "rustls",
- "rz-capture",
- "rz-model",
- "rz-server",
- "rz-source-iracing",
- "rz-store",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.21",
- "time",
- "tokio",
- "tokio-postgres",
- "tracing",
- "uuid",
-]
 
 [[package]]
 name = "salsa20"
@@ -5566,6 +5409,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff7589a1859b09232522bb9edf076ca7fcf14ded96685d3fa629db73023ffbb7"
 
 [[package]]
+name = "stintory-desktop"
+version = "0.1.0"
+dependencies = [
+ "keyring",
+ "serde",
+ "sy-analysis",
+ "sy-capture",
+ "sy-model",
+ "sy-source-iracing",
+ "sy-store",
+ "sy-sync",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "string_cache"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5645,6 +5511,140 @@ dependencies = [
  "base64 0.21.7",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "sy-analysis"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sy-model",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sy-capture"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sy-model",
+ "sy-source-iracing",
+ "sy-store",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
+ "zstd",
+]
+
+[[package]]
+name = "sy-model"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "bytes",
+ "hex",
+ "parquet",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "thiserror 2.0.21",
+ "time",
+ "uuid",
+ "zip",
+]
+
+[[package]]
+name = "sy-server"
+version = "0.1.0"
+dependencies = [
+ "argon2 0.6.0",
+ "axum",
+ "axum-extra",
+ "base64 0.23.1",
+ "chacha20poly1305",
+ "clap",
+ "deadpool-postgres",
+ "hex",
+ "hmac 0.12.1",
+ "http-body-util",
+ "qrcode",
+ "rand",
+ "serde",
+ "serde_json",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "sy-analysis",
+ "sy-model",
+ "sy-store",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tokio-postgres",
+ "tower",
+ "tower-http 0.7.1",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "uuid",
+ "webauthn-authenticator-rs",
+ "webauthn-rs",
+ "webauthn-rs-proto",
+]
+
+[[package]]
+name = "sy-source-iracing"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sy-model",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
+ "windows",
+]
+
+[[package]]
+name = "sy-store"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sy-model",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
+]
+
+[[package]]
+name = "sy-sync"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.23.1",
+ "rand",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sy-capture",
+ "sy-model",
+ "sy-server",
+ "sy-source-iracing",
+ "sy-store",
+ "tempfile",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
+ "tokio-postgres",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

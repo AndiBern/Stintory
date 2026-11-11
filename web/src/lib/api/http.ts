@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { ApiError, notAvailable, type ApiClient, type Unsubscribe } from './client.ts';
@@ -81,7 +81,7 @@ export interface AccountApi {
 }
 
 /**
- * ApiClient backed by the rz-server REST API (`/api/v1`), plus the account
+ * ApiClient backed by the sy-server REST API (`/api/v1`), plus the account
  * features of the server ({@link AccountApi}).
  *
  * Changing requests carry the session's CSRF token (`X-CSRF-Token`), which
@@ -126,9 +126,9 @@ export class HttpApi implements ApiClient, AccountApi {
 		return this.request<CompareData>('POST', '/analysis/compare', request);
 	}
 
-	/** Lets the user pick .rzx files and uploads them one by one. */
+	/** Lets the user pick .stintory files and uploads them one by one. */
 	async pickAndImportFiles(): Promise<ImportResult | null> {
-		const files = await pickFiles('.rzx');
+		const files = await pickFiles('.stintory');
 		if (files.length === 0) return null;
 		const total: ImportResult = { files: 0, sessions: 0, laps: 0, skippedLaps: 0 };
 		for (const file of files) {
@@ -150,7 +150,7 @@ export class HttpApi implements ApiClient, AccountApi {
 		return Promise.reject(notAvailable('Importing files from disk paths'));
 	}
 
-	exportRzx(): Promise<ExportResult | null> {
+	exportBundle(): Promise<ExportResult | null> {
 		return Promise.reject(notAvailable('Exporting files'));
 	}
 

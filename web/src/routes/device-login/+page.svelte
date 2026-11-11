@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors -->
+<!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import { page } from '$app/state';
@@ -50,7 +50,7 @@
 	<h1 class="mb-4 text-2xl font-semibold">Connect a desktop app</h1>
 	{#if !valid || !codeChallenge}
 		<p class="text-red-400" role="alert">
-			This link is incomplete. Please start connecting again from the Rundenzeit app.
+			This link is incomplete. Please start connecting again from the Stintory app.
 		</p>
 	{:else if done === 'allowed'}
 		<p class="text-zinc-300">Connecting… You can return to the app.</p>
@@ -66,7 +66,7 @@
 			change your account. You can disconnect it any time on the Account page.
 		</p>
 		<p class="mb-6 text-xs text-zinc-500">
-			Only allow this if you just clicked "Connect" in the Rundenzeit app on your computer.
+			Only allow this if you just clicked "Connect" in the Stintory app on your computer.
 		</p>
 		{#if error}
 			<p class="mb-4 text-sm text-red-400" role="alert">{error}</p>

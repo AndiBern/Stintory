@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors -->
+<!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import './layout.css';
@@ -76,12 +76,12 @@
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
-	<title>Rundenzeit</title>
+	<title>Stintory</title>
 </svelte:head>
 
 <div class="flex h-screen bg-zinc-950 text-zinc-100">
 	<nav class="flex w-52 shrink-0 flex-col gap-1 border-r border-zinc-800 p-3" aria-label="Main">
-		<div class="mb-4 px-2 text-lg font-semibold tracking-tight">Rundenzeit</div>
+		<div class="mb-4 px-2 text-lg font-semibold tracking-tight">Stintory</div>
 		{#if !account || auth.me || !auth.reachable}
 			{#each nav as item (item.href)}
 				<a

@@ -1,10 +1,10 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Rundenzeit desktop client (Tauri backend).
+//! Stintory desktop client (Tauri backend).
 //!
 //! The web frontend (`web/`) calls the commands in [`commands`] through
-//! Tauri's `invoke`. They implement the same API shape as rz-server's REST
+//! Tauri's `invoke`. They implement the same API shape as sy-server's REST
 //! API, see `web/src/lib/api/`.
 
 mod commands;
@@ -21,7 +21,7 @@ use tracing_subscriber::EnvFilter;
 use crate::state::AppState;
 
 /// Environment variable to override the data directory (useful for development).
-const DATA_DIR_ENV: &str = "RUNDENZEIT_DATA_DIR";
+const DATA_DIR_ENV: &str = "STINTORY_DATA_DIR";
 
 /// Starts the desktop app.
 pub fn run() {
@@ -61,7 +61,7 @@ pub fn run() {
             commands::delete_session,
             commands::compare_laps,
             commands::import_files,
-            commands::export_rzx,
+            commands::export_bundle,
             commands::export_csv,
             commands::sync_status,
             commands::sync_connect,
@@ -76,7 +76,7 @@ pub fn run() {
             commands::recorder_status,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building the Rundenzeit desktop app");
+        .expect("error while building the Stintory desktop app");
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event

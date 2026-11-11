@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors -->
+<!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts" module>
 	import type { ExportSelection } from '#lib/api/index.ts';
@@ -30,7 +30,7 @@
 	const client = api();
 	let dialog: HTMLDialogElement | undefined = $state();
 	let scopeIndex = $state(0);
-	let format = $state<'rzx' | 'csv'>('rzx');
+	let format = $state<'bundle' | 'csv'>('bundle');
 	let driverName = $state('');
 	let includeSetup = $state(false);
 	let busy = $state(false);
@@ -54,7 +54,7 @@
 	});
 
 	$effect(() => {
-		if (!csvPossible) format = 'rzx';
+		if (!csvPossible) format = 'bundle';
 	});
 
 	async function run(event: SubmitEvent) {
@@ -65,7 +65,7 @@
 			const result =
 				format === 'csv'
 					? await client.exportCsv(scope.csvLapIds!, scope.fileName)
-					: await client.exportRzx(
+					: await client.exportBundle(
 							{
 								...scope.selection,
 								driverName: driverName.trim() || null,
@@ -112,11 +112,11 @@
 		<fieldset class="flex flex-col gap-1 text-sm">
 			<legend class="mb-1 text-zinc-400">Format</legend>
 			<label class="flex items-start gap-2">
-				<input type="radio" name="format" value="rzx" bind:group={format} class="mt-1" />
+				<input type="radio" name="format" value="bundle" bind:group={format} class="mt-1" />
 				<span>
-					Rundenzeit file (.rzx)
+					Stintory file (.stintory)
 					<span class="block text-xs text-zinc-400"
-						>All data, for another Rundenzeit installation or to share with someone.</span
+						>All data, for another Stintory installation or to share with someone.</span
 					>
 				</span>
 			</label>
@@ -138,7 +138,7 @@
 			</label>
 		</fieldset>
 
-		{#if format === 'rzx'}
+		{#if format === 'bundle'}
 			<label class="flex flex-col gap-1 text-sm">
 				<span class="text-zinc-400">Driver name shown to others (optional)</span>
 				<input

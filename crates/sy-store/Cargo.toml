@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[package]
+name = "sy-store"
+description = "Stintory local storage: SQLite metadata + content-addressed telemetry blobs"
+license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[dependencies]
+sy-model.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

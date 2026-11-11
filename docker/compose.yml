@@ -1,29 +1,29 @@
-# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-# Rundenzeit server + Postgres. See docs/SERVER.md.
+# Stintory server + Postgres. See docs/SERVER.md.
 #
 #   cp docker/.env.example docker/.env   # then fill in the values
 #   docker compose -f docker/compose.yml up -d --build
 #
 # The server listens on 127.0.0.1:8080; put your reverse proxy (TLS) in front.
 
-name: rundenzeit
+name: stintory
 
 services:
   server:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: rundenzeit-server:latest
+    image: stintory-server:latest
     restart: unless-stopped
     environment:
-      RZ_DATABASE_URL: postgres://rundenzeit:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres/rundenzeit
-      RZ_PUBLIC_URL: ${RZ_PUBLIC_URL:?set RZ_PUBLIC_URL}
-      RZ_SECRET_KEY: ${RZ_SECRET_KEY:?set RZ_SECRET_KEY}
-      RZ_ADMIN_USERNAME: ${RZ_ADMIN_USERNAME:-}
-      RZ_ADMIN_PASSWORD: ${RZ_ADMIN_PASSWORD:-}
-      RZ_TRUST_PROXY: ${RZ_TRUST_PROXY:-true}
+      STINTORY_DATABASE_URL: postgres://stintory:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres/stintory
+      STINTORY_PUBLIC_URL: ${STINTORY_PUBLIC_URL:?set STINTORY_PUBLIC_URL}
+      STINTORY_SECRET_KEY: ${STINTORY_SECRET_KEY:?set STINTORY_SECRET_KEY}
+      STINTORY_ADMIN_USERNAME: ${STINTORY_ADMIN_USERNAME:-}
+      STINTORY_ADMIN_PASSWORD: ${STINTORY_ADMIN_PASSWORD:-}
+      STINTORY_TRUST_PROXY: ${STINTORY_TRUST_PROXY:-true}
       RUST_LOG: ${RUST_LOG:-info}
     ports:
       - "127.0.0.1:8080:8080"
@@ -37,13 +37,13 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_USER: rundenzeit
+      POSTGRES_USER: stintory
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-      POSTGRES_DB: rundenzeit
+      POSTGRES_DB: stintory
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rundenzeit"]
+      test: ["CMD-SHELL", "pg_isready -U stintory"]
       interval: 5s
       timeout: 3s
       retries: 20

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 # Forgejo Actions CI. Runs on the Ubuntu runner only. Windows builds and
@@ -38,18 +38,18 @@ jobs:
   rust:
     name: Rust
     runs-on: ubuntu-latest
-    # rz-server's API tests need Postgres (they are skipped without it)
+    # sy-server's API tests need Postgres (they are skipped without it)
     services:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_USER: rundenzeit
-          POSTGRES_PASSWORD: rundenzeit
-          POSTGRES_DB: rundenzeit
+          POSTGRES_USER: stintory
+          POSTGRES_PASSWORD: stintory
+          POSTGRES_DB: stintory
         options: >-
-          --health-cmd "pg_isready -U rundenzeit" --health-interval 2s --health-timeout 3s --health-retries 30
+          --health-cmd "pg_isready -U stintory" --health-interval 2s --health-timeout 3s --health-retries 30
     env:
-      RZ_TEST_DATABASE_URL: postgres://rundenzeit:rundenzeit@postgres:5432/rundenzeit
+      STINTORY_TEST_DATABASE_URL: postgres://stintory:stintory@postgres:5432/stintory
     steps:
       - uses: https://github.com/actions/checkout@v5
       - name: Install system dependencies (Tauri)
@@ -76,7 +76,7 @@ jobs:
       # Windows-only code (live shared memory readers) can't run here, but it
       # must compile and pass clippy for the Windows target.
       - run: rustup target add x86_64-pc-windows-msvc
-      - run: cargo clippy --target x86_64-pc-windows-msvc -p rz-source-iracing --all-targets --locked -- -D warnings
+      - run: cargo clippy --target x86_64-pc-windows-msvc -p sy-source-iracing --all-targets --locked -- -D warnings
 
   licenses:
     name: Licenses

@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors -->
+<!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import uPlot from 'uplot';
@@ -117,7 +117,7 @@
 		if (!container) return;
 		const el = container;
 		const d = data;
-		const syncKey = `rz-${Math.random().toString(36).slice(2)}`;
+		const syncKey = `sy-${Math.random().toString(36).slice(2)}`;
 		const charts: uPlot[] = [];
 		let syncing = false;
 

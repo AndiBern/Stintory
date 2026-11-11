@@ -1,10 +1,10 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Sync with a Rundenzeit server (docs/PLAN.md §9.3, §9.5).
+//! Sync with a Stintory server (docs/PLAN.md §9.3, §9.5).
 //!
 //! - Connecting opens the server's device login in the system browser
-//!   ([`rz_sync::DeviceLogin`]). The device token goes into the OS keychain
+//!   ([`sy_sync::DeviceLogin`]). The device token goes into the OS keychain
 //!   (Windows Credential Manager, Secret Service on Linux); without a
 //!   keychain it is kept in the app's database, and the UI says so.
 //! - A background task syncs a few seconds after something changed
@@ -14,10 +14,10 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use rz_capture::pipeline::SharedStore;
-use rz_model::api::{SyncState, SyncStatus};
-use rz_store::{SYNC_AUTO, SYNC_CURSOR, SYNC_SERVER_URL, SYNC_TOKEN_FALLBACK, StoreError};
-use rz_sync::{Client, DeviceLogin, SyncError, sync_once};
+use sy_capture::pipeline::SharedStore;
+use sy_model::api::{SyncState, SyncStatus};
+use sy_store::{SYNC_AUTO, SYNC_CURSOR, SYNC_SERVER_URL, SYNC_TOKEN_FALLBACK, StoreError};
+use sy_sync::{Client, DeviceLogin, SyncError, sync_once};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_opener::OpenerExt;
@@ -29,7 +29,7 @@ use crate::commands::EVENT_SESSIONS_CHANGED;
 pub const EVENT_SYNC_STATUS: &str = "sync-status";
 
 /// Keychain service name of the device token (the account is the server URL).
-const KEYCHAIN_SERVICE: &str = "org.rundenzeit.desktop";
+const KEYCHAIN_SERVICE: &str = "de.stintory.desktop";
 /// Settings: cached account and device name for display while offline.
 const SYNC_USERNAME: &str = "sync.username";
 const SYNC_DEVICE_NAME: &str = "sync.device_name";
@@ -75,8 +75,8 @@ fn device_name() -> String {
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty());
     match name {
-        Some(n) => format!("Rundenzeit on {n}"),
-        None => "Rundenzeit desktop".into(),
+        Some(n) => format!("Stintory on {n}"),
+        None => "Stintory desktop".into(),
     }
 }
 

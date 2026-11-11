@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Passkeys in the browser: converts between the server's JSON (binary
@@ -106,7 +106,7 @@ export function passkeyErrorText(e: unknown): string {
 		if (e.name === 'NotAllowedError') return 'The passkey request was cancelled or timed out.';
 		if (e.name === 'InvalidStateError') return 'This passkey is already registered.';
 		if (e.name === 'SecurityError')
-			return 'Passkeys need HTTPS and the address configured as RZ_PUBLIC_URL.';
+			return 'Passkeys need HTTPS and the address configured as STINTORY_PUBLIC_URL.';
 	}
 	return e instanceof Error ? e.message : String(e);
 }

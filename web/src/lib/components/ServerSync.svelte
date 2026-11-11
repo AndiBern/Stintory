@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors -->
+<!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import { api } from '#lib/api/index.ts';
@@ -59,8 +59,8 @@
 <section class="mb-6 max-w-2xl rounded border border-zinc-800 p-4">
 	<h2 class="mb-1 font-medium">Server sync</h2>
 	<p class="mb-3 text-sm text-zinc-400">
-		Sync your sessions with your own Rundenzeit server, to see them on your other computers and in
-		the browser.
+		Sync your sessions with your own Stintory server, to see them on your other computers and in the
+		browser.
 	</p>
 
 	{#if !s}
@@ -89,7 +89,7 @@
 					<span class="text-zinc-400"
 						>Device token (Account page on the server → Devices → Create token)</span
 					>
-					<input class="{input} font-mono" bind:value={token} placeholder="rzd_…" required />
+					<input class="{input} font-mono" bind:value={token} placeholder="syd_…" required />
 				</label>
 			{/if}
 			<div class="flex items-center gap-3">

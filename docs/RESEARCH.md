@@ -1,4 +1,4 @@
-# Rundenzeit – Research Findings
+# Stintory – Research Findings
 
 Status: research done 2026-11-10. Facts marked **(verify)** come from community sources only, or could not be confirmed. They need checking against a real game install during implementation.
 
@@ -145,7 +145,7 @@ LMU runs on the rFactor 2 engine. Historically all tools used the third-party **
   - `simshmbridge`: a Linux program creates a `/dev/shm` file, and a bridge `.exe` in the prefix creates the Windows mapping backed by that file before the game starts (AC/ACC, AMS2/PC2, LMU, rF2).
   - `winecarte`: mirrors Win32 named mappings into `/dev/shm`.
   - `Datalink`: changes the Proton launch command to start a bridge, which then launches the game.
-- **Our plan:** our own tiny `rz-bridge.exe`, built from the same Rust capture code and cross-compiled. It reads the mapping inside the prefix and streams frames over **localhost TCP** to the native client. That needs no `/dev/shm` tricks or start-order constraints, and it works for every shared-memory game we add. Steam launch option: `rz-bridge.exe --launch %command%`.
+- **Our plan:** our own tiny `sy-bridge.exe`, built from the same Rust capture code and cross-compiled. It reads the mapping inside the prefix and streams frames over **localhost TCP** to the native client. That needs no `/dev/shm` tricks or start-order constraints, and it works for every shared-memory game we add. Steam launch option: `sy-bridge.exe --launch %command%`.
 
 ---
 
@@ -163,7 +163,7 @@ Other relevant tools:
 - **iRacing × Cosworth Pi Toolbox**: free for iRacing subscribers since Sept 2025. Pro-level analysis software (with live remote telemetry announced).
 - **MoTeC i2 / Race Engineering Center / Atlas**: offline analysis of `.ibt` (via converters such as "Mu").
 - **SimHub, Racelab, TinyPedal, CrewChief**: overlays/dashes/spotter. Good references for multi-game data mapping (CrewChief is open source C#; TinyPedal is GPL Python).
-- **Open-source self-hosted attempts**: *TelemetryStack* (iRacing `.ibt` → QuestDB → dashboard, Raspberry Pi), *RaceIQ* (local DB, F1 25/ACC/Forza/AC EVO), *omatrack* (distance-aligned lap comparison). **None covers our scope** of multi-game capture + local-first + self-hosted multi-user sync with per-lap sharing. That gap is what Rundenzeit fills.
+- **Open-source self-hosted attempts**: *TelemetryStack* (iRacing `.ibt` → QuestDB → dashboard, Raspberry Pi), *RaceIQ* (local DB, F1 25/ACC/Forza/AC EVO), *omatrack* (distance-aligned lap comparison). **None covers our scope** of multi-game capture + local-first + self-hosted multi-user sync with per-lap sharing. That gap is what Stintory fills.
 
 **What every competitor shows (feature baseline):**
 1. Session list (track, car, date, conditions, best lap)

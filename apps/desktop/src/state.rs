@@ -1,13 +1,13 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use rz_capture::pipeline::SharedStore;
-use rz_model::api::{RecorderState, RecorderStatus};
-use rz_store::{Store, StoreError};
+use sy_capture::pipeline::SharedStore;
+use sy_model::api::{RecorderState, RecorderStatus};
+use sy_store::{Store, StoreError};
 
 /// Shared state of the desktop app, managed by Tauri.
 pub struct AppState {

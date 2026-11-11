@@ -1,4 +1,4 @@
-<!-- SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors -->
+<!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import {
@@ -204,10 +204,10 @@
 
 	function downloadCodes() {
 		if (!recoveryCodes) return;
-		const text = `Rundenzeit recovery codes for ${auth.me?.username} (${location.host})\nEach code works once.\n\n${recoveryCodes.join('\n')}\n`;
+		const text = `Stintory recovery codes for ${auth.me?.username} (${location.host})\nEach code works once.\n\n${recoveryCodes.join('\n')}\n`;
 		const a = document.createElement('a');
 		a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
-		a.download = 'rundenzeit-recovery-codes.txt';
+		a.download = 'stintory-recovery-codes.txt';
 		a.click();
 		URL.revokeObjectURL(a.href);
 	}
@@ -232,7 +232,7 @@
 <h1 class="mb-4 text-2xl font-semibold">Account</h1>
 
 {#if !account || !auth.me}
-	<p class="text-zinc-400">Accounts exist on a Rundenzeit server.</p>
+	<p class="text-zinc-400">Accounts exist on a Stintory server.</p>
 {:else}
 	{#if auth.me.mustChangePassword}
 		<p

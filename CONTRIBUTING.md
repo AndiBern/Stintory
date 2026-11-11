@@ -1,21 +1,21 @@
-# Contributing to Rundenzeit
+# Contributing to Stintory
 
 Thanks for your interest! Please read this before opening a pull request.
 
 ## Licensing
 
-Rundenzeit uses two licenses (see [docs/PLAN.md §12](docs/PLAN.md)):
+Stintory uses two licenses (see [docs/PLAN.md §12](docs/PLAN.md)):
 
 | Part | License |
 |---|---|
-| Apps and app crates (`apps/`, `web/`, `rz-capture`, `rz-store`, `rz-analysis`, `rz-sync`, `rz-server`, …) | AGPL-3.0-or-later |
-| Library crates (`rz-model`, `rz-source-*`) | MIT OR Apache-2.0 |
+| Apps and app crates (`apps/`, `web/`, `sy-capture`, `sy-store`, `sy-analysis`, `sy-sync`, `sy-server`, …) | AGPL-3.0-or-later |
+| Library crates (`sy-model`, `sy-source-*`) | MIT OR Apache-2.0 |
 
 Your contribution to a file is licensed under that file's license. Every source file starts with an SPDX header, for example:
 
 <!-- REUSE-IgnoreStart -->
 ```rust
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 ```
 <!-- REUSE-IgnoreEnd -->

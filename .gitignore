@@ -11,7 +11,7 @@ node_modules/
 /apps/desktop/gen/
 
 # Local data while developing
-/.rundenzeit-dev/
+/.stintory-dev/
 
 # Editors / OS
 .idea/

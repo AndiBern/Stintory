@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 // Enforces the license split from docs/PLAN.md §12.1:

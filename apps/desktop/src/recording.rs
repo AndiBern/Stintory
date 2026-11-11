@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2026 The Rundenzeit Contributors
+// SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Background work: crash recovery at startup and the live recording
@@ -7,10 +7,10 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use rz_capture::RecorderOutput;
-use rz_capture::pipeline::{SharedStore, Sink};
-use rz_model::api::{RecorderState, RecorderStatus};
-use rz_store::StoreError;
+use sy_capture::RecorderOutput;
+use sy_capture::pipeline::{SharedStore, Sink};
+use sy_model::api::{RecorderState, RecorderStatus};
+use sy_store::StoreError;
 use tauri::{AppHandle, Emitter};
 
 use crate::commands::EVENT_SESSIONS_CHANGED;
@@ -23,7 +23,7 @@ pub const EVENT_RECORDER_STATUS: &str = "recorder-status";
 pub fn spawn_recovery(app: AppHandle, store: SharedStore) {
     std::thread::Builder::new()
         .name("recovery".into())
-        .spawn(move || match rz_capture::pipeline::recover_spools(&store) {
+        .spawn(move || match sy_capture::pipeline::recover_spools(&store) {
             Ok(0) => {}
             Ok(laps) => {
                 tracing::info!(laps, "recovered laps from unprocessed recordings");
@@ -135,11 +135,11 @@ fn supervise(
     use std::sync::atomic::Ordering;
     use std::time::Duration;
 
-    use rz_capture::pipeline::{RunOptions, finish_spool, run};
-    use rz_capture::spool::SpoolWriter;
-    use rz_model::GameId;
-    use rz_source_iracing::LiveSource;
-    use rz_store::SpoolState;
+    use sy_capture::pipeline::{RunOptions, finish_spool, run};
+    use sy_capture::spool::SpoolWriter;
+    use sy_model::GameId;
+    use sy_source_iracing::LiveSource;
+    use sy_store::SpoolState;
 
     /// No data for this long: the session is over (sim closed or left).
     const IDLE_END: Duration = Duration::from_secs(10);
@@ -199,7 +199,7 @@ fn supervise(
             }
             // On shutdown the spool stays in state `Recording`; it is
             // replayed at the next start (idempotent).
-            Err(rz_capture::pipeline::PipelineError::Cancelled) => {}
+            Err(sy_capture::pipeline::PipelineError::Cancelled) => {}
             Err(e) => {
                 tracing::error!(error = %e, "recording failed");
                 let msg = e.to_string();
