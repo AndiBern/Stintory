@@ -40,13 +40,13 @@ pub mod names {
     pub const POS_Y: &str = "pos_y";
     /// World position Z, metres.
     pub const POS_Z: &str = "pos_z";
-    /// Lateral acceleration, m/s².
+    /// Lateral acceleration, m/s², positive in right-hand turns.
     pub const G_LAT: &str = "g_lat";
     /// Longitudinal acceleration, m/s².
     pub const G_LONG: &str = "g_long";
     /// Vertical acceleration, m/s².
     pub const G_VERT: &str = "g_vert";
-    /// Yaw angle, radians.
+    /// Heading, radians, clockwise from the direction of +`pos_y`, -π…π.
     pub const YAW: &str = "yaw";
     /// Yaw rate, rad/s.
     pub const YAW_RATE: &str = "yaw_rate";

@@ -222,7 +222,15 @@ fn race_laps_and_the_pit_stop() {
     s.drive(&mut g, 2.0);
     g.pit = 0;
     s.drive_lap(&mut g);
+    // the last lap: at the flag the game keeps the lap number and only
+    // reports the lap time; then the cool-down lap
+    while g.dist < 990.0 {
+        s.drive(&mut g, 0.05);
+    }
     s.send(&g.event(b"CHQF", &[]));
+    g.dist = 0.0;
+    g.last_lap_ms = 19_876;
+    s.drive(&mut g, 3.0);
     s.send(&g.event(b"SEND", &[]));
 
     let out = record(s);
@@ -234,8 +242,9 @@ fn race_laps_and_the_pit_stop() {
             (1, Some(20_000), true, false, false, false, false),
             (2, Some(20_000), true, false, true, false, false),
             (3, Some(20_000), true, true, false, false, false),
-            // the second after the line until the end of the session
-            (4, None, false, false, false, true, false),
+            (4, Some(19_876), true, false, false, false, false),
+            // the cool-down after the flag
+            (5, None, false, false, false, true, false),
         ]
     );
 }
@@ -347,4 +356,27 @@ fn udp_to_store_and_replay() {
             .collect::<Vec<_>>(),
         "same ids, times and validity"
     );
+}
+
+/// A time trial that starts shortly before the line: the bit before the
+/// line is an out-lap, not part of lap 1.
+#[test]
+fn time_trial_start_just_before_the_line() {
+    let mut g = SimGame::new(Format::F2026);
+    let mut s = Script::default();
+    s.send(&g.session());
+    s.send(&g.participants());
+    g.dist = -185.0;
+    s.drive_lap(&mut g); // still lap 1 for the game: crosses at 0 m
+    let lap1 = g.lap;
+    while g.lap == lap1 {
+        s.drive(&mut g, 0.05);
+    }
+    s.send(&g.event(b"SEND", &[]));
+    let out = record(s);
+    let l = laps(&out);
+    assert_eq!(l[0].lap.number, 0);
+    assert!(l[0].lap.flags.out_lap);
+    assert_eq!(l[1].lap.number, 1);
+    assert!(!l[1].lap.flags.out_lap);
 }

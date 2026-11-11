@@ -31,7 +31,20 @@
 //!   flashback can undo an invalidation, so the state while driving is not
 //!   final), and the lap-valid bit of the player's session history.
 //! - Flashback (`FLBK`): rewinds to the event's session time; the recorder
-//!   drops the rewound samples and flags the lap.
+//!   drops the rewound samples and flags the lap. In time trial the game
+//!   invalidates a lap with a flashback.
+//! - Before the line the game counts lap 1 with a negative lap distance.
+//!   Outside races that is the out-lap from the pit exit (in time trial up
+//!   to almost a lap): it becomes lap 0, flagged out-lap. In races it is
+//!   the grid: lap 1's official time starts at the start, so it stays.
+//! - At the end of a race the lap number doesn't go up at the flag; only
+//!   the last lap time changes. That finishes the lap, and later frames
+//!   (the cool-down) get the next number.
+//! - Axes and signs (checked with a recording at Catalunya): world X/Z are
+//!   horizontal, Y up. `pos_x` = X, `pos_y` = -Z gives an unmirrored map
+//!   (steering left turns the path counter-clockwise). The game's lateral g
+//!   is negative in right-hand turns (ours positive). The game's yaw is the
+//!   direction of travel from +Z towards +X.
 //! - Track key `f1_25:<trackId>`, car key `f1_25:<teamId>/<formula>`.
 
 use sy_model::capture::{
@@ -103,6 +116,10 @@ struct SessionState {
     frame_lap: Option<i32>,
     /// Laps of the session history already reported invalid
     history_invalid: Vec<u8>,
+    /// On the out-lap before the line (time trial), see `on_telemetry`
+    out_lap: bool,
+    /// The race's last lap was finished (the game's lap number stays)
+    finished_lap: Option<u8>,
 }
 
 /// One channel and how to compute it.
@@ -150,18 +167,20 @@ fn channels(format: Format) -> Vec<Ch> {
         }),
         ch(names::GEAR, Unit::None, I32, |i| f64::from(i.t.gear)),
         ch(names::RPM, Unit::Rpm, F32, |i| f64::from(i.t.rpm)),
-        // world X/Z are horizontal, Y is up
+        // world X/Z are horizontal, Y is up; X east, -Z north gives an
+        // unmirrored map (checked with recordings, see the module docs)
         ch(names::POS_X, Unit::Meter, F32, |i| {
             opt(i.m, |m| f64::from(m.position[0]))
         }),
         ch(names::POS_Y, Unit::Meter, F32, |i| {
-            opt(i.m, |m| f64::from(m.position[2]))
+            opt(i.m, |m| -f64::from(m.position[2]))
         }),
         ch(names::POS_Z, Unit::Meter, F32, |i| {
             opt(i.m, |m| f64::from(m.position[1]))
         }),
+        // the game's lateral g is negative in right-hand turns
         ch(names::G_LAT, Unit::MeterPerSecondSquared, F32, |i| {
-            opt(i.m, |m| f64::from(m.g_force[0]) * G)
+            opt(i.m, |m| -f64::from(m.g_force[0]) * G)
         }),
         ch(names::G_LONG, Unit::MeterPerSecondSquared, F32, |i| {
             opt(i.m, |m| f64::from(m.g_force[1]) * G)
@@ -169,8 +188,10 @@ fn channels(format: Format) -> Vec<Ch> {
         ch(names::G_VERT, Unit::MeterPerSecondSquared, F32, |i| {
             opt(i.m, |m| f64::from(m.g_force[2]) * G)
         }),
+        // the game's yaw is the heading from +Z towards +X; ours is
+        // clockwise from north (-Z): π - yaw
         ch(names::YAW, Unit::Radian, F32, |i| {
-            opt(i.m, |m| f64::from(m.yaw_pitch_roll[0]))
+            opt(i.m, |m| heading(m.yaw_pitch_roll[0]))
         }),
         ch(names::FUEL, Unit::Kilogram, F32, |i| {
             opt(i.s, |s| f64::from(s.fuel_kg))
@@ -245,6 +266,37 @@ fn channels(format: Format) -> Vec<Ch> {
     v
 }
 
+/// Events for a finished lap: the official time (`last_ms`, sectors 1 and 2
+/// as last seen in the lap) and the game's verdict at the end of the lap.
+fn lap_completed(prev: &LapData, last_ms: u32, out: &mut Vec<SourceEvent>) {
+    let lap = i32::from(prev.lap);
+    if last_ms > 0 {
+        let (s1, s2) = (prev.sector1_ms, prev.sector2_ms);
+        let sectors = if s1 > 0 && s2 > 0 && s1 + s2 < last_ms {
+            vec![s1, s2, last_ms - s1 - s2]
+        } else {
+            Vec::new()
+        };
+        out.push(SourceEvent::LapTime {
+            lap,
+            lap_time_ms: last_ms,
+            sector_times_ms: sectors,
+        });
+    }
+    if prev.lap_invalid {
+        out.push(SourceEvent::Invalidate {
+            lap: Some(lap),
+            reason: "invalidated by the game".into(),
+        });
+    }
+}
+
+/// Our heading (clockwise from `pos_y`, -π…π) from the game's yaw.
+fn heading(yaw: f32) -> f64 {
+    let h = std::f64::consts::PI - f64::from(yaw);
+    (h + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI
+}
+
 /// Nominal sample rate from the spacing of the first telemetry packets,
 /// rounded to the rates the game offers.
 fn sample_rate(times: &[f32]) -> f32 {
@@ -289,6 +341,8 @@ impl SessionState {
             last_frame_time: None,
             frame_lap: None,
             history_invalid: Vec::new(),
+            out_lap: false,
+            finished_lap: None,
         }
     }
 
@@ -379,26 +433,17 @@ impl SessionState {
         }
         let Some(prev) = prev else { return };
         if ld.lap > prev.lap {
-            let lap = i32::from(prev.lap);
-            if ld.last_lap_ms > 0 {
-                let (s1, s2) = (prev.sector1_ms, prev.sector2_ms);
-                let sectors = if s1 > 0 && s2 > 0 && s1 + s2 < ld.last_lap_ms {
-                    vec![s1, s2, ld.last_lap_ms - s1 - s2]
-                } else {
-                    Vec::new()
-                };
-                out.push(SourceEvent::LapTime {
-                    lap,
-                    lap_time_ms: ld.last_lap_ms,
-                    sector_times_ms: sectors,
-                });
-            }
-            if prev.lap_invalid {
-                out.push(SourceEvent::Invalidate {
-                    lap: Some(lap),
-                    reason: "invalidated by the game".into(),
-                });
-            }
+            lap_completed(&prev, ld.last_lap_ms, out);
+        } else if ld.lap == prev.lap
+            && ld.last_lap_ms != prev.last_lap_ms
+            && ld.last_lap_ms > 0
+            && self.finished_lap.is_none()
+        {
+            // The race's last lap: the game doesn't count up at the flag,
+            // only the last lap time changes. Later frames go to the next
+            // lap number, so the recorder closes this lap.
+            lap_completed(&prev, ld.last_lap_ms, out);
+            self.finished_lap = Some(ld.lap);
         }
         if ld.driver_status == 0 && prev.driver_status != 0 && self.frame_lap.is_some() {
             out.push(SourceEvent::LapAborted {
@@ -406,6 +451,12 @@ impl SessionState {
             });
             self.frame_lap = None;
         }
+    }
+
+    fn is_race(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|s| tables::session_type(s.session_type) == sy_model::SessionType::Race)
     }
 
     fn on_history(&mut self, history: &SessionHistory, out: &mut Vec<SourceEvent>) {
@@ -459,13 +510,39 @@ impl SessionState {
             .iter()
             .map(|c| (c.get)(&inputs))
             .collect();
-        let lap = i32::from(ld.lap);
+        let mut lap = i32::from(ld.lap);
+        let mut lap_dist = ld.lap_distance_m;
+        let mut in_pits = ld.pit_status != 0;
+        if self.finished_lap == Some(ld.lap) {
+            lap += 1; // after the flag
+        }
+        // Before the line the game counts lap 1 with a negative distance.
+        // Outside races that's the out-lap from the pit exit (it can be
+        // almost a lap): we make it lap 0, an out-lap, with the distance
+        // from the line. In races it is the grid, and lap 1's time starts
+        // there.
+        let len = self
+            .session
+            .as_ref()
+            .map_or(0.0, |s| f32::from(s.track_length_m));
+        if !self.out_lap && len > 0.0 && lap_dist < 0.0 && !self.is_race() {
+            self.out_lap = true;
+            in_pits = true; // the first sample: flags the out-lap
+        }
+        if self.out_lap {
+            if lap_dist >= 0.0 {
+                self.out_lap = false;
+            } else {
+                lap -= 1;
+                lap_dist += len;
+            }
+        }
         self.frame_lap = Some(lap);
         out.push(SourceEvent::Frame(Frame {
             session_time: time,
             lap,
-            lap_dist: ld.lap_distance_m,
-            in_pits: ld.pit_status != 0,
+            lap_dist,
+            in_pits,
             values,
         }));
     }

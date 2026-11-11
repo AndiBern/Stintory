@@ -94,7 +94,8 @@ export class TauriApi implements ApiClient {
 			filters: [
 				{ name: 'Stintory export or iRacing telemetry', extensions: ['stintory', 'ibt'] },
 				{ name: 'Stintory export', extensions: ['stintory'] },
-				{ name: 'iRacing telemetry', extensions: ['ibt'] }
+				{ name: 'iRacing telemetry', extensions: ['ibt'] },
+				{ name: 'Raw recording (debugging)', extensions: ['syraw'] }
 			]
 		});
 		if (!picked || picked.length === 0) return null;

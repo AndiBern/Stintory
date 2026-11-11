@@ -122,11 +122,41 @@ pub fn formula(v: u8) -> &'static str {
     }
 }
 
-/// Human-readable car name. Team names are not known yet (the appendix is
-/// missing), so the team is shown by number.
+/// Team name and the car's series for a formula and team id. Confirmed with
+/// recordings: F1 8 McLaren; F1 26 476 Mercedes; F2 160 Rodin Motorsport
+/// (2024), 466 Campos Racing (2025), 499 Invicta Racing (2026); F1 World 41.
+/// The other F1 teams 0–9 are the game's long-standing order, not yet
+/// checked. Ids are per car of a season, so they are not shared between
+/// formulas.
+fn team(formula_id: u8, team_id: u16) -> Option<(&'static str, &'static str)> {
+    Some(match (formula_id, team_id) {
+        (0, 0) => ("Mercedes", "F1 2025"),
+        (0, 1) => ("Ferrari", "F1 2025"),
+        (0, 2) => ("Red Bull Racing", "F1 2025"),
+        (0, 3) => ("Williams", "F1 2025"),
+        (0, 4) => ("Aston Martin", "F1 2025"),
+        (0, 5) => ("Alpine", "F1 2025"),
+        (0, 6) => ("Racing Bulls", "F1 2025"),
+        (0, 7) => ("Haas", "F1 2025"),
+        (0, 8) => ("McLaren", "F1 2025"),
+        (0, 9) => ("Sauber", "F1 2025"),
+        (13, 476) => ("Mercedes", "F1 26"),
+        (2, 160) => ("Rodin Motorsport", "F2 2024"),
+        (2, 466) => ("Campos Racing", "F2 2025"),
+        (2, 499) => ("Invicta Racing", "F2 2026"),
+        (8, 41) => ("F1 World car", "F1 World"),
+        _ => return None,
+    })
+}
+
+/// Human-readable car name, e.g. "McLaren (F1 2025)" or "team 12 (F2)".
 pub fn car_name(formula_id: u8, team_id: Option<u16>) -> String {
     match team_id {
-        Some(t) => format!("{} · team {t}", formula(formula_id)),
+        Some(t) => match team(formula_id, t) {
+            Some((name, series)) if name.starts_with(series) => name.to_owned(),
+            Some((name, series)) => format!("{name} ({series})"),
+            None => format!("team {t} ({})", formula(formula_id)),
+        },
         None => formula(formula_id).to_owned(),
     }
 }
@@ -143,7 +173,12 @@ mod tests {
         assert_eq!(session_type(15), SessionType::Race);
         assert_eq!(session_type(10), SessionType::Qualifying);
         assert_eq!(session_type(0), SessionType::Other);
-        assert_eq!(car_name(0, Some(3)), "F1 · team 3");
+        assert_eq!(car_name(0, Some(8)), "McLaren (F1 2025)");
+        assert_eq!(car_name(13, Some(476)), "Mercedes (F1 26)");
+        assert_eq!(car_name(2, Some(499)), "Invicta Racing (F2 2026)");
+        assert_eq!(car_name(8, Some(41)), "F1 World car");
+        assert_eq!(car_name(2, Some(8)), "team 8 (F2)");
+        assert_eq!(car_name(0, Some(40)), "team 40 (F1)");
         assert_eq!(car_name(2, None), "F2");
     }
 }

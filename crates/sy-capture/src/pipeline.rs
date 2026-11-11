@@ -249,6 +249,53 @@ impl RawSource for SpoolSource {
     }
 }
 
+/// Several spool files of one game read as one stream, in the given order
+/// (e.g. a recording that was split in two). Sessions are told apart by the
+/// game's data, so unrelated files simply give several sessions.
+pub struct SpoolChain {
+    game: GameId,
+    files: std::collections::VecDeque<SpoolSource>,
+}
+
+impl SpoolChain {
+    /// Opens the files; all must be of the same game.
+    pub fn open(paths: &[std::path::PathBuf]) -> Result<Self, SpoolError> {
+        let files: std::collections::VecDeque<SpoolSource> = paths
+            .iter()
+            .map(|p| SpoolSource::open(p))
+            .collect::<Result<_, _>>()?;
+        let game = files
+            .front()
+            .map(RawSource::game)
+            .ok_or_else(|| SpoolError::Invalid("no files".into()))?;
+        if files.iter().any(|f| f.game() != game) {
+            return Err(SpoolError::Invalid(
+                "the raw recordings are of different games".into(),
+            ));
+        }
+        Ok(Self { game, files })
+    }
+}
+
+impl RawSource for SpoolChain {
+    fn game(&self) -> GameId {
+        self.game
+    }
+
+    fn next_record(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<Option<sy_model::capture::RawRecord>, SourceError> {
+        while let Some(file) = self.files.front_mut() {
+            if let Some(r) = file.next_record(timeout)? {
+                return Ok(Some(r));
+            }
+            self.files.pop_front();
+        }
+        Ok(None)
+    }
+}
+
 /// Marks a finished spool as processed and deletes the file unless the
 /// debug setting "keep raw recordings" is on. A spool without any records
 /// (the game was running, but sent no data) is always deleted.

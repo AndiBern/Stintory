@@ -222,20 +222,25 @@ pub async fn import_files(
     paths: Vec<String>,
 ) -> CmdResult<ImportResult> {
     let paths: Vec<PathBuf> = paths.into_iter().map(PathBuf::from).collect();
-    if let Some(bad) = paths
-        .iter()
-        .find(|p| !has_extension(p, "ibt") && !has_extension(p, sy_model::bundle::EXTENSION))
-    {
+    if let Some(bad) = paths.iter().find(|p| {
+        !has_extension(p, "ibt")
+            && !has_extension(p, sy_model::bundle::EXTENSION)
+            && !has_extension(p, RAW_EXTENSION)
+    }) {
         return Err(CommandError::BadRequest(format!(
-            "unsupported file: {} (supported: .stintory, iRacing .ibt)",
+            "unsupported file: {} (supported: .stintory, iRacing .ibt, raw recordings .syraw)",
             bad.display()
         )));
     }
+    let files = paths.len() as u32;
+    let (raws, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths
+        .into_iter()
+        .partition(|p| has_extension(p, RAW_EXTENSION));
     let (bundles, ibts): (Vec<PathBuf>, Vec<PathBuf>) = paths
         .into_iter()
         .partition(|p| has_extension(p, sy_model::bundle::EXTENSION));
     let mut result = ImportResult {
-        files: (bundles.len() + ibts.len()) as u32,
+        files,
         sessions: 0,
         laps: 0,
         skipped_laps: 0,
@@ -264,9 +269,52 @@ pub async fn import_files(
         result.sessions += stats.sessions;
         result.laps += stats.laps;
     }
+    if !raws.is_empty() {
+        let stats = import_raw(&state, raws).await?;
+        result.sessions += stats.sessions;
+        result.laps += stats.laps;
+    }
     let _ = app.emit(EVENT_SESSIONS_CHANGED, ());
     sync.nudge();
     Ok(result)
+}
+
+/// Extension of raw recordings (spool files, docs/PLAN.md §5.1).
+const RAW_EXTENSION: &str = "syraw";
+
+/// Processes kept raw recordings again (e.g. after a fix in a game
+/// adapter). They are read as one stream in the order of their names
+/// (= recording order), so a recording split in two (a long pause in an
+/// older version) is put back together. Laps that are stored already are
+/// kept as they are: delete the session first to replace them.
+async fn import_raw(
+    state: &State<'_, AppState>,
+    mut paths: Vec<PathBuf>,
+) -> CmdResult<pipeline::Stats> {
+    let mut sink = state.store.clone();
+    paths.sort_by_key(|p| p.file_name().map(ToOwned::to_owned));
+    let name = paths
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut source =
+            pipeline::SpoolChain::open(&paths).map_err(pipeline::PipelineError::from)?;
+        pipeline::run(
+            &mut source,
+            &mut sink,
+            RunOptions {
+                spool: None,
+                should_stop: &|| false,
+                idle_done: None,
+                progress: None,
+            },
+        )
+    })
+    .await
+    .map_err(|e| CommandError::BadRequest(e.to_string()))?
+    .map_err(|e| CommandError::BadRequest(format!("{name}: {e}")))
 }
 
 async fn import_ibts(

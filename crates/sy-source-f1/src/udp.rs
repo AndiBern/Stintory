@@ -12,6 +12,8 @@
 
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use sy_model::GameId;
@@ -20,6 +22,7 @@ use time::OffsetDateTime;
 
 use crate::decoder::packet_record;
 use crate::filter::player_only;
+use crate::packets::{Event, Header, id};
 
 /// The game's default port.
 pub const DEFAULT_PORT: u16 = 20777;
@@ -45,6 +48,10 @@ pub struct UdpSource {
     /// A record read by [`wait_for_data`](Self::wait_for_data)
     pending: Option<RawRecord>,
     buf: Vec<u8>,
+    /// Session of the last packet
+    uid: Option<u64>,
+    /// A session started and hasn't ended (`SEND`)
+    session_open: Arc<AtomicBool>,
 }
 
 impl UdpSource {
@@ -56,7 +63,31 @@ impl UdpSource {
             forward: config.forward.clone(),
             pending: None,
             buf: vec![0; MAX_PACKET],
+            uid: None,
+            session_open: Arc::default(),
         })
+    }
+
+    /// True while a session runs: from its first packet until the game
+    /// says it ended. The game sends nothing while it is paused, so silence
+    /// during an open session is a pause, not the end.
+    pub fn session_open(&self) -> Arc<AtomicBool> {
+        self.session_open.clone()
+    }
+
+    fn track_session(&mut self, packet: &[u8]) {
+        let Ok(h) = Header::parse(packet) else { return };
+        if self.uid != Some(h.session_uid) {
+            self.uid = Some(h.session_uid);
+            self.session_open.store(true, Ordering::Relaxed);
+        }
+        if h.packet_id == id::EVENT {
+            match Event::parse(packet) {
+                Event::SessionStarted => self.session_open.store(true, Ordering::Relaxed),
+                Event::SessionEnded => self.session_open.store(false, Ordering::Relaxed),
+                _ => {}
+            }
+        }
     }
 
     /// The bound address.
@@ -101,6 +132,7 @@ impl UdpSource {
                 }
             }
             if let Some(filtered) = player_only(packet) {
+                self.track_session(&filtered);
                 let now_ms = (OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64;
                 return Ok(Some(packet_record(now_ms, &filtered)));
             }
@@ -172,5 +204,18 @@ mod tests {
             forwarded,
             vec![b"hello".to_vec(), lobby.buf, tel.buf.clone()]
         );
+        assert!(source.session_open().load(Ordering::Relaxed));
+
+        // the session ends with SEND
+        let mut send = PacketBuilder::new(Format::F2026, id::EVENT, 1, 5.0, 2);
+        send.put(crate::packets::HEADER_LEN, b"SEND");
+        game.send_to(&send.buf, to).unwrap();
+        assert!(
+            source
+                .next_record(Duration::from_secs(2))
+                .unwrap()
+                .is_some()
+        );
+        assert!(!source.session_open().load(Ordering::Relaxed));
     }
 }

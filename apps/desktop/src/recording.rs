@@ -124,9 +124,14 @@ impl Context {
         self.shutdown.load(Ordering::Relaxed)
     }
 
-    /// Records from a live source (spooled) until it is idle for
-    /// `idle_end` or the app shuts down.
-    fn record(&self, game: GameId, source: &mut dyn RawSource, idle_end: Duration) {
+    /// Records from a live source (spooled) until `idle_done` says the
+    /// silence means the end, or the app shuts down.
+    fn record(
+        &self,
+        game: GameId,
+        source: &mut dyn RawSource,
+        idle_done: &mut dyn FnMut(Duration) -> bool,
+    ) {
         let spool = match self.store.with(|s| s.register_spool(game)) {
             Ok(s) => s,
             Err(e) => {
@@ -149,14 +154,13 @@ impl Context {
             sync: self.sync.clone(),
         };
         let stop = || self.stopping();
-        let mut idle_done = |idle: Duration| idle >= idle_end;
         let result = run(
             source,
             &mut sink,
             RunOptions {
                 spool: Some(&mut writer),
                 should_stop: &stop,
-                idle_done: Some(&mut idle_done),
+                idle_done: Some(idle_done),
                 progress: None,
             },
         );
@@ -249,9 +253,12 @@ pub fn f1_config(s: &F1CaptureSettings) -> Result<UdpConfig, String> {
     Ok(UdpConfig { listen, forward })
 }
 
-/// No F1 packets for this long: the session is over (game closed, or in the
-/// menus).
+/// No F1 packets for this long after a session ended: the recording ends
+/// (game closed, or in the menus).
 const F1_IDLE_END: Duration = Duration::from_secs(30);
+/// The game sends nothing while paused. Within a session the recording
+/// waits this long before it assumes the game was closed.
+const F1_PAUSE_MAX: Duration = Duration::from_secs(3600);
 
 /// Listens for F1 packets per the settings; records while they arrive.
 fn supervise_f1(ctx: Context, f1: Arc<F1Capture>) {
@@ -291,7 +298,15 @@ fn supervise_f1(ctx: Context, f1: Arc<F1Capture>) {
             match source.wait_for_data(Duration::from_millis(500)) {
                 Ok(true) => {
                     tracing::info!("F1 25 is sending telemetry, recording");
-                    ctx.record(GameId::F1_25, &mut source, F1_IDLE_END);
+                    let open = source.session_open();
+                    let mut idle_done = |idle: Duration| {
+                        idle >= if open.load(Ordering::Relaxed) {
+                            F1_PAUSE_MAX
+                        } else {
+                            F1_IDLE_END
+                        }
+                    };
+                    ctx.record(GameId::F1_25, &mut source, &mut idle_done);
                 }
                 Ok(false) => {}
                 Err(e) => {
@@ -358,7 +373,7 @@ fn supervise_iracing(ctx: Context) {
         }
         tracing::info!("iRacing is sending telemetry, recording");
         let mut source = LiveSource::new();
-        ctx.record(GameId::Iracing, &mut source, IDLE_END);
+        ctx.record(GameId::Iracing, &mut source, &mut |idle| idle >= IDLE_END);
     }
 }
 
