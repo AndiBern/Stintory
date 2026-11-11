@@ -4,10 +4,10 @@
 //! The binary packets of the F1 25 UDP telemetry, as far as Stintory uses
 //! them.
 //!
-//! Source: EA's "F1 25 UDP specification" (packet format 2025) and "F1 25:
-//! 2026 Season Pack UDP specification" (packet format 2026). Our own struct
-//! definitions, written from the field lists of those specs; every packet
-//! parser is checked against the packet size the spec states
+//! Source: EA's "Data Output from F1 25" (v3, packet format 2025) and "Data
+//! Output from F1 25: 2026 Season Pack" (v1.2, packet format 2026). Our own
+//! struct definitions, written from the field lists of those specs; every
+//! packet parser is checked against the packet size the spec states
 //! ([`packet_size`]). All values are little-endian and packed.
 //!
 //! Differences between the formats that matter here:
@@ -612,6 +612,18 @@ pub enum Event {
         /// What happened
         event: u8,
     },
+    /// `PENA`: a penalty (types and infringements: see
+    /// [`crate::tables::invalidation_reason`])
+    Penalty {
+        /// Penalty type
+        penalty_type: u8,
+        /// Infringement type
+        infringement: u8,
+        /// The car the penalty is for
+        car: u8,
+        /// Lap the penalty occurred on
+        lap: u8,
+    },
     /// Any other event (they are about other cars or not needed)
     Other([u8; 4]),
 }
@@ -642,6 +654,18 @@ impl Event {
                 kind: r.u8(),
                 event: r.u8(),
             },
+            b"PENA" => {
+                let penalty_type = r.u8();
+                let infringement = r.u8();
+                let car = r.u8();
+                r.skip(2); // other car, time
+                Self::Penalty {
+                    penalty_type,
+                    infringement,
+                    car,
+                    lap: r.u8(),
+                }
+            }
             _ => Self::Other(code),
         }
     }

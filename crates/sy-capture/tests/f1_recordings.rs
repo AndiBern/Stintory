@@ -195,7 +195,7 @@ fn jeddah_f2_2026_with_a_pause() {
         &replay_all(&[a, b]),
         "Jeddah",
         "f1_25:499/2",
-        "Invicta Racing (F2 2026)",
+        "Invicta (F2 2026)",
         &[
             (0, None, true, true, false, false),
             (1, Some(117_390), false, false, false, false),
@@ -214,7 +214,7 @@ fn austria_f2_2025() {
         &replay(&path),
         "Austria",
         "f1_25:466/2",
-        "Campos Racing (F2 2025)",
+        "Campos (F2 2025)",
         &[
             (0, None, true, true, false, false),
             (1, Some(76_117), false, false, false, false),
@@ -259,7 +259,7 @@ fn brazil_race_f1_world() {
         &r,
         "Brazil",
         "f1_25:41/8",
-        "F1 World car",
+        "F1 Generic (F1 World)",
         &[
             (1, Some(82_107), true, false, true, false),
             (2, Some(74_983), true, false, false, false),

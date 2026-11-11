@@ -4,9 +4,10 @@
 //! EA SPORTS F1 25 adapter for Stintory (UDP telemetry, packet formats
 //! 2025 and 2026).
 //!
-//! Written from scratch from EA's UDP specifications for F1 25 (format
-//! 2025) and the F1 25 2026 Season Pack (format 2026). No code from other
-//! telemetry tools is used (docs/PLAN.md §12.2). Behaviour still to be
+//! Written from scratch from EA's UDP specifications "Data Output from F1
+//! 25" (v3, format 2025) and "Data Output from F1 25: 2026 Season Pack"
+//! (v1.2, format 2026). No code from other telemetry tools is used
+//! (docs/PLAN.md §12.2). Behaviour still to be
 //! verified with recordings is listed in docs/games/f1.md.
 //!
 //! - [`packets`]: packet layouts of both formats

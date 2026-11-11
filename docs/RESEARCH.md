@@ -104,7 +104,7 @@ uint8  playerCarIndex, secondaryPlayerCarIndex
 - Positions: world X/Y/Z in metres, so track maps come for free.
 - UDP works over the network, so it works through Proton on Linux, and from consoles to a PC client.
 - Unofficial frequencies (from previous specs, **verify**): Motion/Lap/Telemetry/Status/MotionEx at the chosen rate, Session 2/s, Participants every 5 s, Damage 10/s, Session History & Tyre Sets 20/s cycling through cars, Time Trial & Lap Positions 1/s.
-- Implementation source: the **official EA spec** (forum post; a copy of the header is in `github.com/P403n1x87/f1-packets` `data/spec.h`, © EA, all rights reserved, so it's read-only reference and not copied). Community parsers (`f1-game-library-models-25`, `f1-game-packet-parser`, `open-f1-parser`) are not used (PLAN §12.2).
+- Implementation source: the **official EA specs** "Data Output from F1 25" (v3, May 2025) and "Data Output from F1 25: 2026 Season Pack" (v1.2, Sep 2026), PDFs from the EA forum (© EA; read, not copied; kept outside the repository). Before we had them, a copy of the header in `github.com/P403n1x87/f1-packets` `data/spec.h` served as read-only reference. Community parsers (`f1-game-library-models-25`, `f1-game-packet-parser`, `open-f1-parser`) are not used (PLAN §12.2).
 
 ---
 

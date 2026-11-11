@@ -162,6 +162,15 @@ impl SimGame {
         self.event(b"FLBK", &details)
     }
 
+    /// A penalty for the player's car in the current lap (types and
+    /// infringements: see [`crate::tables::invalidation_reason`]).
+    pub fn penalty(&self, penalty_type: u8, infringement: u8) -> Vec<u8> {
+        self.event(
+            b"PENA",
+            &[penalty_type, infringement, self.player, 255, 0, self.lap, 0],
+        )
+    }
+
     /// Session history of the player's car ([`history`](Self::history)
     /// plus the lap being driven).
     pub fn session_history(&self) -> Vec<u8> {

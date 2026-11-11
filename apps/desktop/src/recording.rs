@@ -295,7 +295,16 @@ fn supervise_f1(ctx: Context, f1: Arc<F1Capture>) {
         tracing::info!(addr = %config.listen, "listening for F1 25 packets");
         f1.set_status(Some(config.listen), None);
         while !ctx.stopping() && f1.generation.load(Ordering::Relaxed) == generation {
-            match source.wait_for_data(Duration::from_millis(500)) {
+            let result = source.wait_for_data(Duration::from_millis(500));
+            f1.set_status(
+                Some(config.listen),
+                source.unsupported_format().map(|f| {
+                    format!(
+                        "The game sends UDP format {f}, which Stintory can't read. In the game's UDP Telemetry Settings, set UDP Format to 2026 or 2025."
+                    )
+                }),
+            );
+            match result {
                 Ok(true) => {
                     tracing::info!("F1 25 is sending telemetry, recording");
                     let open = source.session_open();

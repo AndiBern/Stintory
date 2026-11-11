@@ -22,7 +22,7 @@ use time::OffsetDateTime;
 
 use crate::decoder::packet_record;
 use crate::filter::player_only;
-use crate::packets::{Event, Header, id};
+use crate::packets::{Event, Format, Header, id};
 
 /// The game's default port.
 pub const DEFAULT_PORT: u16 = 20777;
@@ -52,6 +52,8 @@ pub struct UdpSource {
     uid: Option<u64>,
     /// A session started and hasn't ended (`SEND`)
     session_open: Arc<AtomicBool>,
+    /// The game sends a UDP format we don't read (e.g. 2024)
+    unsupported_format: Option<u16>,
 }
 
 impl UdpSource {
@@ -65,7 +67,14 @@ impl UdpSource {
             buf: vec![0; MAX_PACKET],
             uid: None,
             session_open: Arc::default(),
+            unsupported_format: None,
         })
+    }
+
+    /// The UDP format of the last packets, if it is one we don't read
+    /// (the game is set to an older format, e.g. 2024).
+    pub fn unsupported_format(&self) -> Option<u16> {
+        self.unsupported_format
     }
 
     /// True while a session runs: from its first packet until the game
@@ -132,12 +141,23 @@ impl UdpSource {
                 }
             }
             if let Some(filtered) = player_only(packet) {
+                self.unsupported_format = None;
                 self.track_session(&filtered);
                 let now_ms = (OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64;
                 return Ok(Some(packet_record(now_ms, &filtered)));
             }
+            if let Some(f) = older_format(packet) {
+                self.unsupported_format = Some(f);
+            }
         }
     }
+}
+
+/// The UDP format of an F1 packet in a format we don't read (the game can
+/// also send the formats of earlier years).
+fn older_format(packet: &[u8]) -> Option<u16> {
+    let f = u16::from_le_bytes(packet.get(..2)?.try_into().ok()?);
+    ((2018..=2030).contains(&f) && Format::from_packet_format(f).is_none()).then_some(f)
 }
 
 impl RawSource for UdpSource {
@@ -217,5 +237,15 @@ mod tests {
                 .is_some()
         );
         assert!(!source.session_open().load(Ordering::Relaxed));
+
+        // the game set to the 2024 format: nothing recorded, but noticed
+        let mut old = tel.buf.clone();
+        old[0..2].copy_from_slice(&2024u16.to_le_bytes());
+        game.send_to(&old, to).unwrap();
+        assert!(!source.wait_for_data(Duration::from_millis(300)).unwrap());
+        assert_eq!(source.unsupported_format(), Some(2024));
+        game.send_to(&tel.buf, to).unwrap();
+        assert!(source.wait_for_data(Duration::from_secs(2)).unwrap());
+        assert_eq!(source.unsupported_format(), None);
     }
 }

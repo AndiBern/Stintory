@@ -43,16 +43,18 @@
 	<h2 class="mb-1 font-medium">F1 25</h2>
 	<p class="mb-3 text-sm text-zinc-400">
 		The game sends its telemetry over the network (UDP). In F1 25 open
-		<em>Settings → Telemetry Settings</em> and set: UDP Telemetry <strong>On</strong>, Broadcast
-		Mode <strong>Off</strong>, IP address <strong>127.0.0.1</strong> (on this PC) or this PC's
-		network address (console, other PC), port <strong>{form.port}</strong>, send rate
+		<em>Game Options → Settings → UDP Telemetry Settings</em> and set: UDP Telemetry
+		<strong>On</strong>, Broadcast Mode <strong>Off</strong>, IP address <strong>127.0.0.1</strong>
+		(on this PC) or this PC's network address (console, other PC), port
+		<strong>{form.port}</strong>, send rate
 		<strong>60 Hz</strong>, UDP format <strong>2026</strong> or <strong>2025</strong>.
 	</p>
 	<p class="mb-3 text-sm" role="status">
-		{#if settings.f1Error}
-			<span class="text-amber-400">{settings.f1Error}</span>
-		{:else if settings.f1Listening}
+		{#if settings.f1Listening}
 			<span class="text-zinc-300">Listening on {settings.f1Listening}.</span>
+			{#if settings.f1Error}<span class="block text-amber-400">{settings.f1Error}</span>{/if}
+		{:else if settings.f1Error}
+			<span class="text-amber-400">{settings.f1Error}</span>
 		{:else if settings.f1Capture.enabled}
 			<span class="text-zinc-400">Starting…</span>
 		{:else}

@@ -120,6 +120,8 @@ struct SessionState {
     out_lap: bool,
     /// The race's last lap was finished (the game's lap number stays)
     finished_lap: Option<u8>,
+    /// Reasons for invalidated laps from the game's penalties
+    invalidations: Vec<InvalidationNote>,
 }
 
 /// One channel and how to compute it.
@@ -255,6 +257,20 @@ fn channels(format: Format) -> Vec<Ch> {
     wheels!("f1.suspension_position", Unit::None, |i, w| opt(i.x, |x| {
         f64::from(x.suspension_position[w])
     }));
+    // surface under each wheel (tables::surface: 0 tarmac, 1 rumble strip,
+    // 4 gravel, 7 grass, …)
+    v.push(ch("f1.surface_rl", Unit::None, I32, |i| {
+        f64::from(i.t.surface[0])
+    }));
+    v.push(ch("f1.surface_rr", Unit::None, I32, |i| {
+        f64::from(i.t.surface[1])
+    }));
+    v.push(ch("f1.surface_fl", Unit::None, I32, |i| {
+        f64::from(i.t.surface[2])
+    }));
+    v.push(ch("f1.surface_fr", Unit::None, I32, |i| {
+        f64::from(i.t.surface[3])
+    }));
     if format == Format::F2026 {
         v.push(ch("f1.active_aero_mode", Unit::None, I32, |i| {
             opt(i.t2, |t| f64::from(t.active_aero_mode))
@@ -266,9 +282,53 @@ fn channels(format: Format) -> Vec<Ch> {
     v
 }
 
-/// Events for a finished lap: the official time (`last_ms`, sectors 1 and 2
-/// as last seen in the lap) and the game's verdict at the end of the lap.
-fn lap_completed(prev: &LapData, last_ms: u32, out: &mut Vec<SourceEvent>) {
+/// Why the game invalidated a lap, from its penalty events.
+#[derive(Debug, Clone)]
+struct InvalidationNote {
+    /// Session time of the penalty (a flashback before it takes it back)
+    time: f32,
+    /// The game's lap number it applies to
+    lap: i32,
+    reason: String,
+}
+
+impl SessionState {
+    /// Why lap `lap` (game numbering) is invalid: the reasons of the
+    /// game's penalties, or a generic text.
+    fn invalid_reason(&self, lap: i32) -> String {
+        let mut reasons: Vec<&str> = Vec::new();
+        for n in self.invalidations.iter().filter(|n| n.lap == lap) {
+            if !reasons.contains(&n.reason.as_str()) {
+                reasons.push(&n.reason);
+            }
+        }
+        if reasons.is_empty() {
+            "invalidated by the game".to_owned()
+        } else {
+            reasons.join(", ")
+        }
+    }
+
+    /// Events for a finished lap: the official time (`last_ms`, sectors 1
+    /// and 2 as last seen in the lap) and the game's verdict at the end of
+    /// the lap.
+    fn lap_completed(&self, prev: &LapData, last_ms: u32, out: &mut Vec<SourceEvent>) {
+        lap_completed(
+            prev,
+            last_ms,
+            prev.lap_invalid
+                .then(|| self.invalid_reason(i32::from(prev.lap))),
+            out,
+        );
+    }
+}
+
+fn lap_completed(
+    prev: &LapData,
+    last_ms: u32,
+    invalid: Option<String>,
+    out: &mut Vec<SourceEvent>,
+) {
     let lap = i32::from(prev.lap);
     if last_ms > 0 {
         let (s1, s2) = (prev.sector1_ms, prev.sector2_ms);
@@ -283,10 +343,10 @@ fn lap_completed(prev: &LapData, last_ms: u32, out: &mut Vec<SourceEvent>) {
             sector_times_ms: sectors,
         });
     }
-    if prev.lap_invalid {
+    if let Some(reason) = invalid {
         out.push(SourceEvent::Invalidate {
             lap: Some(lap),
-            reason: "invalidated by the game".into(),
+            reason,
         });
     }
 }
@@ -343,6 +403,7 @@ impl SessionState {
             history_invalid: Vec::new(),
             out_lap: false,
             finished_lap: None,
+            invalidations: Vec::new(),
         }
     }
 
@@ -373,7 +434,9 @@ impl SessionState {
             "network_game": s.network_game,
             "ai_difficulty": s.ai_difficulty,
             "game_mode": s.game_mode,
+            "game_mode_name": tables::game_mode(s.game_mode),
             "rule_set": s.rule_set,
+            "rule_set_name": tables::rule_set(s.rule_set),
             "recovery_mode": s.recovery_mode,
             "sector2_start_m": s.sector2_start_m,
             "sector3_start_m": s.sector3_start_m,
@@ -433,7 +496,7 @@ impl SessionState {
         }
         let Some(prev) = prev else { return };
         if ld.lap > prev.lap {
-            lap_completed(&prev, ld.last_lap_ms, out);
+            self.lap_completed(&prev, ld.last_lap_ms, out);
         } else if ld.lap == prev.lap
             && ld.last_lap_ms != prev.last_lap_ms
             && ld.last_lap_ms > 0
@@ -442,7 +505,7 @@ impl SessionState {
             // The race's last lap: the game doesn't count up at the flag,
             // only the last lap time changes. Later frames go to the next
             // lap number, so the recorder closes this lap.
-            lap_completed(&prev, ld.last_lap_ms, out);
+            self.lap_completed(&prev, ld.last_lap_ms, out);
             self.finished_lap = Some(ld.lap);
         }
         if ld.driver_status == 0 && prev.driver_status != 0 && self.frame_lap.is_some() {
@@ -476,7 +539,7 @@ impl SessionState {
                 self.history_invalid.push(number);
                 out.push(SourceEvent::Invalidate {
                     lap: Some(i32::from(number)),
-                    reason: "invalidated by the game".into(),
+                    reason: self.invalid_reason(i32::from(number)),
                 });
             }
         }
@@ -547,9 +610,27 @@ impl SessionState {
         }));
     }
 
-    fn on_event(&mut self, event: Event, out: &mut Vec<SourceEvent>) {
+    fn on_event(&mut self, h: &Header, event: Event, out: &mut Vec<SourceEvent>) {
         match event {
+            Event::Penalty {
+                penalty_type,
+                infringement,
+                car,
+                lap,
+            } if car == self.player => {
+                if let Some(reason) = tables::invalidation_reason(penalty_type, infringement) {
+                    for offset in tables::invalidated_laps(penalty_type) {
+                        self.invalidations.push(InvalidationNote {
+                            time: h.session_time,
+                            lap: i32::from(lap) + offset,
+                            reason: reason.clone(),
+                        });
+                    }
+                }
+            }
             Event::Flashback { session_time, .. } if self.meta.is_some() => {
+                // what happened after the flashback point didn't happen
+                self.invalidations.retain(|n| n.time < session_time);
                 let to = f64::from(session_time);
                 out.push(SourceEvent::Rewind {
                     to_session_time: to,
@@ -623,7 +704,7 @@ impl F1Decoder {
             id::CAR_TELEMETRY_2 => s.telemetry2 = Some(CarTelemetry2::parse(&h, packet)),
             id::CAR_TELEMETRY => s.on_telemetry(&h, CarTelemetry::parse(&h, packet), &mut out),
             id::SESSION_HISTORY => s.on_history(&SessionHistory::parse(packet), &mut out),
-            id::EVENT => s.on_event(Event::parse(packet), &mut out),
+            id::EVENT => s.on_event(&h, Event::parse(packet), &mut out),
             _ => {}
         }
         out

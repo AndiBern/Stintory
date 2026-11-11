@@ -380,3 +380,58 @@ fn time_trial_start_just_before_the_line() {
     assert_eq!(l[1].lap.number, 1);
     assert!(!l[1].lap.flags.out_lap);
 }
+
+/// The game's penalties tell why a lap is invalid; a flashback takes a
+/// penalty back.
+#[test]
+fn invalidation_reasons_from_penalties() {
+    let mut g = SimGame::new(Format::F2026);
+    let mut s = Script::default();
+    s.send(&g.session());
+    s.send(&g.participants());
+    s.drive_lap(&mut g); // lap 1: clean
+
+    // lap 2: running wide
+    s.drive(&mut g, 5.0);
+    g.invalid = true;
+    s.send(&g.penalty(10, 26));
+    s.drive_lap(&mut g);
+
+    // lap 3: corner cutting at the end, which also costs lap 4
+    s.drive(&mut g, 18.0);
+    g.invalid = true;
+    s.send(&g.penalty(11, 25));
+    s.drive_lap(&mut g);
+    g.invalid = true;
+    s.drive_lap(&mut g);
+
+    // lap 5: running wide, then a flashback to before it: the game takes
+    // the penalty back, but in time trial the flashback invalidates the lap
+    s.drive(&mut g, 5.0);
+    let back = g.clone();
+    s.drive(&mut g, 2.0);
+    s.send(&g.penalty(10, 26));
+    s.send(&g.flashback(back.time));
+    g = back;
+    g.invalid = true;
+    s.send(&g.penalty(10, 31));
+    s.drive_lap(&mut g);
+    s.send(&g.event(b"SEND", &[]));
+
+    let out = record(s);
+    let reasons: Vec<(u32, Option<String>)> = laps(&out)
+        .iter()
+        .filter(|l| !l.lap.flags.incomplete)
+        .map(|l| (l.lap.number, l.lap.invalid_reason.clone()))
+        .collect();
+    assert_eq!(
+        reasons,
+        vec![
+            (1, None),
+            (2, Some("running wide".into())),
+            (3, Some("corner cutting".into())),
+            (4, Some("corner cutting".into())),
+            (5, Some("flashback used".into())),
+        ]
+    );
+}
