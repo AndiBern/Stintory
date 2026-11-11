@@ -62,6 +62,16 @@ export function connect(): () => void {
 	return () => subs.forEach((unsubscribe) => unsubscribe());
 }
 
+/**
+ * Teams and sharing can be used: logged in on the server, or the desktop
+ * app is connected to one.
+ */
+export function sharingAvailable(): boolean {
+	if (!accountApi()) return !!app.sync?.serverUrl;
+	// restricted accounts (new password or 2FA needed first) can't use it yet
+	return auth.me !== null && !auth.me.mustChangePassword && !auth.me.twoFactorRequired;
+}
+
 /** Text for a finished import. */
 export function importSummary(r: ImportResult): string {
 	const files = r.files === 1 ? '1 file' : `${r.files} files`;

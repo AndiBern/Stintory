@@ -163,6 +163,17 @@ impl Store {
     ///
     /// [`needs_telemetry`]: Self::needs_telemetry
     pub fn apply_remote_lap(&mut self, lap: &Lap, telemetry: Option<&[u8]>) -> Result<bool> {
+        self.apply_remote_lap_inner(lap, telemetry, true)
+    }
+
+    /// [`apply_remote_lap`](Self::apply_remote_lap); `own` laps are
+    /// recorded as known to the server.
+    pub(crate) fn apply_remote_lap_inner(
+        &mut self,
+        lap: &Lap,
+        telemetry: Option<&[u8]>,
+        own: bool,
+    ) -> Result<bool> {
         let mut lap = lap.clone();
         lap.session_id = self.canonical_session_id(lap.session_id)?;
         if !self.session_exists(lap.session_id)? {
@@ -201,7 +212,9 @@ impl Store {
             Err(e) => return Err(e),
             Ok(old) => {
                 if old == lap {
-                    self.mark_current("lap", &lap.id.to_string())?;
+                    if own {
+                        self.mark_current("lap", &lap.id.to_string())?;
+                    }
                     return Ok(false);
                 }
                 self.update_lap_row(&lap, size)?;
@@ -210,7 +223,9 @@ impl Store {
                 }
             }
         }
-        self.mark_current("lap", &lap.id.to_string())?;
+        if own {
+            self.mark_current("lap", &lap.id.to_string())?;
+        }
         Ok(true)
     }
 

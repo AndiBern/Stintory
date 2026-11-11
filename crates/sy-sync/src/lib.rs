@@ -6,12 +6,14 @@
 //! - [`DeviceLogin`]: connect a desktop app through the system browser
 //!   (loopback redirect + PKCE);
 //! - [`Client`]: the server's device and sync API;
-//! - [`sync_once`]: push local changes, pull the other devices' changes.
+//! - [`sync_once`]: push local changes, pull the other devices' changes,
+//!   drop kept laps of others that aren't shared anymore;
+//! - [`fetch_shared_session`]: keep a session someone shared as a reference.
 
 pub mod client;
 pub mod engine;
 pub mod login;
 
 pub use client::{Client, SyncError, normalize_server_url};
-pub use engine::{SyncReport, sync_once};
+pub use engine::{SyncReport, fetch_shared_session, sync_once};
 pub use login::DeviceLogin;

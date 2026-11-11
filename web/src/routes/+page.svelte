@@ -155,6 +155,9 @@
 										>{formatOrigin(s.origin)}</span
 									>
 								{/if}
+								{#if s.shared}
+									<span class="ml-1 rounded bg-emerald-950 px-1.5 text-emerald-300">shared</span>
+								{/if}
 							</div>
 						</td>
 						<td>{s.carName}</td>

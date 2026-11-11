@@ -6,6 +6,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { ApiError, type ApiClient, type Unsubscribe } from './client.ts';
+import { ServerApiClient, type ServerApi } from './sharing.ts';
 import type {
 	AppInfo,
 	CompareData,
@@ -31,6 +32,11 @@ export class TauriApi implements ApiClient {
 		serverSync: true
 	};
 
+	/** Passed on to the connected server by the backend (device token). */
+	readonly server: ServerApi = new ServerApiClient((method, path, body) =>
+		call('server_request', { method, path, body: body ?? null })
+	);
+
 	getInfo(): Promise<AppInfo> {
 		return call('get_info');
 	}
@@ -39,8 +45,19 @@ export class TauriApi implements ApiClient {
 		return call('list_sessions');
 	}
 
-	getSession(id: string): Promise<SessionDetail> {
-		return call('get_session', { id });
+	async getSession(id: string, owner?: string): Promise<SessionDetail> {
+		if (!owner) return call('get_session', { id });
+		let local: string;
+		try {
+			// keeps (or refreshes) a local copy of the shared session
+			local = await call<string>('open_shared_session', { owner, id });
+		} catch (e) {
+			// offline: the copy from last time, if there is one
+			return call<SessionDetail>('get_session', { id }).catch(() => {
+				throw e;
+			});
+		}
+		return call('get_session', { id: local });
 	}
 
 	deleteSession(id: string): Promise<void> {

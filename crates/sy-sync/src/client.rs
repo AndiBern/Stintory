@@ -8,11 +8,11 @@ use std::time::Duration;
 
 use reqwest::{RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
-use sy_model::BlobHash;
 use sy_model::remote::{
-    BlobHashes, CurrentDevice, MissingBlobs, NewDevice, SyncChanges, SyncPush, SyncPushResult,
-    TokenRequest,
+    BlobHashes, CurrentDevice, ForeignLap, ForeignLapCheck, ForeignLapCheckResult, MissingBlobs,
+    NewDevice, SharedSessionDownload, SyncChanges, SyncPush, SyncPushResult, TokenRequest,
 };
+use sy_model::{BlobHash, LapId, SessionId};
 
 /// Errors talking to the server.
 #[derive(Debug, thiserror::Error)]
@@ -221,6 +221,54 @@ impl Client {
     pub async fn push(&self, push: &SyncPush) -> Result<SyncPushResult, SyncError> {
         self.json(self.http.post(self.url("/sync/push")).json(push))
             .await
+    }
+
+    /// A session someone shared, with the laps the user may see.
+    pub async fn shared_session(
+        &self,
+        owner: uuid::Uuid,
+        id: SessionId,
+    ) -> Result<SharedSessionDownload, SyncError> {
+        self.json(
+            self.http
+                .get(self.url(&format!("/shared/sessions/{owner}/{id}/download"))),
+        )
+        .await
+    }
+
+    /// Which of the kept laps of other users the user may not see anymore.
+    pub async fn lost_laps(&self, laps: Vec<ForeignLap>) -> Result<Vec<LapId>, SyncError> {
+        let r: ForeignLapCheckResult = self
+            .json(
+                self.http
+                    .post(self.url("/shared/check"))
+                    .json(&ForeignLapCheck { laps }),
+            )
+            .await?;
+        Ok(r.lost)
+    }
+
+    /// Any JSON request of the server API as the device's user (teams and
+    /// sharing in the desktop app). `path` is relative to `/api/v1`.
+    pub async fn request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> Result<serde_json::Value, SyncError> {
+        let method = reqwest::Method::from_bytes(method.as_bytes())
+            .map_err(|_| SyncError::Login(format!("invalid method {method:?}")))?;
+        let mut req = self.http.request(method, self.url(path));
+        if let Some(body) = body {
+            req = req.json(body);
+        }
+        let res = self.send(req).await?;
+        let bytes = res.bytes().await.map_err(SyncError::network)?;
+        if bytes.is_empty() {
+            return Ok(serde_json::Value::Null);
+        }
+        serde_json::from_slice(&bytes)
+            .map_err(|e| SyncError::Login(format!("unexpected answer from the server: {e}")))
     }
 
     /// One page of changes after `since`.

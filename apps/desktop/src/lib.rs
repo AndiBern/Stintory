@@ -70,6 +70,8 @@ pub fn run() {
             commands::sync_disconnect,
             commands::sync_now,
             commands::sync_set_auto,
+            commands::server_request,
+            commands::open_shared_session,
             commands::get_settings,
             commands::set_keep_raw_recordings,
             commands::delete_raw_recordings,

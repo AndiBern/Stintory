@@ -3,6 +3,7 @@
 
 import { ApiError, notAvailable, type ApiClient, type Unsubscribe } from './client.ts';
 import { createPasskey, getPasskey, type JsonOptions } from '../webauthn.ts';
+import { ServerApiClient, type ServerApi } from './sharing.ts';
 import type {
 	AdminUser,
 	AppInfo,
@@ -99,6 +100,10 @@ export class HttpApi implements ApiClient, AccountApi {
 	private csrfToken: string | null = null;
 	private unauthorized: (() => void) | null = null;
 
+	readonly server: ServerApi = new ServerApiClient((method, path, body) =>
+		this.request(method, path, body)
+	);
+
 	constructor(
 		private readonly baseUrl = '/api/v1',
 		private readonly fetchFn: typeof fetch = fetch.bind(globalThis)
@@ -114,8 +119,11 @@ export class HttpApi implements ApiClient, AccountApi {
 		return this.request<SessionSummary[]>('GET', '/sessions');
 	}
 
-	getSession(id: string): Promise<SessionDetail> {
-		return this.request<SessionDetail>('GET', `/sessions/${encodeURIComponent(id)}`);
+	getSession(id: string, owner?: string): Promise<SessionDetail> {
+		const path = owner
+			? `/shared/sessions/${encodeURIComponent(owner)}/${encodeURIComponent(id)}`
+			: `/sessions/${encodeURIComponent(id)}`;
+		return this.request<SessionDetail>('GET', path);
 	}
 
 	deleteSession(id: string): Promise<void> {

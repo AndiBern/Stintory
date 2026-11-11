@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! The Stintory server (docs/PLAN.md §9): accounts, the web UI and (later)
-//! sync and sharing.
+//! The Stintory server (docs/PLAN.md §9): accounts, the web UI, sync, teams
+//! and sharing.
 //!
 //! Routes: the JSON API under `/api/v1`, everything else is the web UI
 //! (`web/build`, a single-page app).
@@ -18,8 +18,10 @@ pub mod devices;
 pub mod error;
 pub mod passkeys;
 pub mod ratelimit;
+pub mod sharing;
 pub mod state;
 pub mod sync;
+pub mod teams;
 
 use std::sync::Arc;
 
@@ -189,6 +191,46 @@ fn api(state: &SharedState) -> Router<SharedState> {
             get(data::get_session).delete(data::delete_session),
         )
         .route("/analysis/compare", post(data::compare))
+        // teams
+        .route("/teams", get(teams::list).post(teams::create))
+        .route(
+            "/teams/{id}",
+            get(teams::get).patch(teams::rename).delete(teams::delete),
+        )
+        .route(
+            "/teams/{id}/members/{user}",
+            patch(teams::update_member).delete(teams::remove_member),
+        )
+        .route("/teams/{id}/leave", post(teams::leave))
+        .route("/teams/{id}/invites", post(teams::invite))
+        .route("/teams/{id}/invites/{invite}", delete(teams::revoke_invite))
+        .route("/me/invites", get(teams::my_invites))
+        .route("/invites/{id}/accept", post(teams::accept_invite))
+        .route("/invites/{id}/decline", post(teams::decline_invite))
+        .route("/invites/link/{token}", get(teams::link_preview))
+        .route("/invites/link/{token}/accept", post(teams::accept_link))
+        // sharing
+        .route(
+            "/me/default-sharing",
+            get(sharing::get_default).put(sharing::put_default),
+        )
+        .route(
+            "/sessions/{id}/sharing",
+            get(sharing::get_session_sharing).put(sharing::put_session_sharing),
+        )
+        .route(
+            "/laps/{id}/sharing",
+            get(sharing::get_lap_sharing).put(sharing::put_lap_sharing),
+        )
+        .route("/users/lookup", get(sharing::lookup_user))
+        .route("/users/suggest", get(sharing::suggest_users))
+        .route("/shared/sessions", get(sharing::list_shared))
+        .route("/shared/sessions/{owner}/{id}", get(sharing::get_shared))
+        .route(
+            "/shared/sessions/{owner}/{id}/download",
+            get(sharing::download_shared),
+        )
+        .route("/shared/check", post(sharing::check_foreign))
         .route(
             "/import",
             post(data::import).layer(DefaultBodyLimit::max(upload_limit)),

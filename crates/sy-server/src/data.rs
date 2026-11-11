@@ -45,7 +45,7 @@ fn parse<T: std::str::FromStr>(value: &str, column: &str) -> ApiResult<T> {
 }
 
 /// Laps that count for "best lap": valid, complete, not out-/in-lap.
-const CLEAN_LAP: &str = "l.valid
+pub(crate) const CLEAN_LAP: &str = "l.valid
     AND NOT coalesce((l.flags->>'out_lap')::boolean, false)
     AND NOT coalesce((l.flags->>'in_lap')::boolean, false)
     AND NOT coalesce((l.flags->>'incomplete')::boolean, false)";
@@ -64,6 +64,7 @@ fn summary_from_row(r: &Row) -> ApiResult<SessionSummary> {
         lap_count: u32::try_from(r.get::<_, i64>(9)).unwrap_or(0),
         best_lap_ms: r.get::<_, Option<i32>>(10).map(|v| v as u32),
         origin: origin.into(),
+        shared: r.get(11),
     })
 }
 
@@ -72,19 +73,31 @@ async fn summaries(
     owner: Uuid,
     session: Option<Uuid>,
 ) -> ApiResult<Vec<SessionSummary>> {
+    let everyone = crate::state::ServerSettings::load(db)
+        .await?
+        .allow_share_everyone;
     let rows = db
         .query(
             &format!(
                 "SELECT s.id, s.game, s.track_key, s.car_key, s.session_type, s.started_at,
                         s.track_name, s.car_name, s.origin, count(l.id),
-                        min(CASE WHEN {CLEAN_LAP} THEN l.lap_time_ms END)
+                        min(CASE WHEN {CLEAN_LAP} THEN l.lap_time_ms END),
+                        EXISTS (
+                            SELECT 1 FROM share_grants g
+                            WHERE g.owner_id = s.owner_id
+                              AND (g.grantee_kind <> 'everyone' OR $3)
+                              AND ((s.sharing_mode = 'custom' AND g.object_kind = 'session'
+                                    AND g.object_id = s.id)
+                                OR (s.sharing_mode = 'inherit' AND s.origin->>'kind' = 'own'
+                                    AND g.object_kind = 'user_default'
+                                    AND g.object_id = s.owner_id)))
                  FROM sessions s
                  LEFT JOIN laps l ON l.owner_id = s.owner_id AND l.session_id = s.id
                  WHERE s.owner_id = $1 AND ($2::uuid IS NULL OR s.id = $2)
                  GROUP BY s.owner_id, s.id
                  ORDER BY s.started_at DESC"
             ),
-            &[&owner, &session],
+            &[&owner, &session, &everyone],
         )
         .await?;
     rows.iter().map(summary_from_row).collect()
@@ -181,7 +194,8 @@ pub async fn delete_session(
     Ok(StatusCode::NO_CONTENT)
 }
 
-/// `POST /analysis/compare`: like the desktop app, for the user's own laps.
+/// `POST /analysis/compare`: like the desktop app, for the user's own laps
+/// and laps shared with them.
 pub async fn compare(
     State(state): State<SharedState>,
     Auth(session): Auth,
@@ -194,14 +208,10 @@ pub async fn compare(
     let db = state.conn().await?;
     let mut laps = Vec::new();
     for id in &request.lap_ids {
-        let row = db
-            .query_opt(
-                &format!("SELECT {LAP_COLUMNS} FROM laps WHERE owner_id = $1 AND id = $2"),
-                &[&session.user.id, id.as_uuid()],
-            )
+        let lap = crate::sharing::readable_lap(&db, session.user.id, *id.as_uuid())
             .await?
             .ok_or_else(|| ApiError::not_found("lap"))?;
-        laps.push(lap_from_row(&row)?);
+        laps.push(lap);
     }
     let state2 = state.clone();
     let data = tokio::task::spawn_blocking(move || -> ApiResult<CompareData> {

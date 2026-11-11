@@ -10,14 +10,18 @@
 //! - A background task syncs a few seconds after something changed
 //!   ([`SyncManager::nudge`]), every few minutes, and on request.
 //! - If the server revoked the token, the app disconnects and tells the user.
+//! - Teams and sharing live on the server: the frontend's requests are passed
+//!   on with the device token ([`SyncManager::server_request`]). Sessions
+//!   others shared are kept locally as references while access lasts.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sy_capture::pipeline::SharedStore;
+use sy_model::SessionId;
 use sy_model::api::{SyncState, SyncStatus};
 use sy_store::{SYNC_AUTO, SYNC_CURSOR, SYNC_SERVER_URL, SYNC_TOKEN_FALLBACK, StoreError};
-use sy_sync::{Client, DeviceLogin, SyncError, sync_once};
+use sy_sync::{Client, DeviceLogin, SyncError, fetch_shared_session, sync_once};
 use tauri::async_runtime::JoinHandle;
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_opener::OpenerExt;
@@ -222,11 +226,9 @@ impl SyncManager {
         }
     }
 
-    /// Runs one sync now (waits for a running one to finish first).
-    pub async fn run(&self) -> SyncResult<SyncStatus> {
-        let _guard = self.running.lock().await;
-        let status = self.status();
-        let Some(url) = status.server_url.clone() else {
+    /// A client for the connected server, logged in as this device.
+    async fn client(&self) -> SyncResult<Client> {
+        let Some(url) = self.status().server_url else {
             return Err("not connected to a server".into());
         };
         let (store, u) = (self.store.clone(), url.clone());
@@ -241,8 +243,57 @@ impl SyncManager {
             .await;
             return Err("not connected to a server".into());
         };
+        Ok(Client::new(&url).map_err(message)?.with_token(token))
+    }
+
+    /// Tells the user when the server doesn't know this device anymore.
+    async fn check_revoked(&self, e: SyncError) -> String {
+        if !matches!(e, SyncError::Revoked) {
+            return e.to_string();
+        }
+        let msg = "This device was disconnected from the server (or your account was disabled). Connect again to sync.".to_owned();
+        if let Some(url) = self.status().server_url {
+            self.forget_connection(&url, Some(msg.clone())).await;
+        }
+        msg
+    }
+
+    /// A request of the server's teams and sharing API as this device's
+    /// user (see `commands::server_request`).
+    pub async fn server_request(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> SyncResult<serde_json::Value> {
+        let client = self.client().await?;
+        match client.request(method, path, body).await {
+            Ok(v) => Ok(v),
+            Err(e) => Err(self.check_revoked(e).await),
+        }
+    }
+
+    /// Keeps a session someone shared as a local reference (or refreshes
+    /// the copy); returns the id of the local session.
+    pub async fn open_shared(&self, owner: uuid::Uuid, id: SessionId) -> SyncResult<SessionId> {
+        let client = self.client().await?;
+        match fetch_shared_session(&client, &self.store, owner, id).await {
+            Ok(local) => {
+                let _ = self.app.emit(EVENT_SESSIONS_CHANGED, ());
+                Ok(local)
+            }
+            Err(e) => Err(self.check_revoked(e).await),
+        }
+    }
+
+    /// Runs one sync now (waits for a running one to finish first).
+    pub async fn run(&self) -> SyncResult<SyncStatus> {
+        let _guard = self.running.lock().await;
+        let Some(url) = self.status().server_url else {
+            return Err("not connected to a server".into());
+        };
+        let client = self.client().await?;
         self.update(|s| s.state = SyncState::Syncing);
-        let client = Client::new(&url).map_err(message)?.with_token(token);
         match sync_once(&client, &self.store).await {
             Ok(report) => {
                 if report.changed_local_data() {
@@ -364,6 +415,7 @@ impl SyncManager {
             store.with(|s| {
                 if s.setting::<String>(SYNC_SERVER_URL)?.as_deref() != Some(url2.as_str()) {
                     s.reset_sync()?;
+                    s.remove_all_foreign()?;
                     s.remove_setting(SYNC_CURSOR)?;
                 }
                 s.set_setting(SYNC_SERVER_URL, &url2)?;
@@ -414,6 +466,8 @@ impl SyncManager {
             delete_token(&store, &url)?;
             store.with(|s| {
                 s.reset_sync()?;
+                // laps of others can't be checked for access anymore
+                s.remove_all_foreign()?;
                 for key in [
                     SYNC_SERVER_URL,
                     SYNC_CURSOR,
@@ -429,6 +483,7 @@ impl SyncManager {
         if let Err(e) = result {
             tracing::error!(error = %e, "could not remove the sync settings");
         }
+        let _ = self.app.emit(EVENT_SESSIONS_CHANGED, ());
         self.update(|s| {
             let auto = s.auto_sync;
             *s = SyncStatus::disconnected();

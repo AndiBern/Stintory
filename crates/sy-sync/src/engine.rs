@@ -11,8 +11,8 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 use sy_capture::pipeline::SharedStore;
-use sy_model::BlobHash;
 use sy_model::remote::SyncPush;
+use sy_model::{BlobHash, LapId, SessionId};
 use sy_store::{PendingPush, SYNC_CURSOR, Store, StoreError};
 
 use crate::client::{Client, SyncError};
@@ -40,12 +40,14 @@ pub struct SyncReport {
     pub pulled_laps: u32,
     /// Sessions deleted because another device deleted them
     pub pulled_deletions: u32,
+    /// Kept laps of other users deleted because they aren't shared anymore
+    pub revoked_laps: u32,
 }
 
 impl SyncReport {
     /// True if the local data changed (the UI should refresh).
     pub fn changed_local_data(&self) -> bool {
-        self.pulled_sessions + self.pulled_laps + self.pulled_deletions > 0
+        self.pulled_sessions + self.pulled_laps + self.pulled_deletions + self.revoked_laps > 0
     }
 }
 
@@ -66,6 +68,7 @@ pub async fn sync_once(client: &Client, store: &SharedStore) -> Result<SyncRepor
     let mut report = SyncReport::default();
     push(client, store, &mut report).await?;
     pull(client, store, &mut report).await?;
+    revoke(client, store, &mut report).await?;
     tracing::info!(?report, "sync finished");
     Ok(report)
 }
@@ -171,4 +174,54 @@ async fn pull(
             return Ok(());
         }
     }
+}
+
+/// Deletes kept laps of other users that aren't shared with the user
+/// anymore (docs/PLAN.md §9.2).
+async fn revoke(
+    client: &Client,
+    store: &SharedStore,
+    report: &mut SyncReport,
+) -> Result<(), SyncError> {
+    let kept = with_store(store, |s| s.foreign_laps()).await?;
+    if kept.is_empty() {
+        return Ok(());
+    }
+    let mut lost = Vec::new();
+    for chunk in kept.chunks(5000) {
+        lost.extend(client.lost_laps(chunk.to_vec()).await?);
+    }
+    if !lost.is_empty() {
+        report.revoked_laps += with_store(store, move |s| s.remove_foreign_laps(&lost)).await?;
+    }
+    Ok(())
+}
+
+/// Downloads a session someone shared and keeps it as a reference (or
+/// refreshes the kept copy). Returns the id of the local session: the
+/// copy, or the user's own session if they have it themselves.
+pub async fn fetch_shared_session(
+    client: &Client,
+    store: &SharedStore,
+    owner: uuid::Uuid,
+    id: SessionId,
+) -> Result<SessionId, SyncError> {
+    let shared = client.shared_session(owner, id).await?;
+    let session = shared.session.clone();
+    let lap_ids: Vec<LapId> = shared.laps.iter().map(|l| l.id).collect();
+    let target = with_store(store, move |s| s.apply_shared_session(&session, &lap_ids)).await?;
+    let Some(target) = target else {
+        return with_store(store, move |s| s.canonical_session_id(id)).await;
+    };
+    for lap in shared.laps {
+        let probe = lap.clone();
+        let needs = with_store(store, move |s| s.needs_telemetry(&probe)).await?;
+        let bytes = if needs {
+            Some(client.get_blob(&lap.blob_hash).await?)
+        } else {
+            None
+        };
+        with_store(store, move |s| s.apply_shared_lap(&lap, bytes.as_deref())).await?;
+    }
+    Ok(target)
 }

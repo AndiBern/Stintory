@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	fileName,
 	formatAgo,
+	formatAudience,
 	formatBytes,
 	formatDelta,
 	formatLapTime,
@@ -82,5 +83,21 @@ describe('formatAgo', () => {
 		expect(formatAgo('2026-11-10T17:59:30Z', now)).toBe('just now');
 		expect(formatAgo('2026-11-10T17:55:00Z', now)).toBe('5 min ago');
 		expect(formatAgo('2026-11-10T15:00:00Z', now)).toBe('3 h ago');
+	});
+});
+
+describe('formatAudience', () => {
+	it('summarises who can see something', () => {
+		expect(formatAudience([])).toBe('Only you');
+		expect(
+			formatAudience([
+				{ kind: 'team', id: 't', name: 'Sim Racers' },
+				{ kind: 'user', id: 'u', username: 'max', displayName: 'Max M.' },
+				{ kind: 'user', id: 'v', username: 'ben', displayName: 'ben' }
+			])
+		).toBe('Team Sim Racers, Max M. (@max), @ben');
+		expect(
+			formatAudience([{ kind: 'team', id: 't', name: 'Sim Racers' }, { kind: 'everyone' }])
+		).toBe('Everyone on this server');
 	});
 });

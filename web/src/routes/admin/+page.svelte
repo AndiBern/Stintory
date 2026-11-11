@@ -229,7 +229,9 @@
 					<input type="checkbox" bind:checked={settings.allowShareEveryone} class="mt-1" />
 					<span>
 						Allow sharing with "everyone on this server"
-						<span class="block text-xs text-zinc-500">Takes effect with sharing (coming soon).</span
+						<span class="block text-xs text-zinc-500"
+							>When off, nobody can choose it, and what was shared with everyone is not visible to
+							others until it is turned on again.</span
 						>
 					</span>
 				</label>

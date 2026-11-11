@@ -30,6 +30,8 @@ export interface SessionSummary {
 	lapCount: number;
 	bestLapMs: number | null;
 	origin: Origin;
+	/** Others can see the session (server only) */
+	shared?: boolean;
 }
 
 /** Where a session came from. */
@@ -266,4 +268,108 @@ export interface NewDevice {
 	token: string;
 	device: DeviceInfo;
 	user: Me;
+}
+
+// ----- teams and sharing (on the server) -----
+
+/** Another user, as far as others may see them. */
+export interface UserRef {
+	id: string;
+	username: string;
+	displayName: string;
+}
+
+export type TeamRole = 'owner' | 'admin' | 'member';
+
+export interface TeamSummary {
+	id: string;
+	name: string;
+	/** The user's own role */
+	role: TeamRole;
+	memberCount: number;
+	createdAt: string;
+}
+
+export interface TeamMember {
+	user: UserRef;
+	role: TeamRole;
+	joinedAt: string;
+}
+
+export interface TeamInvite {
+	id: string;
+	kind: 'user' | 'link';
+	invitee: UserRef | null;
+	invitedBy: UserRef | null;
+	expiresAt: string | null;
+	/** null = unlimited */
+	maxUses: number | null;
+	uses: number;
+	createdAt: string;
+	/** The link; only in the answer that creates it */
+	url?: string;
+}
+
+export interface TeamDetail extends TeamSummary {
+	members: TeamMember[];
+	/** Open invitations (owners and admins only) */
+	invites: TeamInvite[];
+}
+
+export interface TeamRef {
+	id: string;
+	name: string;
+}
+
+/** An invitation waiting for the user's answer. */
+export interface MyInvite {
+	id: string;
+	team: TeamRef;
+	invitedBy: UserRef | null;
+	createdAt: string;
+}
+
+export interface InviteLinkPreview {
+	team: TeamRef;
+	invitedBy: UserRef | null;
+	alreadyMember: boolean;
+}
+
+/** Who something is shared with. */
+export type Grantee =
+	| { kind: 'user'; id: string; username: string; displayName: string }
+	| { kind: 'team'; id: string; name: string }
+	| { kind: 'everyone' };
+
+export type SharingMode = 'inherit' | 'custom';
+
+/** Where the effective audience comes from. */
+export type SharingSource = 'own' | 'session' | 'default' | 'imported';
+
+export interface SharingState {
+	mode: SharingMode;
+	/** Own grants (empty with `inherit`) */
+	grants: Grantee[];
+	source: SharingSource;
+	/** Who can see it right now */
+	effective: Grantee[];
+	/** The admin allows sharing with everyone */
+	everyoneAllowed: boolean;
+}
+
+export interface SharingUpdate {
+	mode: SharingMode;
+	grants: Grantee[];
+}
+
+export interface DefaultSharing {
+	grants: Grantee[];
+	everyoneAllowed: boolean;
+	/** Sessions that use the default */
+	inheritingSessions: number;
+}
+
+/** A session someone shared with the user. */
+export interface SharedSession extends SessionSummary {
+	owner: UserRef;
 }

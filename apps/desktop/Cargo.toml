@@ -30,6 +30,7 @@ sy-store.workspace = true
 sy-sync.workspace = true
 keyring = "4"
 serde.workspace = true
+serde_json.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
@@ -38,6 +39,7 @@ tokio = { version = "1", features = ["sync", "time", "macros"] }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid.workspace = true
 
 [lints]
 workspace = true

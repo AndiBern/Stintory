@@ -7,7 +7,7 @@
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
 	import { accountApi, api } from '#lib/api/index.ts';
-	import { app, auth, connect, connectAuth } from '#lib/app-state.svelte.ts';
+	import { app, auth, connect, connectAuth, sharingAvailable } from '#lib/app-state.svelte.ts';
 	import { formatAgo, formatLapTime, formatGame } from '#lib/format.ts';
 	import type { LayoutProps } from './$types';
 
@@ -22,17 +22,26 @@
 
 	const nav = $derived([
 		{ href: resolve('/'), label: 'Sessions' },
+		...(sharingAvailable()
+			? [
+					{ href: resolve('/shared'), label: 'Sharing' },
+					{ href: resolve('/teams'), label: 'Teams' }
+				]
+			: []),
 		...(account && auth.me ? [{ href: resolve('/account'), label: 'Account' }] : []),
 		...(auth.me?.isAdmin ? [{ href: resolve('/admin'), label: 'Admin' }] : []),
 		{ href: resolve('/settings'), label: client.capabilities.localSettings ? 'Settings' : 'About' }
 	]);
 
 	function isActive(href: string): boolean {
-		return href === resolve('/')
-			? page.url.pathname === href ||
-					page.url.pathname.startsWith('/session/') ||
-					page.url.pathname.startsWith('/compare/')
-			: page.url.pathname.startsWith(href);
+		// sessions and laps someone shared belong to "Sharing"
+		const shared = page.url.searchParams.has('owner');
+		const detail =
+			page.url.pathname.startsWith('/session/') || page.url.pathname.startsWith('/compare/');
+		if (href === resolve('/')) return page.url.pathname === href || (detail && !shared);
+		if (href === resolve('/shared'))
+			return page.url.pathname.startsWith(href) || (detail && shared);
+		return page.url.pathname.startsWith(href);
 	}
 
 	$effect(() => connect());

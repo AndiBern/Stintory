@@ -5,8 +5,9 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, type LapSummary, type SessionDetail } from '#lib/api/index.ts';
-	import { app } from '#lib/app-state.svelte.ts';
+	import { app, sharingAvailable } from '#lib/app-state.svelte.ts';
 	import ExportDialog, { type ExportScope } from '#lib/components/ExportDialog.svelte';
+	import ShareDialog, { type ShareTarget } from '#lib/components/ShareDialog.svelte';
 	import {
 		fileDate,
 		fileName,
@@ -21,19 +22,26 @@
 	const MAX_COMPARE = 8;
 	const client = api();
 	const id = $derived(page.params.id ?? '');
+	/** Set when the session belongs to someone else who shared it */
+	const owner = $derived(page.url.searchParams.get('owner'));
 
 	let detail = $state<SessionDetail | null>(null);
 	let error = $state<string | null>(null);
 	let selected = $state<string[]>([]);
 	let showAll = $state(false);
 	let exporting = $state(false);
+	let sharing = $state<ShareTarget | null>(null);
+
+	/** Someone else's session: nothing to share, nothing to delete on the server */
+	const foreign = $derived(detail?.summary.origin.kind === 'synced');
+	const canShare = $derived(!foreign && sharingAvailable());
 
 	$effect(() => {
 		void app.sessionsVersion;
 		const sessionId = id;
 		error = null;
 		client
-			.getSession(sessionId)
+			.getSession(sessionId, owner ?? undefined)
 			.then((d) => {
 				const keepSelection = detail?.summary.id === d.summary.id;
 				detail = d;
@@ -70,15 +78,19 @@
 		const time = (lapId: string) =>
 			detail!.laps.find((l) => l.id === lapId)?.lapTimeMs ?? Number.MAX_SAFE_INTEGER;
 		const ordered = [...selected].sort((a, b) => time(a) - time(b));
-		goto(resolve('/compare/[laps]', { laps: ordered.join(',') }));
+		const query = owner ? `?owner=${encodeURIComponent(owner)}` : '';
+		// eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved path + query
+		goto(resolve('/compare/[laps]', { laps: ordered.join(',') }) + query);
 	}
 
 	async function remove() {
 		if (!detail) return;
-		if (!confirm(`Delete this session with ${detail.laps.length} laps? This cannot be undone.`))
-			return;
+		const question = foreign
+			? 'Remove the copy of this shared session from this computer? You can open it again from "Sharing" as long as it is shared with you.'
+			: `Delete this session with ${detail.laps.length} laps? This cannot be undone.`;
+		if (!confirm(question)) return;
 		await client.deleteSession(detail.summary.id);
-		goto(resolve('/'));
+		goto(resolve(foreign ? '/shared' : '/'));
 	}
 
 	const exportScopes: ExportScope[] = $derived.by(() => {
@@ -125,7 +137,9 @@
 	<p class="text-zinc-400">Loading…</p>
 {:else}
 	{@const s = detail.summary}
-	<a href={resolve('/')} class="text-sm text-zinc-400 hover:text-zinc-200">← Sessions</a>
+	<a href={resolve(foreign ? '/shared' : '/')} class="text-sm text-zinc-400 hover:text-zinc-200"
+		>← {foreign ? 'Sharing' : 'Sessions'}</a
+	>
 	<div class="mt-2 mb-4 flex flex-wrap items-start justify-between gap-4">
 		<div>
 			<h1 class="text-2xl font-semibold">{s.trackName}</h1>
@@ -168,15 +182,31 @@
 					Export…
 				</button>
 			{/if}
-			<button
-				type="button"
-				class="rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:border-red-700 hover:text-red-300"
-				onclick={remove}
-			>
-				Delete session
-			</button>
+			{#if canShare}
+				<button
+					type="button"
+					class="rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
+					onclick={() => (sharing = { kind: 'session', id: s.id, label: s.trackName })}
+				>
+					Share…
+				</button>
+			{/if}
+			<!-- a shared session on the server isn't the viewer's to delete; the desktop app keeps a copy -->
+			{#if !foreign || client.capabilities.localSettings}
+				<button
+					type="button"
+					class="rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:border-red-700 hover:text-red-300"
+					onclick={remove}
+				>
+					{foreign ? 'Remove copy' : 'Delete session'}
+				</button>
+			{/if}
 		</div>
 	</div>
+
+	{#if canShare}
+		<ShareDialog bind:target={sharing} onsaved={() => app.sessionsVersion++} />
+	{/if}
 
 	{#if client.capabilities.exportFiles}
 		<ExportDialog bind:open={exporting} scopes={exportScopes} />
@@ -190,6 +220,7 @@
 				<th class="text-right font-normal">Time</th>
 				<th class="text-right font-normal">Δ best</th>
 				<th class="pl-6 font-normal">Status</th>
+				{#if canShare}<th class="font-normal"><span class="sr-only">Sharing</span></th>{/if}
 			</tr>
 		</thead>
 		<tbody>
@@ -228,6 +259,17 @@
 							<span class="text-xs text-amber-400/80">{l.invalidReason}</span>
 						{/if}
 					</td>
+					{#if canShare}
+						<td class="text-right">
+							<button
+								type="button"
+								class="rounded border border-zinc-800 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
+								aria-label="Share lap {l.number}"
+								onclick={() => (sharing = { kind: 'lap', id: l.id, label: `Lap ${l.number}` })}
+								>Share…</button
+							>
+						</td>
+					{/if}
 				</tr>
 			{/each}
 		</tbody>

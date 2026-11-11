@@ -4,7 +4,8 @@
 //! Sessions and laps (metadata). Lap telemetry itself lives in a separate
 //! blob, see [`crate::telemetry`].
 //!
-//! Sharing settings are added with the server milestone (docs/PLAN.md §9.2).
+//! Who a session or lap is shared with is kept on the server only
+//! (docs/PLAN.md §9.2).
 
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;

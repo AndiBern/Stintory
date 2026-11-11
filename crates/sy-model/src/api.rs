@@ -65,6 +65,10 @@ pub struct SessionSummary {
     pub best_lap_ms: Option<u32>,
     /// Where the session came from
     pub origin: OriginView,
+    /// Others can see the session (server only; a single shared lap doesn't
+    /// count)
+    #[serde(default)]
+    pub shared: bool,
 }
 
 /// Where a session came from ([`Origin`] in camelCase).
@@ -362,6 +366,7 @@ mod tests {
             origin: OriginView::Imported {
                 driver_name: Some("Max".into()),
             },
+            shared: false,
         };
         let v = serde_json::to_value(&s).unwrap();
         for key in [

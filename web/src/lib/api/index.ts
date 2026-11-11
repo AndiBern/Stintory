@@ -7,6 +7,7 @@ import { TauriApi } from './tauri.ts';
 
 export type { ApiClient } from './client.ts';
 export type { AccountApi } from './http.ts';
+export type { ServerApi } from './sharing.ts';
 export { ApiError } from './client.ts';
 export type * from './types.ts';
 

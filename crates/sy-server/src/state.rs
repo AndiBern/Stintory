@@ -63,7 +63,7 @@ pub struct ServerSettings {
     pub registration: Registration,
     /// Every user must set up a second factor
     pub enforce_2fa: bool,
-    /// Sharing with "everyone on this server" is possible (M3b)
+    /// Sharing with "everyone on this server" is possible
     pub allow_share_everyone: bool,
 }
 

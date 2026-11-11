@@ -15,6 +15,7 @@ import type {
 	SessionSummary,
 	Settings
 } from './types.ts';
+import type { ServerApi } from './sharing.ts';
 
 /** Stops listening to an event. */
 export type Unsubscribe = () => void;
@@ -43,9 +44,20 @@ export interface ApiClient {
 		serverSync: boolean;
 	};
 
+	/**
+	 * Teams and sharing on the server. In the desktop app the calls need a
+	 * connection to a server (see `sharingAvailable` in the app state).
+	 */
+	readonly server: ServerApi;
+
 	getInfo(): Promise<AppInfo>;
 	listSessions(): Promise<SessionSummary[]>;
-	getSession(id: string): Promise<SessionDetail>;
+	/**
+	 * A session with its laps. With `owner` (a user id): a session that user
+	 * shared, with the laps the user may see. The desktop app keeps a copy
+	 * of it as a reference; the answer's id is the one to use from then on.
+	 */
+	getSession(id: string, owner?: string): Promise<SessionDetail>;
 	deleteSession(id: string): Promise<void>;
 	compareLaps(request: CompareRequest): Promise<CompareData>;
 

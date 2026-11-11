@@ -19,7 +19,7 @@ use sy_model::{
 };
 use sy_server::config::Config;
 use sy_store::Store;
-use sy_sync::{Client, DeviceLogin, SyncError, sync_once};
+use sy_sync::{Client, DeviceLogin, SyncError, fetch_shared_session, sync_once};
 
 const ADMIN_PW: &str = "admin password 123";
 
@@ -316,4 +316,182 @@ async fn real_recording_roundtrip() {
 
 fn sy_source_iracing_source(file: &std::path::Path) -> impl sy_model::capture::RawSource {
     sy_source_iracing::IbtSource::open(file).unwrap()
+}
+
+/// Creates an account and connects a device for it (with a token created
+/// by hand). Returns the device's client and the user's id.
+async fn second_user(server: &Server, name: &str) -> (Client, uuid::Uuid) {
+    let api = |path: &str| format!("{}/api/v1{path}", server.url);
+    let login = |user: &'static str, password: String| async move {
+        let browser = reqwest::Client::builder()
+            .cookie_store(true)
+            .build()
+            .unwrap();
+        let res: Value = browser
+            .post(format!("{}/api/v1/auth/login", server.url))
+            .json(&json!({ "username": user, "password": password }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let csrf = res["csrfToken"].as_str().unwrap().to_owned();
+        (browser, csrf)
+    };
+    let (admin, csrf) = login("admin", ADMIN_PW.into()).await;
+    let created: Value = admin
+        .post(api("/admin/users"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({ "username": name }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let temp = created["temporaryPassword"].as_str().unwrap().to_owned();
+    let name: &'static str = Box::leak(name.to_owned().into_boxed_str());
+    let (user, csrf) = login(name, temp.clone()).await;
+    let res = user
+        .post(api("/me/password"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({ "currentPassword": temp, "newPassword": "a long password 1" }))
+        .send()
+        .await
+        .unwrap();
+    assert!(res.status().is_success());
+    let device: Value = user
+        .post(api("/me/devices"))
+        .header("x-csrf-token", &csrf)
+        .json(&json!({ "name": "pc" }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let client = Client::new(&server.url)
+        .unwrap()
+        .with_token(device["token"].as_str().unwrap());
+    (client, created["id"].as_str().unwrap().parse().unwrap())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn shared_laps_are_kept_and_revoked() {
+    let Some(server) = server().await else { return };
+    let (da, db) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (owner_store, friend_store) = (store(da.path()), store(db.path()));
+    let owner = connect(&server, "Owner's PC").await;
+    let owner_id = owner.current_device().await.unwrap().user.id;
+    let (friend, friend_id) = second_user(&server, "friend").await;
+
+    let session = record(&owner_store, 2, 0);
+    record(&friend_store, 1, 5);
+    sync_once(&owner, &owner_store).await.unwrap();
+    sync_once(&friend, &friend_store).await.unwrap();
+    let laps = owner_store.with(|s| s.laps(session).unwrap());
+
+    // not shared: nothing to fetch
+    assert_eq!(
+        friend
+            .request("GET", "/shared/sessions", None)
+            .await
+            .unwrap(),
+        json!([])
+    );
+    assert!(matches!(
+        fetch_shared_session(&friend, &friend_store, owner_id, session).await,
+        Err(SyncError::Server { status: 404, .. })
+    ));
+
+    // the owner shares the session with the friend (the desktop app's
+    // share dialog goes through `request`)
+    let grant = json!({ "kind": "user", "id": friend_id });
+    let state = owner
+        .request(
+            "PUT",
+            &format!("/sessions/{session}/sharing"),
+            Some(&json!({ "mode": "custom", "grants": [grant] })),
+        )
+        .await
+        .unwrap();
+    assert_eq!(state["effective"][0]["username"], "friend");
+    let shared = friend
+        .request("GET", "/shared/sessions", None)
+        .await
+        .unwrap();
+    assert_eq!(shared[0]["id"], session.to_string());
+    assert_eq!(shared[0]["owner"]["username"], "admin");
+
+    // the friend keeps it as a reference, telemetry included
+    let local = fetch_shared_session(&friend, &friend_store, owner_id, session)
+        .await
+        .unwrap();
+    assert_eq!(local, session);
+    assert_eq!(
+        friend_store.with(|s| s.session(session).unwrap().origin),
+        Origin::Synced {
+            server: server.url.clone(),
+            owner: "admin".into()
+        }
+    );
+    assert_eq!(
+        friend_store.with(|s| s.lap_telemetry(laps[0].id).unwrap()),
+        owner_store.with(|s| s.lap_telemetry(laps[0].id).unwrap())
+    );
+    // fetching again changes nothing; the copy never goes to the server
+    fetch_shared_session(&friend, &friend_store, owner_id, session)
+        .await
+        .unwrap();
+    let r = sync_once(&friend, &friend_store).await.unwrap();
+    assert_eq!(
+        (r.pushed_sessions, r.pushed_laps, r.revoked_laps),
+        (0, 0, 0)
+    );
+    assert_eq!(summary(&friend_store).len(), 2);
+    let mine = friend.request("GET", "/sessions", None).await.unwrap();
+    assert_eq!(mine.as_array().unwrap().len(), 1);
+
+    // one lap becomes private: the next sync removes the copy of it
+    owner
+        .request(
+            "PUT",
+            &format!("/laps/{}/sharing", laps[0].id),
+            Some(&json!({ "mode": "custom", "grants": [] })),
+        )
+        .await
+        .unwrap();
+    let r = sync_once(&friend, &friend_store).await.unwrap();
+    assert_eq!(r.revoked_laps, 1);
+    assert!(r.changed_local_data());
+    assert_eq!(
+        friend_store.with(|s| s.lap_ids(session).unwrap()),
+        vec![laps[1].id]
+    );
+
+    // sharing stops: the copy is gone, the friend's own data stays
+    owner
+        .request(
+            "PUT",
+            &format!("/sessions/{session}/sharing"),
+            Some(&json!({ "mode": "inherit" })),
+        )
+        .await
+        .unwrap();
+    let r = sync_once(&friend, &friend_store).await.unwrap();
+    assert_eq!(r.revoked_laps, 1);
+    assert_eq!(summary(&friend_store).len(), 1);
+    assert!(friend_store.with(|s| s.session(session).is_err()));
+    assert_eq!(
+        sync_once(&friend, &friend_store)
+            .await
+            .unwrap()
+            .revoked_laps,
+        0
+    );
+    // the owner's data was never touched
+    assert_eq!(summary(&owner_store).len(), 1);
+    sync_once(&owner, &owner_store).await.unwrap();
+    assert_eq!(owner_store.with(|s| s.laps(session).unwrap()).len(), 2);
 }

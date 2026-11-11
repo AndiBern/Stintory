@@ -34,6 +34,14 @@
 		data ? data.laps.map((l) => `Lap ${l.number} (${formatLapTime(l.lapTimeMs)})`) : []
 	);
 	const sessionId = $derived(data?.laps[0]?.sessionId);
+	/** Set for laps someone shared: the session page needs it */
+	const owner = $derived(page.url.searchParams.get('owner'));
+	const sessionHref = $derived(
+		sessionId
+			? resolve('/session/[id]', { id: sessionId }) +
+					(owner ? `?owner=${encodeURIComponent(owner)}` : '')
+			: null
+	);
 
 	/** Values at the cursor for the legend. */
 	function at(channel: string, lapIndex: number): number | null {
@@ -42,11 +50,9 @@
 	}
 </script>
 
-{#if sessionId}
-	<a
-		href={resolve('/session/[id]', { id: sessionId })}
-		class="text-sm text-zinc-400 hover:text-zinc-200">← Session</a
-	>
+{#if sessionHref}
+	<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved path + query -->
+	<a href={sessionHref} class="text-sm text-zinc-400 hover:text-zinc-200">← Session</a>
 {/if}
 <h1 class="mt-2 mb-4 text-2xl font-semibold">
 	{lapIds.length > 1 ? 'Lap comparison' : 'Lap'}

@@ -319,6 +319,7 @@ impl Store {
                             message: "NULL".into(),
                         })?
                         .into(),
+                    shared: false,
                 })
             })())
         })?;

@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-use crate::ids::SessionId;
+use crate::api::{SessionDetail, SessionSummary};
+use crate::ids::{LapId, SessionId};
 use crate::session::{Lap, Session};
 
 /// The logged-in user.
@@ -143,4 +144,80 @@ pub struct SyncChanges {
     pub cursor: i64,
     /// There are more changes: ask again right away
     pub more: bool,
+}
+
+/// Another user, as far as others may see them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserRef {
+    /// Id
+    pub id: Uuid,
+    /// Login name
+    pub username: String,
+    /// Name shown to others
+    pub display_name: String,
+}
+
+/// A session someone shared with the user: `GET /shared/sessions`. Lap
+/// count and best lap cover only the laps the user may see.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedSession {
+    /// The session
+    #[serde(flatten)]
+    pub summary: SessionSummary,
+    /// Whose session it is
+    pub owner: UserRef,
+}
+
+/// `GET /shared/sessions/{owner}/{id}`: a shared session with the laps the
+/// user may see.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedSessionDetail {
+    /// The session
+    #[serde(flatten)]
+    pub detail: SessionDetail,
+    /// Whose session it is
+    pub owner: UserRef,
+}
+
+/// `GET /shared/sessions/{owner}/{id}/download`: a shared session for a
+/// client to keep as a reference. The session has no setup and no session
+/// info; its origin is [`crate::Origin::Synced`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedSessionDownload {
+    /// Whose session it is
+    pub owner: UserRef,
+    /// The session
+    pub session: Session,
+    /// The laps the user may see (telemetry: `GET /sync/blobs/{hash}`)
+    pub laps: Vec<Lap>,
+}
+
+/// A lap of another user that a client keeps as a reference.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignLap {
+    /// Lap id
+    pub id: LapId,
+    /// Username of the owner
+    pub owner: String,
+}
+
+/// `POST /shared/check`: the laps of others a client keeps.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignLapCheck {
+    /// Kept laps
+    pub laps: Vec<ForeignLap>,
+}
+
+/// Answer of `POST /shared/check`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForeignLapCheckResult {
+    /// Laps the user may not see anymore: the client deletes its copies
+    pub lost: Vec<LapId>,
 }

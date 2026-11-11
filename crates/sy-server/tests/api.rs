@@ -1110,3 +1110,795 @@ async fn passkeys_as_second_factor_and_passwordless() {
     nobody.post("/auth/logout", json!({})).await;
     assert_eq!(nobody.login(ADMIN, ADMIN_PW).await.1["status"], "ok");
 }
+
+// ----- teams and sharing (docs/PLAN.md §9.2) ---------------------------------
+
+/// Creates an account and logs it in (with its own password set).
+async fn user<'a>(s: &'a TestServer, admin: &mut Browser<'_>, name: &str) -> (Browser<'a>, String) {
+    let (st, created) = admin
+        .post("/admin/users", json!({ "username": name }))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{created}");
+    let temp = created["temporaryPassword"].as_str().unwrap().to_owned();
+    let mut b = Browser::new(s);
+    b.login(name, &temp).await;
+    let (st, _) = b
+        .post(
+            "/me/password",
+            json!({ "currentPassword": temp, "newPassword": "a long password 1" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    (b, created["id"].as_str().unwrap().to_owned())
+}
+
+/// Stores `sample()` as a session the user recorded (sync push).
+async fn push_sample(b: &mut Browser<'_>) -> (Session, Vec<Lap>) {
+    let (session, laps) = sample();
+    for (lap, bytes) in &laps {
+        let req = b
+            .request("PUT", &format!("/sync/blobs/{}", lap.blob_hash))
+            .body(Body::from(bytes.clone()))
+            .unwrap();
+        assert_eq!(b.send(req).await.0, StatusCode::NO_CONTENT);
+    }
+    let laps: Vec<Lap> = laps.into_iter().map(|(l, _)| l).collect();
+    let (st, body) = b
+        .post("/sync/push", json!({ "sessions": [session], "laps": laps }))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    (session, laps)
+}
+
+async fn put(b: &mut Browser<'_>, path: &str, body: Value) -> Value {
+    let (st, out) = b.call("PUT", path, body).await;
+    assert_eq!(st, StatusCode::OK, "PUT {path}: {out}");
+    out
+}
+
+/// The numbers of the laps of `owner`'s session that the user sees. Every
+/// way to get at a lap must agree: list, detail, download, comparison,
+/// telemetry file and the revocation check.
+async fn visible(
+    b: &mut Browser<'_>,
+    owner: (&str, &str),
+    session: &Session,
+    laps: &[Lap],
+) -> Vec<u64> {
+    let (owner_id, owner_name) = owner;
+    let (st, detail) = b
+        .get(&format!("/shared/sessions/{owner_id}/{}", session.id))
+        .await;
+    let seen: Vec<u64> = match st {
+        StatusCode::OK => detail["laps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["number"].as_u64().unwrap())
+            .collect(),
+        StatusCode::NOT_FOUND => Vec::new(),
+        other => panic!("unexpected status {other}: {detail}"),
+    };
+    let (_, list) = b.get("/shared/sessions").await;
+    let listed = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["id"] == session.id.to_string());
+    assert_eq!(listed.is_some(), !seen.is_empty(), "list vs detail");
+    if let Some(l) = listed {
+        assert_eq!(l["lapCount"], seen.len());
+        assert_eq!(l["owner"]["username"], owner_name);
+    }
+    let (st, download) = b
+        .get(&format!(
+            "/shared/sessions/{owner_id}/{}/download",
+            session.id
+        ))
+        .await;
+    assert_eq!(st == StatusCode::OK, !seen.is_empty(), "download");
+    if st == StatusCode::OK {
+        assert_eq!(download["laps"].as_array().unwrap().len(), seen.len());
+        assert_eq!(download["session"]["setup"], Value::Null);
+        assert_eq!(download["session"]["session_info"], Value::Null);
+        assert_eq!(download["session"]["origin"]["kind"], "synced");
+        assert_eq!(download["session"]["origin"]["owner"], owner_name);
+    }
+    let check: Vec<Value> = laps
+        .iter()
+        .map(|l| json!({ "id": l.id, "owner": owner_name }))
+        .collect();
+    let (st, checked) = b.post("/shared/check", json!({ "laps": check })).await;
+    assert_eq!(st, StatusCode::OK, "{checked}");
+    for lap in laps {
+        let expected = seen.contains(&u64::from(lap.number));
+        let (st, _) = b
+            .post("/analysis/compare", json!({ "lapIds": [lap.id] }))
+            .await;
+        assert_eq!(st == StatusCode::OK, expected, "compare lap {}", lap.number);
+        let (st, _) = b.get(&format!("/sync/blobs/{}", lap.blob_hash)).await;
+        assert_eq!(
+            st == StatusCode::OK,
+            expected,
+            "telemetry lap {}",
+            lap.number
+        );
+        let lost = checked["lost"].as_array().unwrap().contains(&json!(lap.id));
+        assert_eq!(lost, !expected, "revocation check lap {}", lap.number);
+    }
+    seen
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn teams_roles_and_invitations() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut anna, anna_id) = user(&s, &mut admin, "anna").await;
+    let (mut ben, ben_id) = user(&s, &mut admin, "ben").await;
+    let (mut cleo, cleo_id) = user(&s, &mut admin, "cleo").await;
+
+    let (st, team) = anna
+        .post("/teams", json!({ "name": "  Sim   Racers " }))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{team}");
+    assert_eq!(team["name"], "Sim Racers");
+    assert_eq!(team["role"], "owner");
+    let t = team["id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        anna.post("/teams", json!({ "name": " " })).await.0,
+        StatusCode::BAD_REQUEST
+    );
+
+    // others don't see the team at all
+    assert_eq!(ben.get("/teams").await.1, json!([]));
+    assert_eq!(
+        ben.get(&format!("/teams/{t}")).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        ben.post(
+            &format!("/teams/{t}/invites"),
+            json!({ "username": "cleo" })
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        ben.post(&format!("/teams/{t}/leave"), json!({})).await.0,
+        StatusCode::NOT_FOUND
+    );
+
+    // invite by username: unknown names, twice, accept
+    let invites = format!("/teams/{t}/invites");
+    assert_eq!(
+        anna.post(&invites, json!({ "username": "nobody" })).await.0,
+        StatusCode::NOT_FOUND
+    );
+    let (st, inv) = anna.post(&invites, json!({ "username": "Ben" })).await;
+    assert_eq!(st, StatusCode::OK, "{inv}");
+    assert_eq!(inv["invitee"]["username"], "ben");
+    let (_, again) = anna.post(&invites, json!({ "username": "ben" })).await;
+    assert_eq!(again["id"], inv["id"], "one open invitation per user");
+    let (_, mine) = ben.get("/me/invites").await;
+    assert_eq!(mine.as_array().unwrap().len(), 1);
+    assert_eq!(mine[0]["team"]["name"], "Sim Racers");
+    assert_eq!(mine[0]["invitedBy"]["username"], "anna");
+    let inv_id = mine[0]["id"].as_str().unwrap().to_owned();
+    // only the invited user can answer
+    assert_eq!(
+        cleo.post(&format!("/invites/{inv_id}/accept"), json!({}))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    let (st, _) = ben
+        .post(&format!("/invites/{inv_id}/accept"), json!({}))
+        .await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(ben.get("/me/invites").await.1, json!([]));
+    assert_eq!(
+        ben.post(&format!("/invites/{inv_id}/accept"), json!({}))
+            .await
+            .0,
+        StatusCode::NOT_FOUND,
+        "single use"
+    );
+    assert_eq!(
+        anna.post(&invites, json!({ "username": "ben" })).await.0,
+        StatusCode::CONFLICT,
+        "already a member"
+    );
+    let (_, detail) = ben.get(&format!("/teams/{t}")).await;
+    assert_eq!(detail["role"], "member");
+    assert_eq!(detail["memberCount"], 2);
+    assert_eq!(detail["members"][0]["user"]["username"], "anna");
+    assert_eq!(
+        detail["invites"],
+        json!([]),
+        "members don't see invitations"
+    );
+
+    // members can't manage
+    assert_eq!(
+        ben.post(&invites, json!({ "username": "cleo" })).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        ben.call("PATCH", &format!("/teams/{t}"), json!({ "name": "X" }))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let member = |id: &str| format!("/teams/{t}/members/{id}");
+    assert_eq!(
+        ben.call("PATCH", &member(&ben_id), json!({ "role": "admin" }))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+
+    // a declined invitation, then an invite link
+    anna.post(&invites, json!({ "username": "cleo" })).await;
+    let (_, mine) = cleo.get("/me/invites").await;
+    let id = mine[0]["id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        cleo.post(&format!("/invites/{id}/decline"), json!({}))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(cleo.get("/teams").await.1, json!([]));
+    let (st, link) = anna
+        .post(&invites, json!({ "link": { "maxUses": 1 } }))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{link}");
+    let url = link["url"].as_str().unwrap();
+    let token = url.rsplit('/').next().unwrap().to_owned();
+    assert!(url.starts_with("http://localhost:8080/invite/"), "{url}");
+    let (_, detail) = anna.get(&format!("/teams/{t}")).await;
+    assert_eq!(detail["invites"].as_array().unwrap().len(), 1);
+    assert_eq!(detail["invites"][0]["url"], Value::Null, "shown once");
+    let (st, preview) = cleo.get(&format!("/invites/link/{token}")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(preview["team"]["name"], "Sim Racers");
+    assert_eq!(preview["alreadyMember"], false);
+    assert_eq!(
+        cleo.get("/invites/link/wrong").await.0,
+        StatusCode::NOT_FOUND
+    );
+    // a member following the link doesn't use it up
+    let accept = format!("/invites/link/{token}/accept");
+    assert_eq!(ben.post(&accept, json!({})).await.0, StatusCode::OK);
+    assert_eq!(cleo.post(&accept, json!({})).await.0, StatusCode::OK);
+    assert_eq!(cleo.get("/teams").await.1[0]["role"], "member");
+    assert_eq!(
+        admin.post(&accept, json!({})).await.0,
+        StatusCode::NOT_FOUND,
+        "used up"
+    );
+    // a revoked link stops working
+    let (_, link) = anna.post(&invites, json!({ "link": {} })).await;
+    let token = link["url"]
+        .as_str()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_owned();
+    let (st, _) = anna
+        .call(
+            "DELETE",
+            &format!("{invites}/{}", link["id"].as_str().unwrap()),
+            json!({}),
+        )
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert_eq!(
+        admin
+            .post(&format!("/invites/link/{token}/accept"), json!({}))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+
+    // roles: admins manage members, but not owners
+    let (st, _) = anna
+        .call("PATCH", &member(&ben_id), json!({ "role": "admin" }))
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert_eq!(
+        ben.call("PATCH", &member(&anna_id), json!({ "role": "member" }))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        ben.call("PATCH", &member(&cleo_id), json!({ "role": "owner" }))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        ben.call("DELETE", &member(&anna_id), json!({})).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        ben.call("PATCH", &member(&cleo_id), json!({ "role": "admin" }))
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        ben.call("DELETE", &member(&cleo_id), json!({})).await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(cleo.get("/teams").await.1, json!([]));
+    assert_eq!(
+        ben.call("DELETE", &member(&ben_id), json!({})).await.0,
+        StatusCode::BAD_REQUEST,
+        "leaving is its own action"
+    );
+
+    // a team keeps an owner
+    assert_eq!(
+        anna.call("PATCH", &member(&anna_id), json!({ "role": "member" }))
+            .await
+            .0,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        anna.post(&format!("/teams/{t}/leave"), json!({})).await.0,
+        StatusCode::CONFLICT
+    );
+    // ownership is handed over, then the first owner can leave
+    anna.call("PATCH", &member(&ben_id), json!({ "role": "owner" }))
+        .await;
+    assert_eq!(
+        anna.post(&format!("/teams/{t}/leave"), json!({})).await.0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(anna.get("/teams").await.1, json!([]));
+    let (st, renamed) = ben
+        .call("PATCH", &format!("/teams/{t}"), json!({ "name": "Ben's" }))
+        .await;
+    assert_eq!(
+        (st, renamed["name"].as_str()),
+        (StatusCode::OK, Some("Ben's"))
+    );
+    // the last member leaving removes the team
+    assert_eq!(
+        ben.post(&format!("/teams/{t}/leave"), json!({})).await.0,
+        StatusCode::NO_CONTENT
+    );
+    let left: i64 = s
+        .state
+        .conn()
+        .await
+        .unwrap()
+        .query_one("SELECT count(*) FROM teams", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(left, 0);
+
+    let (_, log) = admin.get("/admin/audit").await;
+    let events: Vec<&str> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["event"].as_str().unwrap())
+        .collect();
+    for e in [
+        "team_created",
+        "team_invite_created",
+        "team_joined",
+        "team_role_changed",
+        "team_member_removed",
+        "team_left",
+        "team_deleted",
+    ] {
+        assert!(events.contains(&e), "{e} missing in {events:?}");
+    }
+}
+
+/// The access-control matrix of docs/PLAN.md §10: owner / direct grant /
+/// team member / ex-member / everyone (setting on and off) / stranger ×
+/// inherit/custom at session and lap level.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sharing_access_matrix() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut owner, owner_id) = user(&s, &mut admin, "owner").await;
+    let (mut direct, direct_id) = user(&s, &mut admin, "direct").await;
+    let (mut mate, _) = user(&s, &mut admin, "mate").await;
+    let (mut ex, ex_id) = user(&s, &mut admin, "former").await;
+    let (mut stranger, _) = user(&s, &mut admin, "stranger").await;
+    let o = (owner_id.as_str(), "owner");
+
+    // a team with owner, mate and ex; ex is removed again
+    let (_, team) = owner.post("/teams", json!({ "name": "Team" })).await;
+    let t = team["id"].as_str().unwrap().to_owned();
+    let (_, link) = owner
+        .post(&format!("/teams/{t}/invites"), json!({ "link": {} }))
+        .await;
+    let token = link["url"]
+        .as_str()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap()
+        .to_owned();
+    let accept = format!("/invites/link/{token}/accept");
+    assert_eq!(mate.post(&accept, json!({})).await.0, StatusCode::OK);
+    assert_eq!(ex.post(&accept, json!({})).await.0, StatusCode::OK);
+
+    let (session, laps) = push_sample(&mut owner).await;
+    let sharing = format!("/sessions/{}/sharing", session.id);
+    let lap_sharing = |n: usize| format!("/laps/{}/sharing", laps[n].id);
+    let user_grant = json!({ "kind": "user", "id": direct_id });
+    let team_grant = json!({ "kind": "team", "id": t });
+    let everyone = json!({ "kind": "everyone" });
+
+    macro_rules! expect {
+        ($what:literal: direct $d:expr, mate $m:expr, ex $e:expr, stranger $s:expr) => {
+            let d: &[u64] = &$d;
+            let m: &[u64] = &$m;
+            let e: &[u64] = &$e;
+            let st: &[u64] = &$s;
+            assert_eq!(
+                visible(&mut direct, o, &session, &laps).await,
+                d,
+                "{}: direct",
+                $what
+            );
+            assert_eq!(
+                visible(&mut mate, o, &session, &laps).await,
+                m,
+                "{}: mate",
+                $what
+            );
+            assert_eq!(
+                visible(&mut ex, o, &session, &laps).await,
+                e,
+                "{}: ex",
+                $what
+            );
+            assert_eq!(
+                visible(&mut stranger, o, &session, &laps).await,
+                st,
+                "{}: stranger",
+                $what
+            );
+            // the owner's own data never shows up as shared with them
+            assert_eq!(owner.get("/shared/sessions").await.1, json!([]));
+            assert_eq!(
+                owner.get(&format!("/sessions/{}", session.id)).await.1["laps"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                2
+            );
+        };
+    }
+
+    // new users share nothing
+    let (_, state) = owner.get(&sharing).await;
+    assert_eq!(state["mode"], "inherit");
+    assert_eq!(state["source"], "default");
+    assert_eq!(state["effective"], json!([]));
+    expect!("private": direct [], mate [], ex [], stranger []);
+    assert_eq!(owner.get("/sessions").await.1[0]["shared"], false);
+
+    // default: one user
+    let d = put(
+        &mut owner,
+        "/me/default-sharing",
+        json!({ "grants": [user_grant] }),
+    )
+    .await;
+    assert_eq!(d["inheritingSessions"], 1);
+    assert_eq!(d["grants"][0]["username"], "direct");
+    expect!("default user": direct [1, 2], mate [], ex [], stranger []);
+    assert_eq!(owner.get("/sessions").await.1[0]["shared"], true);
+    let (_, state) = owner.get(&lap_sharing(0)).await;
+    assert_eq!(state["source"], "default");
+    assert_eq!(state["effective"][0]["username"], "direct");
+
+    // default: the team, evaluated live
+    put(
+        &mut owner,
+        "/me/default-sharing",
+        json!({ "grants": [team_grant] }),
+    )
+    .await;
+    expect!("default team": direct [], mate [1, 2], ex [1, 2], stranger []);
+    let (st, _) = owner
+        .call("DELETE", &format!("/teams/{t}/members/{ex_id}"), json!({}))
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    expect!("ex-member": direct [], mate [1, 2], ex [], stranger []);
+
+    // default: everyone, as long as the admin allows it
+    put(
+        &mut owner,
+        "/me/default-sharing",
+        json!({ "grants": [everyone] }),
+    )
+    .await;
+    expect!("everyone": direct [1, 2], mate [1, 2], ex [1, 2], stranger [1, 2]);
+    let mut settings = admin.get("/admin/settings").await.1;
+    settings["allowShareEveryone"] = json!(false);
+    put(&mut admin, "/admin/settings", settings.clone()).await;
+    expect!("everyone off": direct [], mate [], ex [], stranger []);
+    let (_, state) = owner.get(&sharing).await;
+    assert_eq!(state["everyoneAllowed"], false);
+    assert_eq!(state["effective"], json!([]));
+    assert_eq!(owner.get("/sessions").await.1[0]["shared"], false);
+    let (st, _) = owner
+        .call(
+            "PUT",
+            &sharing,
+            json!({ "mode": "custom", "grants": [everyone] }),
+        )
+        .await;
+    assert_eq!(
+        st,
+        StatusCode::BAD_REQUEST,
+        "can't choose everyone while it's off"
+    );
+    settings["allowShareEveryone"] = json!(true);
+    put(&mut admin, "/admin/settings", settings).await;
+    expect!("everyone on again": direct [1, 2], mate [1, 2], ex [1, 2], stranger [1, 2]);
+
+    // session custom: its own grants instead of the default
+    let state = put(
+        &mut owner,
+        &sharing,
+        json!({ "mode": "custom", "grants": [] }),
+    )
+    .await;
+    assert_eq!(
+        (&state["mode"], &state["source"]),
+        (&json!("custom"), &json!("own"))
+    );
+    expect!("session private": direct [], mate [], ex [], stranger []);
+    put(
+        &mut owner,
+        &sharing,
+        json!({ "mode": "custom", "grants": [team_grant, team_grant] }),
+    )
+    .await;
+    expect!("session team": direct [], mate [1, 2], ex [], stranger []);
+    let (_, state) = owner.get(&lap_sharing(0)).await;
+    assert_eq!(state["source"], "session");
+    assert_eq!(
+        state["effective"],
+        json!([{ "kind": "team", "id": t, "name": "Team" }])
+    );
+
+    // lap custom: beats the session in both directions
+    put(
+        &mut owner,
+        &lap_sharing(0),
+        json!({ "mode": "custom", "grants": [user_grant] }),
+    )
+    .await;
+    expect!("lap 1 for direct": direct [1], mate [2], ex [], stranger []);
+    put(
+        &mut owner,
+        &lap_sharing(1),
+        json!({ "mode": "custom", "grants": [] }),
+    )
+    .await;
+    expect!("lap 2 private": direct [1], mate [], ex [], stranger []);
+    // a private session with one shared lap
+    put(
+        &mut owner,
+        &sharing,
+        json!({ "mode": "custom", "grants": [] }),
+    )
+    .await;
+    put(&mut owner, &lap_sharing(1), json!({ "mode": "inherit" })).await;
+    expect!("only lap 1": direct [1], mate [], ex [], stranger []);
+    // back to inherit drops the lap's grants
+    let state = put(&mut owner, &lap_sharing(0), json!({ "mode": "inherit" })).await;
+    assert_eq!(state["grants"], json!([]));
+    put(&mut owner, &sharing, json!({ "mode": "inherit" })).await;
+    expect!("default again": direct [1, 2], mate [1, 2], ex [1, 2], stranger [1, 2]);
+
+    // leaving the team: the member loses access; what the owner shared
+    // with a team stops when the owner leaves
+    put(
+        &mut owner,
+        "/me/default-sharing",
+        json!({ "grants": [team_grant] }),
+    )
+    .await;
+    expect!("team": direct [], mate [1, 2], ex [], stranger []);
+    assert_eq!(
+        ex.post(&accept, json!({})).await.0,
+        StatusCode::OK,
+        "ex joins again"
+    );
+    expect!("rejoined": direct [], mate [1, 2], ex [1, 2], stranger []);
+    assert_eq!(
+        ex.post(&format!("/teams/{t}/leave"), json!({})).await.0,
+        StatusCode::NO_CONTENT
+    );
+    expect!("left": direct [], mate [1, 2], ex [], stranger []);
+    let mate_id = mate.get("/me").await.1["id"].as_str().unwrap().to_owned();
+    owner
+        .call(
+            "PATCH",
+            &format!("/teams/{t}/members/{mate_id}"),
+            json!({ "role": "owner" }),
+        )
+        .await;
+    assert_eq!(
+        owner.post(&format!("/teams/{t}/leave"), json!({})).await.0,
+        StatusCode::NO_CONTENT
+    );
+    expect!("owner left the team": direct [], mate [], ex [], stranger []);
+    assert_eq!(
+        owner.get("/me/default-sharing").await.1["grants"],
+        json!([])
+    );
+
+    // what can't be shared, and by whom
+    for (grants, why) in [
+        (json!([team_grant]), "a team the owner isn't in"),
+        (json!([{ "kind": "user", "id": owner_id }]), "oneself"),
+        (
+            json!([{ "kind": "user", "id": uuid::Uuid::new_v4() }]),
+            "an unknown user",
+        ),
+    ] {
+        let (st, _) = owner
+            .call(
+                "PUT",
+                &sharing,
+                json!({ "mode": "custom", "grants": grants }),
+            )
+            .await;
+        assert_eq!(st, StatusCode::BAD_REQUEST, "{why}");
+    }
+    put(
+        &mut owner,
+        &sharing,
+        json!({ "mode": "custom", "grants": [user_grant] }),
+    )
+    .await;
+    expect!("direct": direct [1, 2], mate [], ex [], stranger []);
+    // sharing gives read access only
+    assert_eq!(direct.get(&sharing).await.0, StatusCode::NOT_FOUND);
+    assert_eq!(
+        direct
+            .call(
+                "PUT",
+                &sharing,
+                json!({ "mode": "custom", "grants": [everyone] })
+            )
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        direct
+            .call(
+                "PUT",
+                &lap_sharing(0),
+                json!({ "mode": "custom", "grants": [everyone] })
+            )
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        direct
+            .call("DELETE", &format!("/sessions/{}", session.id), json!({}))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        direct.get(&format!("/sessions/{}", session.id)).await.0,
+        StatusCode::NOT_FOUND,
+        "not among the viewer's own sessions"
+    );
+    assert_eq!(
+        direct.get("/sync/changes?since=0").await.1["laps"],
+        json!([])
+    );
+    expect!("still direct": direct [1, 2], mate [], ex [], stranger []);
+
+    // finding users: exact name, or people from the same team
+    let (st, found) = stranger.get("/users/lookup?username=Owner").await;
+    assert_eq!(
+        (st, found["id"].as_str()),
+        (StatusCode::OK, Some(owner_id.as_str()))
+    );
+    assert_eq!(
+        stranger.get("/users/lookup?username=own").await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(stranger.get("/users/suggest?q=").await.1, json!([]));
+    assert_eq!(
+        owner.get("/users/suggest?q=ma").await.1,
+        json!([]),
+        "left the team"
+    );
+
+    // deleting the session removes its grants
+    owner
+        .call("DELETE", &format!("/sessions/{}", session.id), json!({}))
+        .await;
+    assert!(visible(&mut direct, o, &session, &laps).await.is_empty());
+    let grants: i64 = s
+        .state
+        .conn()
+        .await
+        .unwrap()
+        .query_one(
+            "SELECT count(*) FROM share_grants WHERE object_kind IN ('session', 'lap')",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(grants, 0);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn imported_sessions_do_not_use_the_default() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut owner, owner_id) = user(&s, &mut admin, "owner").await;
+    let (mut friend, friend_id) = user(&s, &mut admin, "friend").await;
+    let o = (owner_id.as_str(), "owner");
+
+    let (file, session, laps) = bundle();
+    let req = owner
+        .request("POST", "/import")
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .body(Body::from(file))
+        .unwrap();
+    assert_eq!(owner.send(req).await.0, StatusCode::OK);
+    put(
+        &mut owner,
+        "/me/default-sharing",
+        json!({ "grants": [{ "kind": "everyone" }] }),
+    )
+    .await;
+    let sharing = format!("/sessions/{}/sharing", session.id);
+    let (_, state) = owner.get(&sharing).await;
+    assert_eq!(state["source"], "imported");
+    assert_eq!(state["effective"], json!([]));
+    assert_eq!(
+        owner.get("/me/default-sharing").await.1["inheritingSessions"],
+        0
+    );
+    assert!(visible(&mut friend, o, &session, &laps).await.is_empty());
+
+    // sharing it explicitly works
+    put(
+        &mut owner,
+        &sharing,
+        json!({ "mode": "custom", "grants": [{ "kind": "user", "id": friend_id }] }),
+    )
+    .await;
+    assert_eq!(visible(&mut friend, o, &session, &laps).await, [1, 2]);
+
+    // comparing shared laps works like comparing own ones
+    let (st, cmp) = friend
+        .post(
+            "/analysis/compare",
+            json!({ "lapIds": [laps[0].id, laps[1].id] }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{cmp}");
+    assert_eq!(cmp["laps"].as_array().unwrap().len(), 2);
+}

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type { Origin } from './api/types.ts';
+import type { Grantee, Origin } from './api/types.ts';
 
 /** Formats a lap time in milliseconds as `m:ss.mmm` (e.g. `1:23.456`). */
 export function formatLapTime(ms: number | null | undefined): string {
@@ -107,4 +107,23 @@ export function formatAgo(iso: string | null | undefined, now = Date.now()): str
 	if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
 	if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
 	return formatDateTime(iso);
+}
+
+/** One entry of an audience, e.g. `Team Sim Racers` or `Max (@max)`. */
+export function formatGrantee(g: Grantee): string {
+	switch (g.kind) {
+		case 'everyone':
+			return 'Everyone on this server';
+		case 'team':
+			return `Team ${g.name}`;
+		case 'user':
+			return g.displayName === g.username ? `@${g.username}` : `${g.displayName} (@${g.username})`;
+	}
+}
+
+/** Who can see something, e.g. `Only you` or `Team A, Max (@max)`. */
+export function formatAudience(grants: Grantee[]): string {
+	if (grants.length === 0) return 'Only you';
+	if (grants.some((g) => g.kind === 'everyone')) return 'Everyone on this server';
+	return grants.map(formatGrantee).join(', ');
 }

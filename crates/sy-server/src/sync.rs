@@ -70,6 +70,15 @@ pub async fn delete_sessions(
         .iter()
         .map(|r| r.get(0))
         .collect();
+    db.execute(
+        "DELETE FROM share_grants
+         WHERE owner_id = $1
+           AND ((object_kind = 'session' AND object_id = ANY($2))
+             OR (object_kind = 'lap' AND object_id IN (
+                    SELECT id FROM laps WHERE owner_id = $1 AND session_id = ANY($2))))",
+        &[&owner, &ids],
+    )
+    .await?;
     let deleted = db
         .execute(
             "DELETE FROM sessions WHERE owner_id = $1 AND id = ANY($2)",
@@ -439,23 +448,17 @@ fn session_from_row(r: &tokio_postgres::Row) -> ApiResult<Session> {
     })
 }
 
-/// `GET /sync/blobs/{hash}`: a telemetry file of one of the user's laps.
+/// `GET /sync/blobs/{hash}`: a telemetry file of one of the user's laps, or
+/// of a lap shared with them.
 pub async fn get_blob(
     State(state): State<SharedState>,
     Auth(session): Auth,
     Path(hash): Path<String>,
 ) -> ApiResult<Response> {
     let hash: BlobHash = hash.parse().map_err(|_| ApiError::not_found("telemetry"))?;
-    let owned = state
-        .conn()
-        .await?
-        .query_opt(
-            "SELECT 1 FROM laps WHERE owner_id = $1 AND blob_hash = $2 LIMIT 1",
-            &[&session.user.id, &hash.as_str()],
-        )
-        .await?
-        .is_some();
-    if !owned {
+    let readable =
+        crate::sharing::blob_readable(&state.conn().await?, session.user.id, hash.as_str()).await?;
+    if !readable {
         return Err(ApiError::not_found("telemetry"));
     }
     let state2 = state.clone();

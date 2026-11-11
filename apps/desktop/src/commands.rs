@@ -466,3 +466,96 @@ pub async fn sync_set_auto(
 ) -> Result<SyncStatus, String> {
     sync.set_auto(auto).await
 }
+
+// ----- teams and sharing (on the server) ------------------------------------
+
+/// True for the paths of the server's teams and sharing API (relative to
+/// `/api/v1`). Everything else the frontend has no business with.
+fn is_sharing_path(path: &str) -> bool {
+    let path = path.split('?').next().unwrap_or_default();
+    if !path.starts_with('/') || path.contains("..") || path.contains("//") {
+        return false;
+    }
+    let parts: Vec<&str> = path[1..].split('/').collect();
+    matches!(
+        parts.as_slice(),
+        ["teams", ..]
+            | ["invites", ..]
+            | ["shared", "sessions", ..]
+            | ["me", "invites"]
+            | ["me", "default-sharing"]
+            | ["users", "lookup"]
+            | ["users", "suggest"]
+            | ["sessions", _, "sharing"]
+            | ["laps", _, "sharing"]
+    )
+}
+
+/// Passes a teams or sharing request on to the connected server, as this
+/// device's user. `path` is relative to `/api/v1`.
+#[tauri::command]
+pub async fn server_request(
+    sync: State<'_, Arc<SyncManager>>,
+    method: String,
+    path: String,
+    body: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    if !matches!(method.as_str(), "GET" | "POST" | "PUT" | "PATCH" | "DELETE")
+        || !is_sharing_path(&path)
+    {
+        return Err(format!("request not allowed: {method} {path}"));
+    }
+    sync.server_request(&method, &path, body.as_ref()).await
+}
+
+/// Keeps a session someone shared on the server as a local reference (or
+/// refreshes the copy). Returns the id of the local session to open.
+#[tauri::command]
+pub async fn open_shared_session(
+    sync: State<'_, Arc<SyncManager>>,
+    owner: String,
+    id: String,
+) -> Result<String, String> {
+    let owner: uuid::Uuid = owner.parse().map_err(|_| format!("invalid id: {owner}"))?;
+    let id: SessionId = id.parse().map_err(|_| format!("invalid id: {id}"))?;
+    Ok(sync.open_shared(owner, id).await?.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_sharing_paths_are_passed_on() {
+        for ok in [
+            "/teams",
+            "/teams/0190/members/0191",
+            "/invites/link/abc/accept",
+            "/me/invites",
+            "/me/default-sharing",
+            "/users/lookup?username=max",
+            "/users/suggest?q=m",
+            "/shared/sessions",
+            "/sessions/0190/sharing",
+            "/laps/0190/sharing",
+        ] {
+            assert!(is_sharing_path(ok), "{ok}");
+        }
+        for bad in [
+            "/sessions",
+            "/sessions/0190",
+            "/me",
+            "/me/password",
+            "/me/devices",
+            "/admin/users",
+            "/sync/push",
+            "/teams/../me/password",
+            "teams",
+            "/shared/check",
+            "/sessions/0190/sharing/x",
+            "//teams",
+        ] {
+            assert!(!is_sharing_path(bad), "{bad}");
+        }
+    }
+}

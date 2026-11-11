@@ -285,10 +285,12 @@ Sharing mode   on Session and Lap: inherit | custom
 - Audience = any combination of **users, teams and "Everyone on this server"**. An empty set means private. "Everyone" covers all active accounts, including ones created later.
 - Server setting `allow_share_everyone` (default on): admins of larger or public servers can disable the "Everyone" option. Existing "everyone" grants then stop counting, and the UI shows those items as "not shared (everyone disabled by admin)".
 - Resolution: a lap with mode `custom` uses its own grants. A lap with `inherit` uses its session's. A session with `inherit` uses the owner's **default grants** (`user_default`). New users default to private.
-- Access check: user U may read a lap if U is the owner, or U is directly granted, or U is a member of a granted team, or there is an `everyone` grant (and it's allowed on the server). Team access is evaluated **live**: whoever joins later sees team-shared laps, and whoever leaves loses access.
+- The default only applies to sessions the owner **recorded**. Imported sessions (someone else's `.stintory` file, usually) stay private until they are shared explicitly.
+- Access check: user U may read a lap if U is the owner, or U is directly granted, or U is a member of a granted team, or there is an `everyone` grant (and it's allowed on the server). Team access is evaluated **live**: whoever joins later sees team-shared laps, and whoever leaves loses access. A user can only share with teams they are in; when they leave a team, what they shared with it stops being shared.
+- A session is visible to others through its readable laps: a private session with one shared lap shows up with that lap only.
 - Changing the default affects everything still on `inherit`. The UI says so explicitly ("applies to 37 sessions using your default").
-- Sharing grants read access to session/lap metadata and telemetry only. Others can never edit, re-share or delete.
-- Revocation: clients that cached a foreign lap (used as a reference) get the lost-access list on their next sync and delete the cached copy. Copies already exported to `.stintory` can't be recalled; the share dialog mentions this.
+- Sharing grants read access to session/lap metadata and telemetry only. Others can never edit, re-share or delete. The car setup and the game's session info are not part of what others get.
+- Revocation: clients that cached a foreign lap (used as a reference) get the lost-access list on their next sync (`POST /shared/check`) and delete the cached copy. Disconnecting the app from the server deletes all cached copies, because access can't be checked anymore. Copies already exported to `.stintory` can't be recalled; the share dialog mentions this.
 - User lookup for the picker: exact username, or autocomplete among people you share a team with. There is no full user directory, so usernames on a server aren't enumerable.
 
 ### 9.3 Authentication
@@ -340,7 +342,8 @@ PUT  /sessions/{id}  PUT /laps/{id}           upsert metadata
 GET/PUT /sessions/{id}/sharing  GET/PUT /laps/{id}/sharing   {mode: inherit|custom, grants:[…]} → also returns effective audience
 GET  /sessions?game&track&car&mine=true
 GET  /laps/{id}  GET /laps/{id}/blob  GET /laps/{id}/resampled?step=1
-GET  /tracks/{game}/{track}/{layout}/laps?car=…&shared_with_me=true   (best first)
+GET  /shared/sessions   GET /shared/sessions/{owner}/{id}   GET /shared/sessions/{owner}/{id}/download   POST /shared/check
+GET  /tracks/{game}/{track}/{layout}/laps?car=…&shared_with_me=true   (best first, M4)
 POST /analysis/compare  {laps:[a,b], step}  → resampled channels + delta
 # admin
 GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, admin flag)  GET/PUT /admin/settings (registration mode, enforce 2FA, allow_share_everyone)
@@ -349,7 +352,8 @@ GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, adm
 ### 9.5 Sync protocol (client side, `sy-sync`)
 - Push: on lap completion (if auto-sync) or manually. Send manifest diff → upload missing blobs → upsert metadata. Retries with backoff and works offline-first (outbox table in SQLite).
 - Pull: own data from other devices (e.g. view on Linux what was recorded on Windows), and **on-demand** fetch of laps shared with me when chosen as a reference (no full mirror). Teams and invites are refreshed on each sync. Cached foreign laps that lost access are deleted.
-- Sharing changes made offline go into the outbox and apply on the next sync. The picker offers users/teams from the last cached list.
+- Teams and sharing live on the server. The desktop app's frontend uses the same API as the browser; the Tauri backend passes the requests on with the device token (only the teams and sharing paths). So they need a connection for now.
+- Later: sharing changes made offline go into the outbox and apply on the next sync. The picker offers users/teams from the last cached list.
 - Mutable fields (sharing, notes, tags): last-write-wins on `updated_at`.
 - Deleting: tombstones synced both ways. Deleting on the server removes the blob when no other reference exists.
 
@@ -378,7 +382,7 @@ Developing on Linux without the games running is a real constraint, so **record 
 | **M1 – iRacing MVP** | iRacing shm source, raw spool + crash recovery + "keep raw" debug setting, player-only filtering, lap segmenter, local store, `.ibt` import (also on Linux), sessions list, session detail, lap view, compare 2 laps with delta + track map | Drive 10 laps → all laps appear with correct times. Kill the client mid-lap → after restart nothing is lost. Spool files are gone after processing (kept with debug setting). Compare best vs. second best with delta + map. Same data visible on Linux via `.ibt` import |
 | **M2 – Export/Import** | `.stintory` bundles, CSV export, import with dedupe, "imported" origin in UI | Export on Windows → import on Linux → identical comparison |
 | **M3a – Server, auth, own sync** | Part 1 (done): axum server, Postgres, Docker image + compose, admin bootstrap + CLI reset, password login, TOTP + recovery codes, web sessions with CSRF protection, rate limiting, audit log, admin page, web UI on server data, `.stintory` upload. Part 2 (done): browser-based device login (loopback + PKCE) + device tokens (keychain, file fallback), sync push/pull of own data (`sy-sync`, change feed with per-user ordering, tombstones), DB wait at startup. Part 3 (done): passkeys (webauthn-rs, passwordless + second factor, count as 2FA) | Log in with each method. Record on Windows → appears in the Linux client via sync. Revoking a device token stops its sync |
-| **M3b – Teams & sharing** | Teams, roles, invites (username + link), share grants with inherit/custom, default sharing, share dialog + teams UI in client, revocation of cached foreign laps | Access-control test matrix green. User B sees only laps shared with B or B's teams. Leaving a team removes access |
+| **M3b – Teams & sharing** | Done: teams, roles, invites (username + link), share grants with inherit/custom, default sharing, share dialog + teams and sharing pages (browser and desktop app), "shared with me" list, comparing shared laps, desktop keeps shared sessions as references and deletes them when access is lost. Not yet: sharing changes while offline (outbox), choosing a shared lap as reference next to an own lap (M4) | Access-control test matrix green. User B sees only laps shared with B or B's teams. Leaving a team removes access |
 | **M4 – Web UI** | Serve `web/` from server with HttpApi; account/teams/sharing pages; "shared with me" browser per track/car | Compare own lap vs a team mate's shared lap in the browser |
 | **M5 – F1 25** | UDP source (2025 + 2026 formats), flashback handling, UDP forwarding, console note in docs | Time trial + race laps recorded with correct validity. Flashback laps flagged |
 | **M6 – LMU** | `LMU_Data` source, scoring interpolation, REST poller (VE, setup), setup hint UI | Laps recorded with correct times; VE/TC/ABS traces visible |
@@ -441,7 +445,7 @@ All game parsers are written **from scratch**. We don't build on other telemetry
 | Gaps in official docs (e.g. LMU field semantics, iRacing sign conventions) | Find out by experiment with our own recordings and document the findings in `docs/` |
 | WebKitGTK quirks on Linux (Tauri) | Keep the frontend standard and test on Linux in CI (Playwright/WebKit). Login runs in the system browser (§9.3), so WebAuthn doesn't depend on the webview |
 | Other drivers' data leaking into storage (privacy) | Filter before the spool (§5.2) + automated privacy test on fixtures |
-| Access-control bugs in sharing | Single central authorization function on the server, used by every data endpoint. Exhaustive test matrix (§10) |
+| Access-control bugs in sharing | Single central authorization function on the server (`sharing::lap_readable`), used by every endpoint that returns other users' data. Exhaustive test matrix (§10) |
 | Lost 2FA device / passkey | Recovery codes, multiple passkeys, admin reset, CLI reset for the first admin |
 
 ## 14. Open questions

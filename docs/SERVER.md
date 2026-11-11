@@ -1,12 +1,12 @@
 # Running a Stintory server
 
 The server keeps your sessions and laps, lets you log in from any browser,
-and (soon) syncs with the desktop app and lets you share laps with friends
-and teams. It is meant to be self-hosted: you run it, you own the data.
+syncs with the desktop app and lets you share laps with friends and teams.
+It is meant to be self-hosted: you run it, you own the data.
 
-> Status: milestone M3a done. Accounts (password, TOTP, passkeys), the web UI,
-> uploading `.stintory` files and sync with the desktop app work. Teams and
-> sharing follow (M3b).
+> Status: milestone M3b done. Accounts (password, TOTP, passkeys), the web UI,
+> uploading `.stintory` files, sync with the desktop app, teams and sharing
+> work.
 
 ## What you need
 
@@ -57,7 +57,7 @@ All settings are environment variables (or command-line flags, see
 
 Settings that change at runtime are on the **Admin** page: who may create an
 account (only admins, or anyone), requiring two-factor authentication for
-everyone, and (later) sharing with everyone on the server.
+everyone, and whether users may share with everyone on the server.
 
 ## Accounts
 
@@ -105,6 +105,43 @@ after imports and deletions, and every few minutes.
   app (*Use a device token instead*).
 - Headless machines: `cargo run -p sy-sync --example sync -- <data-dir> <server-url>`
   connects and syncs a data directory from the command line.
+
+## Teams and sharing
+
+Nothing is shared until a user says so.
+
+- **Teams** (page *Teams*): anyone can create a team and invite others, by
+  username (they accept or decline under *Teams*) or with an invite link for
+  people who have an account on the server. Owners and admins manage
+  members; owners can also rename and delete the team. A team always keeps
+  an owner.
+- **Sharing a session or a lap**: *Share…* on the session page. Choose
+  people (by exact username), teams you are in, and/or everyone on this
+  server. A lap can be shared differently from its session, in both
+  directions.
+- **Default** (page *Sharing*): who sees what you record unless you choose
+  something else. It applies to everything that still uses the default, and
+  to new recordings. Imported sessions are never shared by default.
+- **Shared with me** (page *Sharing*): sessions others share with you. Open
+  one to look at the laps and compare them.
+- Others can only look: they can't change, delete or share your laps. They
+  get the laps and the session's basic data (track, car, conditions), not
+  your car setup.
+- Access is checked on every request. Leaving or being removed from a team
+  ends the access to what is shared with it, and ends what that person
+  shared with the team. Deleting a team does the same for everyone.
+- In the desktop app, *Sharing* and *Teams* appear once it is connected to
+  the server. A shared session you open there is kept on the computer as a
+  reference; the next sync deletes it when it isn't shared with you anymore,
+  and disconnecting from the server deletes all such copies. Exported files
+  can't be taken back.
+- Admins can turn off "everyone on this server" on the Admin page (useful on
+  larger servers). What was shared with everyone is then hidden from others
+  until it is turned on again.
+- There is no list of users: people find each other by exact username, or
+  among the members of their teams.
+- Team changes (created, joined, left, roles, removed, deleted) are in the
+  security log.
 
 ## Backups
 
