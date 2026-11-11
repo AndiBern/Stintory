@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[package]
+name = "sy-source-f1"
+description = "EA SPORTS F1 25 UDP telemetry reader (2025 and 2026 formats) for Stintory"
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[dependencies]
+sy-model = { workspace = true, default-features = false }
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

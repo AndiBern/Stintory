@@ -11,14 +11,15 @@ use sy_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
 use sy_capture::pipeline::{self, RunOptions};
 use sy_model::api::{
     AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ExportRequest, ExportResult,
-    ImportProgress, ImportResult, LapSummary, OriginView, REFERENCE_LAPS_MAX, RecorderStatus,
-    ReferenceLap, ReferenceScope, SessionDetail, SessionSummary, Settings, SyncStatus,
+    F1CaptureSettings, ImportProgress, ImportResult, LapSummary, OriginView, REFERENCE_LAPS_MAX,
+    RecorderStatus, ReferenceLap, ReferenceScope, SessionDetail, SessionSummary, Settings,
+    SyncStatus,
 };
 use sy_model::{LapId, Origin, SessionId};
 use sy_source_iracing::IbtSource;
 use sy_store::{
-    EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, KEEP_RAW_RECORDINGS, SpoolState, Store,
-    StoreError,
+    EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, F1_CAPTURE, KEEP_RAW_RECORDINGS,
+    SpoolState, Store, StoreError,
 };
 use tauri::{AppHandle, Emitter, State};
 
@@ -439,9 +440,31 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
                 raw_storage_bytes: store.spool_size()?,
                 failed_recordings: store.spools(&[SpoolState::Failed])?.len() as u32,
                 export_driver_name: store.setting(EXPORT_DRIVER_NAME)?.flatten(),
+                f1_capture: store.setting(F1_CAPTURE)?.unwrap_or_default(),
+                f1_listening: None,
+                f1_error: None,
             })
         })
-        .await?)
+        .await
+        .map(|mut s| {
+            (s.f1_listening, s.f1_error) = state.f1.status();
+            s
+        })?)
+}
+
+/// Settings for recording F1 25. Applied as soon as no F1 session is being
+/// recorded.
+#[tauri::command]
+pub async fn set_f1_capture(
+    state: State<'_, AppState>,
+    settings: F1CaptureSettings,
+) -> CmdResult<()> {
+    crate::recording::f1_config(&settings).map_err(CommandError::BadRequest)?;
+    state
+        .with_store(move |s| s.set_setting(F1_CAPTURE, &settings))
+        .await?;
+    state.f1.changed();
+    Ok(())
 }
 
 /// Debug setting: keep raw recordings after processing.

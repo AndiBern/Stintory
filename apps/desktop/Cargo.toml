@@ -25,6 +25,7 @@ tauri-build = { version = "2", features = [] }
 sy-analysis.workspace = true
 sy-capture.workspace = true
 sy-model.workspace = true
+sy-source-f1.workspace = true
 sy-source-iracing.workspace = true
 sy-store.workspace = true
 sy-sync.workspace = true

@@ -9,6 +9,8 @@ use sy_capture::pipeline::SharedStore;
 use sy_model::api::{RecorderState, RecorderStatus};
 use sy_store::{Store, StoreError};
 
+use crate::recording::F1Capture;
+
 /// Shared state of the desktop app, managed by Tauri.
 pub struct AppState {
     /// The local store (locked per operation)
@@ -17,20 +19,20 @@ pub struct AppState {
     pub recorder: Arc<Mutex<RecorderStatus>>,
     /// Set on shutdown to stop background threads
     pub shutdown: Arc<AtomicBool>,
+    /// F1 25 recording (UDP), shared with the settings commands
+    pub f1: Arc<F1Capture>,
 }
 
 impl AppState {
     /// Opens the local store in `data_dir`.
     pub fn open(data_dir: &Path) -> Result<Self, StoreError> {
-        let initial = if cfg!(windows) {
-            RecorderState::Waiting
-        } else {
-            RecorderState::Unsupported
-        };
+        // F1 25 (UDP) can be recorded everywhere, iRacing on Windows
+        let initial = RecorderState::Waiting;
         Ok(Self {
             store: SharedStore(Arc::new(Mutex::new(Store::open(data_dir)?))),
             recorder: Arc::new(Mutex::new(RecorderStatus::idle(initial))),
             shutdown: Arc::new(AtomicBool::new(false)),
+            f1: Arc::default(),
         })
     }
 

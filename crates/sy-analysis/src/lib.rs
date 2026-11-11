@@ -30,6 +30,7 @@ pub const COMPARE_CHANNELS: &[&str] = &[
     names::BRAKE,
     names::CLUTCH,
     names::STEER,
+    names::STEER_NORM,
     names::GEAR,
     names::RPM,
     names::G_LAT,

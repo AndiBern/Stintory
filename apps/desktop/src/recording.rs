@@ -2,15 +2,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Background work: crash recovery at startup and the live recording
-//! supervisor (docs/PLAN.md §5).
+//! supervisors (docs/PLAN.md §5): iRacing (Windows, shared memory) and
+//! F1 25 (every platform, UDP).
 
-use std::sync::atomic::AtomicBool;
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use sy_capture::RecorderOutput;
-use sy_capture::pipeline::{SharedStore, Sink};
-use sy_model::api::{RecorderState, RecorderStatus};
-use sy_store::StoreError;
+use sy_capture::pipeline::{RunOptions, SharedStore, Sink, finish_spool, run};
+use sy_capture::spool::SpoolWriter;
+use sy_model::GameId;
+use sy_model::api::{F1CaptureSettings, RecorderState, RecorderStatus};
+use sy_model::capture::RawSource;
+use sy_source_f1::{UdpConfig, UdpSource};
+use sy_store::{F1_CAPTURE, SpoolState, StoreError};
 use tauri::{AppHandle, Emitter};
 
 use crate::commands::EVENT_SESSIONS_CHANGED;
@@ -50,11 +57,18 @@ impl StatusReporter {
         };
         let _ = self.app.emit(EVENT_RECORDER_STATUS, snapshot);
     }
+
+    /// Back to waiting, unless another game is being recorded.
+    fn idle(&self, game: GameId) {
+        self.update(|s| {
+            if s.state != RecorderState::Recording || s.game == Some(game) {
+                *s = RecorderStatus::idle(RecorderState::Waiting);
+            }
+        });
+    }
 }
 
 /// A sink that stores, and reports progress to the UI.
-// Only live recording (Windows for now) uses it.
-#[cfg_attr(not(windows), allow(dead_code))]
 struct ReportingSink {
     store: SharedStore,
     reporter: StatusReporter,
@@ -96,87 +110,48 @@ impl Sink for ReportingSink {
     }
 }
 
-/// Starts the live recording supervisor. On platforms without live sources
-/// (Linux, for now) this only sets the status.
-pub fn spawn_supervisor(
-    app: AppHandle,
-    store: SharedStore,
-    status: Arc<Mutex<RecorderStatus>>,
-    shutdown: Arc<AtomicBool>,
-    sync: Arc<SyncManager>,
-) {
-    let reporter = StatusReporter { app, status };
-    if !cfg!(windows) {
-        reporter.update(|s| *s = RecorderStatus::idle(RecorderState::Unsupported));
-        return;
-    }
-    std::thread::Builder::new()
-        .name("recorder".into())
-        .spawn(move || supervise(store, reporter, shutdown, sync))
-        .expect("spawn recorder thread");
-}
-
-#[cfg(not(windows))]
-fn supervise(
-    _store: SharedStore,
-    _reporter: StatusReporter,
-    _shutdown: Arc<AtomicBool>,
-    _sync: Arc<SyncManager>,
-) {
-}
-
-#[cfg(windows)]
-fn supervise(
+/// What the recording threads share.
+#[derive(Clone)]
+struct Context {
     store: SharedStore,
     reporter: StatusReporter,
     shutdown: Arc<AtomicBool>,
     sync: Arc<SyncManager>,
-) {
-    use std::sync::atomic::Ordering;
-    use std::time::Duration;
+}
 
-    use sy_capture::pipeline::{RunOptions, finish_spool, run};
-    use sy_capture::spool::SpoolWriter;
-    use sy_model::GameId;
-    use sy_source_iracing::LiveSource;
-    use sy_store::SpoolState;
+impl Context {
+    fn stopping(&self) -> bool {
+        self.shutdown.load(Ordering::Relaxed)
+    }
 
-    /// No data for this long: the session is over (sim closed or left).
-    const IDLE_END: Duration = Duration::from_secs(10);
-
-    reporter.update(|s| *s = RecorderStatus::idle(RecorderState::Waiting));
-    while !shutdown.load(Ordering::Relaxed) {
-        if !LiveSource::probe() {
-            std::thread::sleep(Duration::from_secs(2));
-            continue;
-        }
-        tracing::info!("iRacing is sending telemetry, recording");
-        let spool = match store.with(|s| s.register_spool(GameId::Iracing)) {
+    /// Records from a live source (spooled) until it is idle for
+    /// `idle_end` or the app shuts down.
+    fn record(&self, game: GameId, source: &mut dyn RawSource, idle_end: Duration) {
+        let spool = match self.store.with(|s| s.register_spool(game)) {
             Ok(s) => s,
             Err(e) => {
                 tracing::error!(error = %e, "cannot register spool");
                 std::thread::sleep(Duration::from_secs(10));
-                continue;
+                return;
             }
         };
-        let mut writer = match SpoolWriter::create(&spool.path, GameId::Iracing) {
+        let mut writer = match SpoolWriter::create(&spool.path, game) {
             Ok(w) => w,
             Err(e) => {
                 tracing::error!(error = %e, "cannot create spool file");
                 std::thread::sleep(Duration::from_secs(10));
-                continue;
+                return;
             }
         };
-        let mut source = LiveSource::new();
         let mut sink = ReportingSink {
-            store: store.clone(),
-            reporter: reporter.clone(),
-            sync: sync.clone(),
+            store: self.store.clone(),
+            reporter: self.reporter.clone(),
+            sync: self.sync.clone(),
         };
-        let stop = || shutdown.load(Ordering::Relaxed);
-        let mut idle_done = |idle: Duration| idle >= IDLE_END;
+        let stop = || self.stopping();
+        let mut idle_done = |idle: Duration| idle >= idle_end;
         let result = run(
-            &mut source,
+            source,
             &mut sink,
             RunOptions {
                 spool: Some(&mut writer),
@@ -189,11 +164,12 @@ fn supervise(
         match result {
             Ok(stats) => {
                 tracing::info!(
+                    %game,
                     records = stats.records,
                     laps = stats.laps,
                     "recording finished"
                 );
-                if let Err(e) = finish_spool(&store, &spool, &stats) {
+                if let Err(e) = finish_spool(&self.store, &spool, &stats) {
                     tracing::error!(error = %e, "cannot finish spool");
                 }
             }
@@ -203,10 +179,224 @@ fn supervise(
             Err(e) => {
                 tracing::error!(error = %e, "recording failed");
                 let msg = e.to_string();
-                let _ =
-                    store.with(|s| s.set_spool_state(&spool.id, SpoolState::Failed, Some(&msg)));
+                let _ = self
+                    .store
+                    .with(|s| s.set_spool_state(&spool.id, SpoolState::Failed, Some(&msg)));
             }
         }
-        reporter.update(|s| *s = RecorderStatus::idle(RecorderState::Waiting));
+        self.reporter.idle(game);
+    }
+}
+
+/// State of F1 recording shared with the settings commands.
+#[derive(Debug, Default)]
+pub struct F1Capture {
+    /// Bumped when the settings change
+    generation: AtomicU64,
+    /// (listening on, error)
+    status: Mutex<(Option<SocketAddr>, Option<String>)>,
+}
+
+impl F1Capture {
+    /// The settings changed: applied as soon as no session is recorded.
+    pub fn changed(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Where the app listens, and why it can't.
+    pub fn status(&self) -> (Option<String>, Option<String>) {
+        let s = self.status.lock().unwrap_or_else(|e| e.into_inner());
+        (s.0.map(|a| a.to_string()), s.1.clone())
+    }
+
+    fn set_status(&self, listening: Option<SocketAddr>, error: Option<String>) {
+        *self.status.lock().unwrap_or_else(|e| e.into_inner()) = (listening, error);
+    }
+}
+
+/// Checks F1 settings and turns them into the UDP source's config.
+pub fn f1_config(s: &F1CaptureSettings) -> Result<UdpConfig, String> {
+    if s.port < 1024 {
+        return Err("choose a port from 1024 to 65535".into());
+    }
+    let ip = if s.allow_remote {
+        std::net::Ipv4Addr::UNSPECIFIED
+    } else {
+        std::net::Ipv4Addr::LOCALHOST
+    };
+    let listen = SocketAddr::from((ip, s.port));
+    let mut forward = Vec::new();
+    for target in s.forward.iter().map(|t| t.trim()).filter(|t| !t.is_empty()) {
+        let addr = target
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut a| a.next())
+            .ok_or_else(|| format!("{target:?} is not an address like 127.0.0.1:20778"))?;
+        let to_self = addr.port() == s.port
+            && (addr.ip().is_loopback() || addr.ip().is_unspecified() || s.allow_remote);
+        if to_self {
+            return Err(format!(
+                "{target} is Stintory's own port; forward to another app's port"
+            ));
+        }
+        if addr.port() == 0 {
+            return Err(format!("{target}: the port is missing"));
+        }
+        if !forward.contains(&addr) {
+            forward.push(addr);
+        }
+    }
+    Ok(UdpConfig { listen, forward })
+}
+
+/// No F1 packets for this long: the session is over (game closed, or in the
+/// menus).
+const F1_IDLE_END: Duration = Duration::from_secs(30);
+
+/// Listens for F1 packets per the settings; records while they arrive.
+fn supervise_f1(ctx: Context, f1: Arc<F1Capture>) {
+    while !ctx.stopping() {
+        let generation = f1.generation.load(Ordering::Relaxed);
+        let settings: F1CaptureSettings = ctx
+            .store
+            .with(|s| s.setting(F1_CAPTURE))
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        let config = match f1_config(&settings) {
+            Ok(c) if settings.enabled => c,
+            Ok(_) => {
+                f1.set_status(None, None);
+                wait_for_change(&ctx, &f1, generation, Duration::from_secs(3600));
+                continue;
+            }
+            Err(e) => {
+                f1.set_status(None, Some(e));
+                wait_for_change(&ctx, &f1, generation, Duration::from_secs(3600));
+                continue;
+            }
+        };
+        let mut source = match UdpSource::bind(&config) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(addr = %config.listen, error = %e, "cannot listen for F1 packets");
+                f1.set_status(None, Some(format!("can't use {}: {e}", config.listen)));
+                wait_for_change(&ctx, &f1, generation, Duration::from_secs(10));
+                continue;
+            }
+        };
+        tracing::info!(addr = %config.listen, "listening for F1 25 packets");
+        f1.set_status(Some(config.listen), None);
+        while !ctx.stopping() && f1.generation.load(Ordering::Relaxed) == generation {
+            match source.wait_for_data(Duration::from_millis(500)) {
+                Ok(true) => {
+                    tracing::info!("F1 25 is sending telemetry, recording");
+                    ctx.record(GameId::F1_25, &mut source, F1_IDLE_END);
+                }
+                Ok(false) => {}
+                Err(e) => {
+                    tracing::warn!(error = %e, "receiving F1 packets failed");
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
+}
+
+/// Sleeps until the settings change, the app stops, or `max` passed.
+fn wait_for_change(ctx: &Context, f1: &F1Capture, generation: u64, max: Duration) {
+    let start = std::time::Instant::now();
+    while !ctx.stopping()
+        && f1.generation.load(Ordering::Relaxed) == generation
+        && start.elapsed() < max
+    {
+        std::thread::sleep(Duration::from_millis(250));
+    }
+}
+
+/// Starts the live recording supervisors: F1 25 on every platform, iRacing
+/// on Windows.
+pub fn spawn_supervisor(
+    app: AppHandle,
+    store: SharedStore,
+    status: Arc<Mutex<RecorderStatus>>,
+    shutdown: Arc<AtomicBool>,
+    sync: Arc<SyncManager>,
+    f1: Arc<F1Capture>,
+) {
+    let ctx = Context {
+        store,
+        reporter: StatusReporter { app, status },
+        shutdown,
+        sync,
+    };
+    ctx.reporter
+        .update(|s| *s = RecorderStatus::idle(RecorderState::Waiting));
+    let f1_ctx = ctx.clone();
+    std::thread::Builder::new()
+        .name("recorder-f1".into())
+        .spawn(move || supervise_f1(f1_ctx, f1))
+        .expect("spawn F1 recorder thread");
+    #[cfg(windows)]
+    std::thread::Builder::new()
+        .name("recorder-iracing".into())
+        .spawn(move || supervise_iracing(ctx))
+        .expect("spawn iRacing recorder thread");
+}
+
+#[cfg(windows)]
+fn supervise_iracing(ctx: Context) {
+    use sy_source_iracing::LiveSource;
+
+    /// No data for this long: the session is over (sim closed or left).
+    const IDLE_END: Duration = Duration::from_secs(10);
+
+    while !ctx.stopping() {
+        if !LiveSource::probe() {
+            std::thread::sleep(Duration::from_secs(2));
+            continue;
+        }
+        tracing::info!("iRacing is sending telemetry, recording");
+        let mut source = LiveSource::new();
+        ctx.record(GameId::Iracing, &mut source, IDLE_END);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(port: u16, allow_remote: bool, forward: &[&str]) -> F1CaptureSettings {
+        F1CaptureSettings {
+            enabled: true,
+            port,
+            allow_remote,
+            forward: forward.iter().map(|s| (*s).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn f1_settings_are_checked() {
+        let c = f1_config(&settings(20777, false, &[])).unwrap();
+        assert_eq!(c.listen, "127.0.0.1:20777".parse().unwrap());
+        let c = f1_config(&settings(
+            20777,
+            true,
+            &["127.0.0.1:20778", " ", "127.0.0.1:20778"],
+        ))
+        .unwrap();
+        assert_eq!(c.listen, "0.0.0.0:20777".parse().unwrap());
+        assert_eq!(c.forward, vec!["127.0.0.1:20778".parse().unwrap()]);
+        assert!(f1_config(&settings(80, false, &[])).is_err());
+        assert!(
+            f1_config(&settings(20777, false, &["127.0.0.1:20777"])).is_err(),
+            "loop"
+        );
+        assert!(
+            f1_config(&settings(20777, true, &["192.168.1.5:20777"])).is_err(),
+            "loop"
+        );
+        assert!(f1_config(&settings(20777, false, &["192.168.1.5:20777"])).is_ok());
+        assert!(f1_config(&settings(20777, false, &["no address"])).is_err());
     }
 }

@@ -7,6 +7,7 @@ import type {
 	CompareRequest,
 	ExportRequest,
 	ExportResult,
+	F1CaptureSettings,
 	SyncStatus,
 	ImportProgress,
 	ImportResult,
@@ -88,6 +89,8 @@ export interface ApiClient {
 	exportCsv(lapIds: string[], suggestedName: string): Promise<ExportResult | null>;
 	getSettings(): Promise<Settings>;
 	setKeepRawRecordings(keep: boolean): Promise<void>;
+	/** Applied as soon as no F1 session is being recorded. */
+	setF1Capture(settings: F1CaptureSettings): Promise<void>;
 	deleteRawRecordings(): Promise<void>;
 	recorderStatus(): Promise<RecorderStatus>;
 

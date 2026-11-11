@@ -66,6 +66,14 @@
 				height: 120,
 				lines: [{ channel: 'steer', scale: (v) => v * RAD_TO_DEG }]
 			});
+		else if (has('steer_norm'))
+			// games that report only the input (F1): -100 % full left … 100 % full right
+			list.push({
+				title: 'Steering',
+				unit: '%',
+				height: 120,
+				lines: [{ channel: 'steer_norm', scale: (v) => v * 100 }]
+			});
 		if (has('gear'))
 			list.push({
 				title: 'Gear',

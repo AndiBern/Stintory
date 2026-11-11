@@ -2,6 +2,7 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import { api, type Settings } from '#lib/api/index.ts';
+	import F1Capture from '#lib/components/F1Capture.svelte';
 	import ServerSync from '#lib/components/ServerSync.svelte';
 	import { formatBytes } from '#lib/format.ts';
 
@@ -38,6 +39,13 @@
 
 {#if client.capabilities.serverSync}
 	<ServerSync />
+{/if}
+
+{#if client.capabilities.liveRecording && settings}
+	<!-- re-created after saving, so it shows the new status -->
+	{#key settings}
+		<F1Capture {settings} onsaved={() => setTimeout(load, 700)} />
+	{/key}
 {/if}
 
 {#if client.capabilities.localSettings}

@@ -368,6 +368,42 @@ pub struct Settings {
     pub failed_recordings: u32,
     /// Driver name used for the last export (pre-filled in the dialog)
     pub export_driver_name: Option<String>,
+    /// Recording F1 25 (UDP telemetry)
+    #[serde(default)]
+    pub f1_capture: F1CaptureSettings,
+    /// Where the app listens for F1 packets right now, e.g. `127.0.0.1:20777`
+    #[serde(default)]
+    pub f1_listening: Option<String>,
+    /// Why the app can't listen for F1 packets (e.g. the port is taken)
+    #[serde(default)]
+    pub f1_error: Option<String>,
+}
+
+/// Settings for recording F1 25 (UDP telemetry).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct F1CaptureSettings {
+    /// Listen for the game's packets
+    pub enabled: bool,
+    /// UDP port (the game's default is 20777)
+    pub port: u16,
+    /// Also accept packets from other devices (consoles, other PCs);
+    /// otherwise only from this PC
+    pub allow_remote: bool,
+    /// Forward every packet to these addresses (`host:port`), for other
+    /// telemetry apps
+    pub forward: Vec<String>,
+}
+
+impl Default for F1CaptureSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: 20777,
+            allow_remote: false,
+            forward: Vec::new(),
+        }
+    }
 }
 
 /// State of the live recorder.

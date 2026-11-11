@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use sy_model::GameId;
 use sy_model::capture::{Decoder, RawSource, SourceError};
+use sy_source_f1::F1Decoder;
 use sy_source_iracing::IracingDecoder;
 use sy_store::{KEEP_RAW_RECORDINGS, SpoolEntry, SpoolState, Store, StoreError};
 
@@ -90,7 +91,8 @@ pub struct Stats {
 pub fn decoder_for(game: GameId) -> Option<Box<dyn Decoder + Send>> {
     match game {
         GameId::Iracing => Some(Box::new(IracingDecoder::new())),
-        GameId::F1_25 | GameId::Lmu => None,
+        GameId::F1_25 => Some(Box::new(F1Decoder::new())),
+        GameId::Lmu => None,
     }
 }
 

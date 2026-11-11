@@ -132,7 +132,7 @@
 				{:else if app.recorder?.state === 'waiting'}
 					<div class="text-zinc-400">Waiting for a game…</div>
 				{:else if app.recorder?.state === 'unsupported'}
-					<div class="text-zinc-500">Live recording: Windows only</div>
+					<div class="text-zinc-500">Live recording is off</div>
 				{/if}
 				{#if app.sync && app.sync.state !== 'disconnected'}
 					<a

@@ -49,6 +49,7 @@ pub fn run() {
                 state.recorder.clone(),
                 state.shutdown.clone(),
                 sync.clone(),
+                state.f1.clone(),
             );
             app.manage(state);
             app.manage(sync);
@@ -75,6 +76,7 @@ pub fn run() {
             commands::open_shared_session,
             commands::get_settings,
             commands::set_keep_raw_recordings,
+            commands::set_f1_capture,
             commands::delete_raw_recordings,
             commands::recorder_status,
         ])

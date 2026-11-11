@@ -5418,6 +5418,7 @@ dependencies = [
  "sy-analysis",
  "sy-capture",
  "sy-model",
+ "sy-source-f1",
  "sy-source-iracing",
  "sy-store",
  "sy-sync",
@@ -5530,6 +5531,7 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "sy-model",
+ "sy-source-f1",
  "sy-source-iracing",
  "sy-store",
  "tempfile",
@@ -5594,6 +5596,17 @@ dependencies = [
  "webauthn-authenticator-rs",
  "webauthn-rs",
  "webauthn-rs-proto",
+]
+
+[[package]]
+name = "sy-source-f1"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sy-model",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
 ]
 
 [[package]]

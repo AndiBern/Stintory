@@ -13,6 +13,7 @@ import type {
 	CompareRequest,
 	ExportRequest,
 	ExportResult,
+	F1CaptureSettings,
 	SyncStatus,
 	ImportProgress,
 	ImportResult,
@@ -136,6 +137,10 @@ export class TauriApi implements ApiClient {
 
 	setKeepRawRecordings(keep: boolean): Promise<void> {
 		return call('set_keep_raw_recordings', { keep });
+	}
+
+	setF1Capture(settings: F1CaptureSettings): Promise<void> {
+		return call('set_f1_capture', { settings });
 	}
 
 	deleteRawRecordings(): Promise<void> {

@@ -165,6 +165,23 @@ export interface Settings {
 	failedRecordings: number;
 	/** Driver name of the last export */
 	exportDriverName: string | null;
+	/** Recording F1 25 (UDP telemetry) */
+	f1Capture: F1CaptureSettings;
+	/** Where the app listens for F1 packets right now, e.g. `127.0.0.1:20777` */
+	f1Listening: string | null;
+	/** Why the app can't listen for F1 packets */
+	f1Error: string | null;
+}
+
+/** Settings for recording F1 25 (UDP telemetry). */
+export interface F1CaptureSettings {
+	enabled: boolean;
+	/** UDP port; the game's default is 20777 */
+	port: number;
+	/** Also accept packets from consoles and other PCs */
+	allowRemote: boolean;
+	/** Forward every packet to these `host:port` addresses (other apps) */
+	forward: string[];
 }
 
 export type RecorderState = 'unsupported' | 'waiting' | 'recording';
