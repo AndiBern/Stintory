@@ -171,6 +171,19 @@ export interface Settings {
 	f1Listening: string | null;
 	/** Why the app can't listen for F1 packets */
 	f1Error: string | null;
+	/** Recording Le Mans Ultimate (shared memory) */
+	lmuCapture: LmuCaptureSettings;
+	/** Le Mans Ultimate can be recorded on this platform (Windows) */
+	lmuAvailable: boolean;
+	/** What the app sees of Le Mans Ultimate right now */
+	lmuStatus: string | null;
+	/** Something to do in the game first (e.g. turn on Enable Plugins) */
+	lmuHint: string | null;
+}
+
+/** Settings for recording Le Mans Ultimate. */
+export interface LmuCaptureSettings {
+	enabled: boolean;
 }
 
 /** Settings for recording F1 25 (UDP telemetry). */
@@ -193,6 +206,8 @@ export interface RecorderStatus {
 	carName: string | null;
 	laps: number;
 	lastLapMs: number | null;
+	/** Something to do before a running game can be recorded */
+	hint?: string | null;
 }
 
 // ----- server accounts (HttpApi only) -----

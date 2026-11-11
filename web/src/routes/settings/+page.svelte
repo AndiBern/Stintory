@@ -3,6 +3,7 @@
 <script lang="ts">
 	import { api, type Settings } from '#lib/api/index.ts';
 	import F1Capture from '#lib/components/F1Capture.svelte';
+	import LmuCapture from '#lib/components/LmuCapture.svelte';
 	import ServerSync from '#lib/components/ServerSync.svelte';
 	import { formatBytes } from '#lib/format.ts';
 
@@ -45,6 +46,7 @@
 	<!-- re-created after saving, so it shows the new status -->
 	{#key settings}
 		<F1Capture {settings} onsaved={() => setTimeout(load, 700)} />
+		<LmuCapture {settings} onsaved={() => setTimeout(load, 700)} />
 	{/key}
 {/if}
 

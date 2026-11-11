@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Background work: crash recovery at startup and the live recording
-//! supervisors (docs/PLAN.md §5): iRacing (Windows, shared memory) and
-//! F1 25 (every platform, UDP).
+//! supervisors (docs/PLAN.md §5): iRacing and Le Mans Ultimate (Windows,
+//! shared memory) and F1 25 (every platform, UDP).
 
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -62,9 +62,23 @@ impl StatusReporter {
     fn idle(&self, game: GameId) {
         self.update(|s| {
             if s.state != RecorderState::Recording || s.game == Some(game) {
+                let hint = s.hint.take();
                 *s = RecorderStatus::idle(RecorderState::Waiting);
+                s.hint = hint;
             }
         });
+    }
+
+    /// Sets the hint shown while waiting (only sends an event on change).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn hint(&self, hint: Option<&str>) {
+        let changed = {
+            let s = self.status.lock().unwrap_or_else(|e| e.into_inner());
+            s.hint.as_deref() != hint
+        };
+        if changed {
+            self.update(|s| s.hint = hint.map(str::to_owned));
+        }
     }
 }
 
@@ -253,6 +267,46 @@ pub fn f1_config(s: &F1CaptureSettings) -> Result<UdpConfig, String> {
     Ok(UdpConfig { listen, forward })
 }
 
+/// State of LMU recording shared with the settings commands.
+#[derive(Debug, Default)]
+pub struct LmuCapture {
+    /// Bumped when the settings change
+    generation: AtomicU64,
+    /// What the app sees of the game, and what to do in the game
+    status: Mutex<(Option<String>, Option<String>)>,
+}
+
+impl LmuCapture {
+    /// The settings changed.
+    pub fn changed(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// (status, hint) for the settings page.
+    pub fn status(&self) -> (Option<String>, Option<String>) {
+        if !cfg!(windows) {
+            return (
+                Some("Le Mans Ultimate can only be recorded on Windows.".into()),
+                None,
+            );
+        }
+        self.status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn set_status(&self, status: &str, hint: Option<&str>) {
+        *self.status.lock().unwrap_or_else(|e| e.into_inner()) =
+            (Some(status.to_owned()), hint.map(str::to_owned));
+    }
+}
+
+/// Shown when LMU runs without its shared memory.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub const LMU_PLUGINS_HINT: &str = "Le Mans Ultimate is running but shares no telemetry. In the game, turn on Settings → Gameplay → Enable Plugins, then restart the game.";
+
 /// No F1 packets for this long after a session ended: the recording ends
 /// (game closed, or in the menus).
 const F1_IDLE_END: Duration = Duration::from_secs(30);
@@ -274,12 +328,12 @@ fn supervise_f1(ctx: Context, f1: Arc<F1Capture>) {
             Ok(c) if settings.enabled => c,
             Ok(_) => {
                 f1.set_status(None, None);
-                wait_for_change(&ctx, &f1, generation, Duration::from_secs(3600));
+                wait_for_change(&ctx, &f1.generation, generation, Duration::from_secs(3600));
                 continue;
             }
             Err(e) => {
                 f1.set_status(None, Some(e));
-                wait_for_change(&ctx, &f1, generation, Duration::from_secs(3600));
+                wait_for_change(&ctx, &f1.generation, generation, Duration::from_secs(3600));
                 continue;
             }
         };
@@ -288,7 +342,7 @@ fn supervise_f1(ctx: Context, f1: Arc<F1Capture>) {
             Err(e) => {
                 tracing::warn!(addr = %config.listen, error = %e, "cannot listen for F1 packets");
                 f1.set_status(None, Some(format!("can't use {}: {e}", config.listen)));
-                wait_for_change(&ctx, &f1, generation, Duration::from_secs(10));
+                wait_for_change(&ctx, &f1.generation, generation, Duration::from_secs(10));
                 continue;
             }
         };
@@ -328,18 +382,17 @@ fn supervise_f1(ctx: Context, f1: Arc<F1Capture>) {
 }
 
 /// Sleeps until the settings change, the app stops, or `max` passed.
-fn wait_for_change(ctx: &Context, f1: &F1Capture, generation: u64, max: Duration) {
+fn wait_for_change(ctx: &Context, settings: &AtomicU64, generation: u64, max: Duration) {
     let start = std::time::Instant::now();
-    while !ctx.stopping()
-        && f1.generation.load(Ordering::Relaxed) == generation
-        && start.elapsed() < max
+    while !ctx.stopping() && settings.load(Ordering::Relaxed) == generation && start.elapsed() < max
     {
         std::thread::sleep(Duration::from_millis(250));
     }
 }
 
 /// Starts the live recording supervisors: F1 25 on every platform, iRacing
-/// on Windows.
+/// and Le Mans Ultimate on Windows.
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_supervisor(
     app: AppHandle,
     store: SharedStore,
@@ -347,6 +400,7 @@ pub fn spawn_supervisor(
     shutdown: Arc<AtomicBool>,
     sync: Arc<SyncManager>,
     f1: Arc<F1Capture>,
+    lmu: Arc<LmuCapture>,
 ) {
     let ctx = Context {
         store,
@@ -362,10 +416,91 @@ pub fn spawn_supervisor(
         .spawn(move || supervise_f1(f1_ctx, f1))
         .expect("spawn F1 recorder thread");
     #[cfg(windows)]
-    std::thread::Builder::new()
-        .name("recorder-iracing".into())
-        .spawn(move || supervise_iracing(ctx))
-        .expect("spawn iRacing recorder thread");
+    {
+        let lmu_ctx = ctx.clone();
+        std::thread::Builder::new()
+            .name("recorder-lmu".into())
+            .spawn(move || supervise_lmu(lmu_ctx, lmu))
+            .expect("spawn LMU recorder thread");
+        std::thread::Builder::new()
+            .name("recorder-iracing".into())
+            .spawn(move || supervise_iracing(ctx))
+            .expect("spawn iRacing recorder thread");
+    }
+    #[cfg(not(windows))]
+    drop(lmu);
+}
+
+/// Records Le Mans Ultimate while the player drives; tells the user when
+/// the game runs without its shared memory.
+#[cfg(windows)]
+fn supervise_lmu(ctx: Context, lmu: Arc<LmuCapture>) {
+    use sy_source_lmu::{LiveSource, Probe};
+
+    /// No data for this long while not driving: the session is over (game
+    /// closed, back in the menus).
+    const IDLE_END: Duration = Duration::from_secs(10);
+    /// The game sends nothing while paused; while driving, wait this long.
+    const PAUSE_MAX: Duration = Duration::from_secs(3600);
+
+    while !ctx.stopping() {
+        let generation = lmu.generation.load(Ordering::Relaxed);
+        let settings: sy_model::api::LmuCaptureSettings = ctx
+            .store
+            .with(|s| s.setting(sy_store::LMU_CAPTURE))
+            .ok()
+            .flatten()
+            .unwrap_or_default();
+        if !settings.enabled {
+            lmu.set_status("Off.", None);
+            ctx.reporter.hint(None);
+            wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(3600));
+            continue;
+        }
+        match LiveSource::probe() {
+            Probe::NotRunning => {
+                lmu.set_status("Waiting for Le Mans Ultimate.", None);
+                ctx.reporter.hint(None);
+                wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(2));
+            }
+            Probe::NoSharedMemory => {
+                lmu.set_status("Le Mans Ultimate is running.", Some(LMU_PLUGINS_HINT));
+                ctx.reporter.hint(Some(LMU_PLUGINS_HINT));
+                wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(2));
+            }
+            Probe::UnknownLayout => {
+                lmu.set_status(
+                    "This version of Le Mans Ultimate shares its data in a layout Stintory doesn't know yet. Please update Stintory.",
+                    None,
+                );
+                ctx.reporter.hint(None);
+                wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(10));
+            }
+            Probe::Idle => {
+                lmu.set_status(
+                    "Connected to Le Mans Ultimate; recording starts on track.",
+                    None,
+                );
+                ctx.reporter.hint(None);
+                wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(1));
+            }
+            Probe::Driving => {
+                lmu.set_status("Recording Le Mans Ultimate.", None);
+                ctx.reporter.hint(None);
+                tracing::info!("Le Mans Ultimate: player on track, recording");
+                let mut source = LiveSource::new();
+                let driving = source.driving();
+                let mut idle_done = |idle: Duration| {
+                    idle >= if driving.load(Ordering::Relaxed) {
+                        PAUSE_MAX
+                    } else {
+                        IDLE_END
+                    }
+                };
+                ctx.record(GameId::Lmu, &mut source, &mut idle_done);
+            }
+        }
+    }
 }
 
 #[cfg(windows)]

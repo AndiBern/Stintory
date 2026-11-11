@@ -5420,6 +5420,7 @@ dependencies = [
  "sy-model",
  "sy-source-f1",
  "sy-source-iracing",
+ "sy-source-lmu",
  "sy-store",
  "sy-sync",
  "tauri",
@@ -5533,6 +5534,7 @@ dependencies = [
  "sy-model",
  "sy-source-f1",
  "sy-source-iracing",
+ "sy-source-lmu",
  "sy-store",
  "tempfile",
  "thiserror 2.0.21",
@@ -5614,6 +5616,18 @@ name = "sy-source-iracing"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
+ "sy-model",
+ "thiserror 2.0.21",
+ "time",
+ "tracing",
+ "windows",
+]
+
+[[package]]
+name = "sy-source-lmu"
+version = "0.1.0"
+dependencies = [
  "serde_json",
  "sy-model",
  "thiserror 2.0.21",

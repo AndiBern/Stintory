@@ -13,6 +13,7 @@ authors.workspace = true
 [dependencies]
 sy-model.workspace = true
 sy-source-f1.workspace = true
+sy-source-lmu.workspace = true
 sy-source-iracing.workspace = true
 sy-store.workspace = true
 serde_json.workspace = true

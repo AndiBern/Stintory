@@ -27,6 +27,7 @@ sy-capture.workspace = true
 sy-model.workspace = true
 sy-source-f1.workspace = true
 sy-source-iracing.workspace = true
+sy-source-lmu.workspace = true
 sy-store.workspace = true
 sy-sync.workspace = true
 keyring = "4"

@@ -24,8 +24,8 @@
 		title: string;
 		unit: string;
 		height: number;
-		/** one or more lines per lap: [channel, transform, dashed] */
-		lines: { channel: string; scale: (v: number) => number; dash?: boolean }[];
+		/** one or more lines per lap: channel, transform, dashed, legend name */
+		lines: { channel: string; scale: (v: number) => number; dash?: boolean; name?: string }[];
 		delta?: boolean;
 		stepped?: boolean;
 	};
@@ -89,6 +89,40 @@
 				height: 110,
 				lines: [{ channel: 'rpm', scale: (v) => v }]
 			});
+		// Le Mans Ultimate: virtual energy (solid) and battery (dashed)
+		const energy = [
+			{ channel: 'lmu.virtual_energy', scale: (v: number) => v * 100, name: 'VE' },
+			{ channel: 'lmu.battery', scale: (v: number) => v * 100, dash: true, name: 'battery' }
+		].filter((l) => has(l.channel));
+		if (energy.length > 0)
+			list.push({ title: 'Virtual energy / battery', unit: '%', height: 110, lines: energy });
+		for (const [channel, title] of [
+			['abs_active', 'ABS active'],
+			['tc_active', 'TC active']
+		] as const)
+			if (has(channel))
+				list.push({
+					title,
+					unit: '',
+					height: 70,
+					stepped: true,
+					lines: [{ channel, scale: (v) => v }]
+				});
+		// driver aid settings (TC solid, ABS dashed) and the motor map
+		const aids = [
+			{ channel: 'lmu.tc_level', scale: (v: number) => v, name: 'TC' },
+			{ channel: 'lmu.abs_level', scale: (v: number) => v, dash: true, name: 'ABS' }
+		].filter((l) => has(l.channel));
+		if (aids.length > 0)
+			list.push({ title: 'TC / ABS level', unit: '', height: 90, stepped: true, lines: aids });
+		if (has('lmu.motor_map'))
+			list.push({
+				title: 'Motor map',
+				unit: '',
+				height: 80,
+				stepped: true,
+				lines: [{ channel: 'lmu.motor_map', scale: (v) => v }]
+			});
 		return list;
 	}
 
@@ -110,7 +144,7 @@
 				if (!src) continue;
 				values.push(src.map((v) => (v === null ? null : line.scale(v))));
 				series.push({
-					label: `${labels[i]}${p.lines.length > 1 ? ` ${line.channel}` : ''}`,
+					label: `${labels[i]}${p.lines.length > 1 ? ` ${line.name ?? line.channel}` : ''}`,
 					stroke: lapColor(i),
 					width: i === 0 ? 1.25 : 1.5,
 					dash: line.dash ? [4, 3] : undefined,

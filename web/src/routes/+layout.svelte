@@ -131,6 +131,11 @@
 					</div>
 				{:else if app.recorder?.state === 'waiting'}
 					<div class="text-zinc-400">Waiting for a game…</div>
+					{#if app.recorder.hint}
+						<a href={resolve('/settings')} class="mt-1 block text-amber-400 hover:text-amber-300"
+							>{app.recorder.hint}</a
+						>
+					{/if}
 				{:else if app.recorder?.state === 'unsupported'}
 					<div class="text-zinc-500">Live recording is off</div>
 				{/if}

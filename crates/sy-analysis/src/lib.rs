@@ -38,7 +38,14 @@ pub const COMPARE_CHANNELS: &[&str] = &[
     names::POS_X,
     names::POS_Y,
     names::ABS_ACTIVE,
+    names::TC_ACTIVE,
     names::FUEL,
+    // Le Mans Ultimate: energy and driver aids
+    "lmu.virtual_energy",
+    "lmu.battery",
+    "lmu.tc_level",
+    "lmu.abs_level",
+    "lmu.motor_map",
 ];
 
 /// Errors of the analysis.

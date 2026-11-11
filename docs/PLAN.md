@@ -123,7 +123,7 @@ RawSpool      (client only) id, game, started_at, path, state (recording | proce
 Server-only entities (users, teams, invites, share grants, credentials) are in §9.
 
 - **IDs are generated on the client** (UUIDv7), so sync is conflict-free. Lap telemetry is **immutable** and content-addressed (`blob_hash`). Only small metadata fields (sharing, notes, tags) are mutable (last-write-wins with `updated_at`).
-- **Canonical keys** make laps comparable across users: `iracing:<TrackID>:<config>`, `iracing:<CarID>`; `f1_25:<trackId>`, `f1_25:<teamId>/<formula>`; `lmu:<track name normalized>:<layout>`, `lmu:<vehicle model>`.
+- **Canonical keys** make laps comparable across users: `iracing:<TrackID>:<config>`, `iracing:<CarID>`; `f1_25:<trackId>`, `f1_25:<teamId>/<formula>`; `lmu:<track name normalized>:<layout length m>`, `lmu:<vehicle model>:<class>`.
 
 ### 4.2 Channels (per lap, columnar)
 
@@ -144,7 +144,7 @@ Every adapter maps game data to **canonical channels in SI units**. It also keep
 | `brake_bias` | % front | `dcBrakeBias` | `m_frontBrakeBias` | 1−`mRearBrakeBias` |
 | `abs_active`, `tc_active` | bool | `BrakeABSactive` | – | `mABSActive`, `mTCActive` |
 | tyres `tyre_temp_{fl..rr}`, `tyre_press_*`, `brake_temp_*` | °C, kPa | where live | `m_tyresSurfaceTemperature`… | `mWheels[]` (K→°C) |
-| extras | | `iracing.*` e.g. shock defl, `dcTractionControl` | `f1.ers_*`, `f1.drs`, `f1.active_aero`, `f1.overtake` | `lmu.virtual_energy`, `lmu.tc_level`, `lmu.motor_map`, ride heights |
+| extras | | `iracing.*` e.g. shock defl, `dcTractionControl` | `f1.ers_*`, `f1.drs`, `f1.active_aero`, `f1.overtake` | `lmu.virtual_energy`, `lmu.battery`, `lmu.tc_level`, `lmu.abs_level`, `lmu.motor_map`, ride heights, per-wheel tyres/brakes |
 
 Storage: samples at the **native rate** (iRacing 60 Hz, F1 = configured rate, LMU ~100 Hz). Resampling happens only in analysis. Estimated size: 60 Hz × ~40 channels × 4 B ≈ 10 KB/s raw, so a 90 s lap ≈ 0.9 MB raw and **~150–300 KB as Parquet+zstd**. One hour ≈ 6–10 MB. Fine for years of local data.
 
@@ -213,7 +213,7 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
   - On lap completion: build Arrow batch → Parquet → hash → write blob → insert Lap row (one transaction). Combined with the raw spool (§5.1), a crash loses nothing.
 - **iRacing specifics (M1):** wait on `IRSDKDataValidEvent`. Parse the var table once per session (re-parse if the header changes). Parse the session YAML on `sessionInfoUpdate` change. Player car only. `.ibt` import uses the same var-table parser plus the same recorder (file source instead of shm source).
 - **F1 specifics (M5):** bind UDP port (configurable, default 20777; this PC only, or all interfaces for consoles/other PCs). Group by `sessionUID` + player car index. One Frame per Car Telemetry packet with the latest Motion, LapData, Status, MotionEx and Telemetry2. Branch on `packetFormat` 2025/2026. Player index from header. Optional UDP forwarding to other tools (many users run several F1 apps). Details: docs/games/f1.md.
-- **LMU specifics (M6):** open `LMU_Data`. Detect updates via `generic.events.SME_UPDATE_TELEMETRY` counter. Copy the struct and verify consistency (re-read if the counter changed during copy). Interpolate lap distance from 5 Hz scoring. Poll REST at ~1 Hz for virtual energy/setup/session info. Show a clear hint in the UI if the map is missing ("Enable Plugins in LMU Gameplay settings and restart").
+- **LMU specifics (M6):** open `LMU_Data`. Wait for a frame on the events `LMU_Data_HoldEvent` + `LMU_Data_DataEvent` and copy the player's structs under the game's lock `LMU_SharedMemoryLockData` (bounded wait), as the current `SharedMemoryInterface.hpp` describes (`generic.events` turned out to be an event queue, not counters). Interpolate lap distance from 5 Hz scoring. Virtual energy, TC/ABS and motor map are in the shared memory now; the REST API (a fixed list of GET endpoints) gives the car setup and tells "game running without shared memory" apart. Show a clear hint in the UI if the map is missing ("Enable Plugins in LMU Gameplay settings and restart"). Details: docs/games/lmu.md.
 
 ## 6. Analysis (`sy-analysis`)
 
@@ -386,7 +386,7 @@ Developing on Linux without the games running is a real constraint, so **record 
 | **M3b – Teams & sharing** | Done: teams, roles, invites (username + link), share grants with inherit/custom, default sharing, share dialog + teams and sharing pages (browser and desktop app), "shared with me" list, comparing shared laps, desktop keeps shared sessions as references and deletes them when access is lost. Not yet: sharing changes while offline (outbox) | Access-control test matrix green. User B sees only laps shared with B or B's teams. Leaving a team removes access |
 | **M4 – Web UI** | Done: `web/` served by the server with HttpApi; account/teams/sharing pages (M3); "shared with me" per track/car (*Sharing → By track and car*: shared laps, fastest driver, own best and gap; lap list fastest first); reference laps for a track+car (own, imported, shared; `GET /reference-laps`, desktop merges local laps with the server's and keeps a chosen shared lap as a local copy); "Compare with…" on the session page; compare page names the drivers and can change the reference, remove and add laps | Compare own lap vs a team mate's shared lap in the browser |
 | **M5 – F1 25** | Done (synthetic packets; to verify with real recordings, docs/games/f1.md): `sy-source-f1` with both UDP formats checked against the spec's packet sizes, player-only filter before the spool, UDP source on all platforms with forwarding to other apps, flashback = rewind + flag, validity from the game (end-of-lap state + session history), F1 settings in the desktop app (port, other devices, forwarding), `simulate` example, console note in docs | Time trial + race laps recorded with correct validity. Flashback laps flagged |
-| **M6 – LMU** | `LMU_Data` source, scoring interpolation, REST poller (VE, setup), setup hint UI | Laps recorded with correct times; VE/TC/ABS traces visible |
+| **M6 – LMU** | Done (synthetic data; to verify with real recordings, docs/games/lmu.md): `sy-source-lmu` with the layout written from the official headers (sizes asserted at compile time), event wait + the game's lock, player-only records before the spool, scoring interpolation of the lap distance, lap times/sectors/validity from the game, REST poller for the setup (GET only), *Enable Plugins* hint in the sidebar and settings, VE/battery, ABS/TC active and TC/ABS level charts | Laps recorded with correct times; VE/TC/ABS traces visible |
 | **M7 – Proton bridge + more games** | `sy-bridge.exe` (localhost TCP), Steam launch-option docs; next games by demand (ACC, AC EVO, AMS2, rF2, Forza…) | A Proton game captured on Linux end-to-end |
 | **Later** | OIDC login, corner insights, micro-sectors, theoretical best, MoTeC export, setups, live overlay | – |
 
@@ -441,7 +441,7 @@ All game parsers are written **from scratch**. We don't build on other telemetry
 | LMU lap distance only at 5 Hz | Interpolation using elapsed time + speed, validated against official lap length. Alternatively arc length from `mPos` |
 | iRacing live has no world position | Dead reckoning + per-track outline cache, or `.ibt` Lat/Lon when available |
 | Cross-user comparison needs identical track/car keys | Canonical key mapping per adapter, with a mapping table for renamed tracks/cars |
-| Anti-cheat concerns | Only *read* officially provided interfaces (shm/UDP/REST GET). Never inject into game processes. LMU REST: GET only |
+| Anti-cheat concerns | Only *read* officially provided interfaces (shm/UDP/REST GET). Never inject into game processes. LMU REST: only a fixed list of GET endpoints (some GETs have side effects, docs/games/lmu.md) |
 | License contamination | Clean-room parsers from official specs only (§12.2). No vendored official headers. `cargo deny` + `reuse lint` in CI |
 | Gaps in official docs (e.g. LMU field semantics, iRacing sign conventions) | Find out by experiment with our own recordings and document the findings in `docs/` |
 | WebKitGTK quirks on Linux (Tauri) | Keep the frontend standard and test on Linux in CI (Playwright/WebKit). Login runs in the system browser (§9.3), so WebAuthn doesn't depend on the webview |

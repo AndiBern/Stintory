@@ -50,6 +50,7 @@ pub fn run() {
                 state.shutdown.clone(),
                 sync.clone(),
                 state.f1.clone(),
+                state.lmu.clone(),
             );
             app.manage(state);
             app.manage(sync);
@@ -77,6 +78,7 @@ pub fn run() {
             commands::get_settings,
             commands::set_keep_raw_recordings,
             commands::set_f1_capture,
+            commands::set_lmu_capture,
             commands::delete_raw_recordings,
             commands::recorder_status,
         ])

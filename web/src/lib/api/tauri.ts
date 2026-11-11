@@ -14,6 +14,7 @@ import type {
 	ExportRequest,
 	ExportResult,
 	F1CaptureSettings,
+	LmuCaptureSettings,
 	SyncStatus,
 	ImportProgress,
 	ImportResult,
@@ -142,6 +143,10 @@ export class TauriApi implements ApiClient {
 
 	setF1Capture(settings: F1CaptureSettings): Promise<void> {
 		return call('set_f1_capture', { settings });
+	}
+
+	setLmuCapture(settings: LmuCaptureSettings): Promise<void> {
+		return call('set_lmu_capture', { settings });
 	}
 
 	deleteRawRecordings(): Promise<void> {

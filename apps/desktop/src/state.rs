@@ -9,7 +9,7 @@ use sy_capture::pipeline::SharedStore;
 use sy_model::api::{RecorderState, RecorderStatus};
 use sy_store::{Store, StoreError};
 
-use crate::recording::F1Capture;
+use crate::recording::{F1Capture, LmuCapture};
 
 /// Shared state of the desktop app, managed by Tauri.
 pub struct AppState {
@@ -21,6 +21,8 @@ pub struct AppState {
     pub shutdown: Arc<AtomicBool>,
     /// F1 25 recording (UDP), shared with the settings commands
     pub f1: Arc<F1Capture>,
+    /// Le Mans Ultimate recording, shared with the settings commands
+    pub lmu: Arc<LmuCapture>,
 }
 
 impl AppState {
@@ -33,6 +35,7 @@ impl AppState {
             recorder: Arc::new(Mutex::new(RecorderStatus::idle(initial))),
             shutdown: Arc::new(AtomicBool::new(false)),
             f1: Arc::default(),
+            lmu: Arc::default(),
         })
     }
 

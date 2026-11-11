@@ -24,6 +24,8 @@ pub const SYNC_CURSOR: &str = "sync.cursor";
 pub const SYNC_AUTO: &str = "sync.auto";
 /// Setting: recording F1 25 (`sy_model::api::F1CaptureSettings`).
 pub const F1_CAPTURE: &str = "capture.f1";
+/// Setting: recording Le Mans Ultimate (`sy_model::api::LmuCaptureSettings`).
+pub const LMU_CAPTURE: &str = "capture.lmu";
 /// Setting: the device token, only when the system keychain is unavailable
 /// (`String`).
 pub const SYNC_TOKEN_FALLBACK: &str = "sync.token";

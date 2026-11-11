@@ -76,7 +76,7 @@ jobs:
       # Windows-only code (live shared memory readers) can't run here, but it
       # must compile and pass clippy for the Windows target.
       - run: rustup target add x86_64-pc-windows-msvc
-      - run: cargo clippy --target x86_64-pc-windows-msvc -p sy-source-iracing --all-targets --locked -- -D warnings
+      - run: cargo clippy --target x86_64-pc-windows-msvc -p sy-source-iracing -p sy-source-lmu --all-targets --locked -- -D warnings
 
   licenses:
     name: Licenses

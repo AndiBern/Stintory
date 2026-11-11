@@ -19,6 +19,7 @@ sy-store = { path = "crates/sy-store", version = "0.1.0" }
 sy-capture = { path = "crates/sy-capture", version = "0.1.0" }
 sy-analysis = { path = "crates/sy-analysis", version = "0.1.0" }
 sy-source-f1 = { path = "crates/sy-source-f1", version = "0.1.0" }
+sy-source-lmu = { path = "crates/sy-source-lmu", version = "0.1.0" }
 sy-source-iracing = { path = "crates/sy-source-iracing", version = "0.1.0" }
 sy-server = { path = "crates/sy-server", version = "0.1.0" }
 sy-sync = { path = "crates/sy-sync", version = "0.1.0" }

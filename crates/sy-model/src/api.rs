@@ -377,6 +377,33 @@ pub struct Settings {
     /// Why the app can't listen for F1 packets (e.g. the port is taken)
     #[serde(default)]
     pub f1_error: Option<String>,
+    /// Recording Le Mans Ultimate (shared memory)
+    #[serde(default)]
+    pub lmu_capture: LmuCaptureSettings,
+    /// Le Mans Ultimate can be recorded on this platform (Windows)
+    #[serde(default)]
+    pub lmu_available: bool,
+    /// What the app sees of Le Mans Ultimate right now
+    #[serde(default)]
+    pub lmu_status: Option<String>,
+    /// Something to do in the game before it can be recorded (e.g. turn on
+    /// *Enable Plugins*)
+    #[serde(default)]
+    pub lmu_hint: Option<String>,
+}
+
+/// Settings for recording Le Mans Ultimate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LmuCaptureSettings {
+    /// Record when the game runs
+    pub enabled: bool,
+}
+
+impl Default for LmuCaptureSettings {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 /// Settings for recording F1 25 (UDP telemetry).
@@ -434,6 +461,10 @@ pub struct RecorderStatus {
     pub laps: u32,
     /// Last stored lap time
     pub last_lap_ms: Option<u32>,
+    /// Something the user has to do before a running game can be recorded
+    /// (e.g. "turn on Enable Plugins in Le Mans Ultimate")
+    #[serde(default)]
+    pub hint: Option<String>,
 }
 
 impl RecorderStatus {
@@ -446,6 +477,7 @@ impl RecorderStatus {
             car_name: None,
             laps: 0,
             last_lap_ms: None,
+            hint: None,
         }
     }
 }

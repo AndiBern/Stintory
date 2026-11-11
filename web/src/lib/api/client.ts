@@ -8,6 +8,7 @@ import type {
 	ExportRequest,
 	ExportResult,
 	F1CaptureSettings,
+	LmuCaptureSettings,
 	SyncStatus,
 	ImportProgress,
 	ImportResult,
@@ -91,6 +92,7 @@ export interface ApiClient {
 	setKeepRawRecordings(keep: boolean): Promise<void>;
 	/** Applied as soon as no F1 session is being recorded. */
 	setF1Capture(settings: F1CaptureSettings): Promise<void>;
+	setLmuCapture(settings: LmuCaptureSettings): Promise<void>;
 	deleteRawRecordings(): Promise<void>;
 	recorderStatus(): Promise<RecorderStatus>;
 

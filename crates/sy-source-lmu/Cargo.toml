@@ -1,0 +1,29 @@
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
+# SPDX-License-Identifier: MIT OR Apache-2.0
+
+[package]
+name = "sy-source-lmu"
+description = "Le Mans Ultimate telemetry reader (LMU_Data shared memory, local REST API) for Stintory"
+license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[dependencies]
+sy-model = { workspace = true, default-features = false }
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Memory",
+  "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true

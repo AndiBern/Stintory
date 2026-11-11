@@ -115,7 +115,7 @@ LMU runs on the rFactor 2 engine. Historically all tools used the third-party **
 - **Map name `LMU_Data`**, a single `SharedMemoryObjectOut` struct (`#pragma pack(4)`), defined in the official `SharedMemoryInterface.hpp` in `<LMU>\Support\SharedMemoryInterface`.
 - Requires **Settings → Gameplay → Enable Plugins = ON** (even with no plugin installed), and a game restart. With it off, the map doesn't exist.
 - Layout:
-  - `generic`: event counters (`SME_ENTER`, `SME_START_SESSION`, `SME_END_SESSION`, `SME_ENTER_REALTIME`, `SME_UPDATE_SCORING`, `SME_UPDATE_TELEMETRY`, …), game version, FFB torque, app state.
+  - `generic`: a queue of events (`SME_ENTER`, `SME_START_SESSION`, `SME_END_SESSION`, `SME_ENTER_REALTIME`, `SME_UPDATE_SCORING`, `SME_UPDATE_TELEMETRY`, …; the header's copy function treats the entries as event ids, not counters), game version, FFB torque, app state.
   - `paths`: UserData, results, player profile folder paths.
   - `scoring`: `ScoringInfo` (track name, session type, phase, weather, track length …) + `VehicleScoring[104]` (place, lap dist, sector/lap times best/last, pit state, class, flags, …).
   - `telemetry`: `activeVehicles`, `playerVehicleIdx`, `playerHasVehicle`, `VehicleTelemetry[104]`.
@@ -129,6 +129,7 @@ LMU runs on the rFactor 2 engine. Historically all tools used the third-party **
   - Hybrid/energy: `mBatteryChargeFraction`, electric motor torque/RPM/temps/state, `mStateOfCharge`, **`mVirtualEnergy`**, `mLiftAndCoastProgress`
   - Misc: tyre compound F/R (index + name), damage (`mDentSeverity`, last impact), gaps to car ahead/behind, `mTrackLimitsSteps`, vehicle model/class
   - Per wheel (`mWheels[4]`): suspension deflection, ride height, brake temp/pressure, tyre load, grip fraction, pressure (kPa), 3-zone tread temp + carcass + inner layer temps (Kelvin), wear, camber, toe, lateral/longitudinal forces and patch velocities, surface type, flat/detached
+- **Synchronisation** (header version of 2026): the events `LMU_Data_HoldEvent` and `LMU_Data_DataEvent` signal a new frame (wait on hold, then data), and the game writes under a lock (`LMU_SharedMemoryLockData`: `waiters` + `busy`, event `LMU_SharedMemoryLockEvent`) that readers take while copying. Older builds have neither.
 - **Lap distance** lives only in `VehicleScoring.mLapDist` (5 Hz). For high-rate distance you interpolate between scoring updates using `mElapsedTime` + speed, or compute arc length from `mPos` against a reference line. This is a common pitfall.
 - **REST API** `http://127.0.0.1:6397` (OpenAPI at `/swagger-schema.json`, ~178 paths). Useful GETs: `/rest/sessions`, `/rest/watch/standings`, `/rest/strategy/usage` (Virtual Energy per driver), `/rest/garage/getPlayerGarageData` (setup values), `/rest/garage/UIScreen/RepairAndRefuel`, `/rest/garage/UIScreen/TireManagement`. Use GET only, and stay well away from the 100+ mutating endpoints. Poll at 1–5 Hz, off the hot path.
 - Results XML files are written to `UserData\Log\Results` (path also exposed in `paths`). Useful for session summaries.

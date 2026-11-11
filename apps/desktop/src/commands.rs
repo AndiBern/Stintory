@@ -11,15 +11,15 @@ use sy_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
 use sy_capture::pipeline::{self, RunOptions};
 use sy_model::api::{
     AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ExportRequest, ExportResult,
-    F1CaptureSettings, ImportProgress, ImportResult, LapSummary, OriginView, REFERENCE_LAPS_MAX,
-    RecorderStatus, ReferenceLap, ReferenceScope, SessionDetail, SessionSummary, Settings,
-    SyncStatus,
+    F1CaptureSettings, ImportProgress, ImportResult, LapSummary, LmuCaptureSettings, OriginView,
+    REFERENCE_LAPS_MAX, RecorderStatus, ReferenceLap, ReferenceScope, SessionDetail,
+    SessionSummary, Settings, SyncStatus,
 };
 use sy_model::{LapId, Origin, SessionId};
 use sy_source_iracing::IbtSource;
 use sy_store::{
     EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, F1_CAPTURE, KEEP_RAW_RECORDINGS,
-    SpoolState, Store, StoreError,
+    LMU_CAPTURE, SpoolState, Store, StoreError,
 };
 use tauri::{AppHandle, Emitter, State};
 
@@ -491,11 +491,16 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
                 f1_capture: store.setting(F1_CAPTURE)?.unwrap_or_default(),
                 f1_listening: None,
                 f1_error: None,
+                lmu_capture: store.setting(LMU_CAPTURE)?.unwrap_or_default(),
+                lmu_available: cfg!(windows),
+                lmu_status: None,
+                lmu_hint: None,
             })
         })
         .await
         .map(|mut s| {
             (s.f1_listening, s.f1_error) = state.f1.status();
+            (s.lmu_status, s.lmu_hint) = state.lmu.status();
             s
         })?)
 }
@@ -512,6 +517,19 @@ pub async fn set_f1_capture(
         .with_store(move |s| s.set_setting(F1_CAPTURE, &settings))
         .await?;
     state.f1.changed();
+    Ok(())
+}
+
+/// Settings for recording Le Mans Ultimate.
+#[tauri::command]
+pub async fn set_lmu_capture(
+    state: State<'_, AppState>,
+    settings: LmuCaptureSettings,
+) -> CmdResult<()> {
+    state
+        .with_store(move |s| s.set_setting(LMU_CAPTURE, &settings))
+        .await?;
+    state.lmu.changed();
     Ok(())
 }
 
