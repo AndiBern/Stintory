@@ -5,7 +5,7 @@
 //!
 //! [`SimLmu`] drives a car round a circular track with a speed that varies
 //! along the lap, and produces the records the live source would spool:
-//! telemetry at 50 Hz and scoring five times a second, laid out as in
+//! telemetry at 100 Hz (as the game) and scoring five times a second, laid out as in
 //! [`crate::layout`]. It is not a recording of the real game.
 
 use sy_model::capture::RawRecord;
@@ -14,7 +14,7 @@ use crate::layout::{BytesMut, SCORING_INFO_SIZE, TELEM_SIZE, VEH_SCORING_SIZE, W
 use crate::records::{scoring_record, setup_record, telemetry_record};
 
 /// Telemetry interval, s.
-pub const TELEMETRY_DT: f64 = 0.02;
+pub const TELEMETRY_DT: f64 = 0.01;
 /// Scoring interval, s.
 pub const SCORING_DT: f64 = 0.2;
 /// Integration step, s.
@@ -55,6 +55,11 @@ pub struct SimLmu {
     pub session: i32,
     /// `mGamePhase` (3 formation lap, 5 green)
     pub game_phase: u8,
+    /// `mGameMode` (0 offline, 2 client of a server)
+    pub game_mode: u8,
+    /// `mCountLapFlag` (2 lap and time count, 1 the game stopped
+    /// counting the time, off the track)
+    pub count_lap_flag: u8,
     /// Distance of the garage (where [`SimLmu::back_to_garage`] puts the
     /// car)
     pub garage_dist: f64,
@@ -100,6 +105,8 @@ impl SimLmu {
             in_realtime: true,
             session: 1,
             game_phase: 5,
+            game_mode: 0,
+            count_lap_flag: 2,
             garage_dist: 1700.0,
             epoch_ms: 1_794_000_000_000,
             vehicle_name: "Proton Competition 2025 #99".into(),
@@ -313,6 +320,7 @@ impl SimLmu {
             b.f64(o::LAP_DIST, self.track_length);
             b.i32(o::NUM_VEHICLES, 20);
             b.u8(o::GAME_PHASE, self.game_phase);
+            b.u8(o::GAME_MODE, self.game_mode);
             b.u8(o::IN_REALTIME, u8::from(self.in_realtime));
             b.f64(o::AMBIENT_TEMP, 21.0);
             b.f64(o::TRACK_TEMP, 30.0);
@@ -334,6 +342,7 @@ impl SimLmu {
             b.u8(o::IS_PLAYER, 1);
             b.u8(o::IN_PITS, u8::from(self.in_pits));
             b.f64(o::LAP_START_ET, self.lap_start_et);
+            b.u8(o::COUNT_LAP_FLAG, self.count_lap_flag);
             b.str(o::VEHICLE_CLASS, 32, "Hypercar");
             b.put(o::STEAM_ID, &76_561_198_000_000_000u64.to_le_bytes());
         }

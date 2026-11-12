@@ -486,6 +486,8 @@ pub(crate) mod off {
             GAME_PHASE = game_phase; IN_REALTIME = in_realtime;
             PLAYER_NAME = player_name; PLR_FILE_NAME = plr_file_name;
             DARK_CLOUD = dark_cloud; RAINING = raining;
+            MIN_PATH_WETNESS = min_path_wetness; MAX_PATH_WETNESS = max_path_wetness;
+            AVG_PATH_WETNESS = avg_path_wetness;
             AMBIENT_TEMP = ambient_temp; TRACK_TEMP = track_temp;
             GAME_MODE = game_mode; SERVER_PORT = server_port;
             SERVER_PUBLIC_IP = server_public_ip; MAX_PLAYERS = max_players;

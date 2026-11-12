@@ -110,7 +110,12 @@ pub fn recorder_config(game: GameId) -> RecorderConfig {
             rewind_hold_s: F1_REWIND_HOLD_S,
             ..RecorderConfig::default()
         },
-        _ => RecorderConfig::default(),
+        // 100 Hz: a "lap" of less than a second is the line crossed just
+        // before going back to the garage or restarting
+        GameId::Lmu => RecorderConfig {
+            min_samples: 100,
+            ..RecorderConfig::default()
+        },
     }
 }
 

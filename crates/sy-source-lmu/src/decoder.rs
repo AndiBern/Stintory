@@ -29,14 +29,19 @@
 //!   scoring's last lap time and sectors are the official times of the lap
 //!   that ended. No time (≤ 0) means the game didn't time it: after a
 //!   track-limits warning in the lap (the steps went up) the reason is
-//!   "track limits", otherwise "not timed by the game" (out-laps, in-laps
-//!   outside races).
+//!   "track limits"; when the game stopped counting the lap on track
+//!   (`mCountLapFlag` from 2 to 1, not back) "off track"; otherwise "not
+//!   timed by the game" (out-laps, in-laps outside races).
 //! - Validity: also the game's `mLapInvalidated` during the lap (never set
 //!   in the recordings so far).
 //! - A session is one session number on one track with one car, started at
-//!   one time (the elapsed time going back means a restart). Its wall-clock
-//!   start is the scoring record's receive time minus the session's elapsed
-//!   time.
+//!   one time (the elapsed time going back means a restart). The game's
+//!   session started at the scoring record's receive time minus the
+//!   elapsed time (part of the key); online, where the server's session
+//!   may have run for long, Stintory's session starts when the player
+//!   joined.
+//! - Rain and the track's wetness come from the scoring (`lmu.rain`,
+//!   `lmu.track_wetness`).
 //! - Keys: session `lmu:<driver>:<start>:<session number>:<vehicle>` (driver
 //!   and vehicle as hashes), track `lmu:<track name>:<length>`, car
 //!   `lmu:<vehicle model>:<class>`.
@@ -171,6 +176,12 @@ struct SessionState {
     session: i32,
     track_name: String,
     driver: String,
+    /// Wall-clock start of the game's session (receive time − elapsed
+    /// time); part of the key, so reconnecting keeps the session
+    session_start: OffsetDateTime,
+    /// The session's start for Stintory: the game's, offline; online the
+    /// server's session may have run for long before, so it is when the
+    /// player joined
     started_at: OffsetDateTime,
     game_version: i32,
     last_et: f64,
@@ -208,6 +219,11 @@ struct SessionState {
     track_limits_at_start: u8,
     /// Track-limits steps of the last frame
     last_track_limits: u8,
+    /// `mCountLapFlag` of the last scoring
+    last_count_flag: Option<u8>,
+    /// The game stopped counting the lap (count flag from 2 down) on track
+    /// and didn't count it again
+    count_dropped: bool,
 }
 
 impl SessionState {
@@ -215,11 +231,17 @@ impl SessionState {
         let wall =
             OffsetDateTime::from_unix_timestamp_nanos(i128::from(sc.received_unix_ms) * 1_000_000)
                 .unwrap_or(OffsetDateTime::UNIX_EPOCH);
+        let session_start = wall - time::Duration::seconds_f64(sc.current_et.max(0.0));
         Self {
             session: sc.session,
             track_name: sc.track_name.clone(),
             driver: sc.player.driver_name.clone(),
-            started_at: wall - time::Duration::seconds_f64(sc.current_et.max(0.0)),
+            session_start,
+            started_at: if sc.game_mode == 0 {
+                session_start
+            } else {
+                wall
+            },
             game_version: sc.game_version,
             last_et: sc.current_et,
             vehicle: None,
@@ -245,6 +267,8 @@ impl SessionState {
             invalid_reported: None,
             track_limits_at_start: 0,
             last_track_limits: 0,
+            last_count_flag: None,
+            count_dropped: false,
         }
     }
 
@@ -266,7 +290,7 @@ impl SessionState {
             fnv1a(&self.driver),
             // the start is computed from the receive time; rounding keeps
             // the key when the app reconnects to the same session
-            self.started_at.unix_timestamp().div_euclid(10),
+            self.session_start.unix_timestamp().div_euclid(10),
             self.session,
             fnv1a(self.vehicle.as_deref().unwrap_or_default()),
         )
@@ -474,12 +498,17 @@ pub fn championship(id: u8) -> Option<&'static str> {
 }
 
 fn weather(sc: &Scoring) -> String {
-    if sc.raining >= 0.05 {
+    let sky = if sc.raining >= 0.05 {
         format!("rain {:.0} %", sc.raining * 100.0)
     } else if sc.dark_cloud >= 0.5 {
         "dry, cloudy".into()
     } else {
         "dry".into()
+    };
+    if sc.avg_path_wetness >= 0.05 {
+        format!("{sky}, track wet {:.0} %", sc.avg_path_wetness * 100.0)
+    } else {
+        sky
     }
 }
 
@@ -504,13 +533,36 @@ fn heading(t: &Telemetry) -> f64 {
 /// One channel and how to compute it.
 struct Ch {
     spec: ChannelSpec,
-    get: fn(&Telemetry) -> f64,
+    get: Get,
+}
+
+/// Where a channel's value comes from.
+enum Get {
+    Telemetry(fn(&Telemetry) -> f64),
+    /// The last scoring (5 Hz)
+    Scoring(fn(&Scoring) -> f64),
+}
+
+impl Ch {
+    fn value(&self, t: &Telemetry, sc: &Scoring) -> f64 {
+        match self.get {
+            Get::Telemetry(f) => f(t),
+            Get::Scoring(f) => f(sc),
+        }
+    }
 }
 
 fn ch(name: impl Into<String>, unit: Unit, kind: ValueKind, get: fn(&Telemetry) -> f64) -> Ch {
     Ch {
         spec: ChannelSpec::new(name, unit, kind),
-        get,
+        get: Get::Telemetry(get),
+    }
+}
+
+fn ch_scoring(name: &str, unit: Unit, kind: ValueKind, get: fn(&Scoring) -> f64) -> Ch {
+    Ch {
+        spec: ChannelSpec::new(name, unit, kind),
+        get: Get::Scoring(get),
     }
 }
 
@@ -617,6 +669,10 @@ fn channels(with_steer: bool) -> Vec<Ch> {
         ch("lmu.downforce_rear", Unit::Newton, F32, |t| {
             t.rear_downforce
         }),
+        ch_scoring("lmu.rain", Unit::Ratio, F32, |s| s.raining),
+        ch_scoring("lmu.track_wetness", Unit::Ratio, F32, |s| {
+            s.avg_path_wetness
+        }),
     ]);
     // per wheel; closures can't capture the index, so one entry per wheel
     // (the game's order: front left, front right, rear left, rear right)
@@ -716,11 +772,29 @@ impl LmuDecoder {
             if let Some((lap, track_limits)) = lap
                 && s.last_timed.is_none_or(|t| lap > t)
             {
-                lap_time(&sc, lap, track_limits, out);
+                let why = if track_limits {
+                    "track limits"
+                } else if s.count_dropped {
+                    "off track"
+                } else {
+                    "not timed by the game"
+                };
+                lap_time(&sc, lap, why, out);
                 s.last_timed = Some(lap);
             }
+            s.count_dropped = false;
         }
         s.total_laps = Some(laps);
+        // off the track the game stops counting the lap (1 = lap only); it
+        // counts again (2) when it forgives it. Out-laps and the pit lane
+        // are 1 anyway.
+        let count = sc.player.count_lap_flag;
+        if count >= 2 {
+            s.count_dropped = false;
+        } else if sc.in_realtime && !sc.player.in_pits && s.last_count_flag == Some(2) {
+            s.count_dropped = true;
+        }
+        s.last_count_flag = Some(count);
         self.scoring = Some(sc);
     }
 
@@ -747,6 +821,7 @@ impl LmuDecoder {
             }
             let mut fresh = SessionState::new(sc);
             fresh.started_at = s.started_at;
+            fresh.session_start = s.session_start;
             fresh.est = std::mem::take(&mut s.est);
             fresh.total_laps = s.total_laps;
             fresh.last_frame_et = s.last_frame_et;
@@ -785,6 +860,7 @@ impl LmuDecoder {
                 }
                 s.est.valid = false;
                 s.jumped = true;
+                s.count_dropped = false;
             }
         }
         if s.jumped {
@@ -873,7 +949,7 @@ impl LmuDecoder {
 
         let values = channels(s.steering_range > 0.0)
             .iter()
-            .map(|c| (c.get)(&t))
+            .map(|c| c.value(&t, sc))
             .collect();
         out.push(SourceEvent::Frame(Frame {
             session_time: et,
@@ -921,20 +997,14 @@ fn steer_lock(setup: &serde_json::Value) -> Option<f32> {
         .filter(|d| (90.0..=2000.0).contains(d))
 }
 
-/// The official time of `lap` from the scoring (or why there is none).
-/// `track_limits`: the track-limits steps went up during the lap.
-fn lap_time(sc: &Scoring, lap: i32, track_limits: bool, out: &mut Vec<SourceEvent>) {
+/// The official time of `lap` from the scoring, or why there is none
+/// (`untimed`: track limits, off track, …).
+fn lap_time(sc: &Scoring, lap: i32, untimed: &str, out: &mut Vec<SourceEvent>) {
     let p = &sc.player;
     if p.last_lap_time <= 0.0 {
-        // the game stops timing a lap at a track-limits warning
         out.push(SourceEvent::Invalidate {
             lap: Some(lap),
-            reason: if track_limits {
-                "track limits"
-            } else {
-                "not timed by the game"
-            }
-            .into(),
+            reason: untimed.into(),
         });
         return;
     }

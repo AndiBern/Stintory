@@ -265,6 +265,169 @@ fn long_beach_hypercar_back_to_the_garage() {
     assert!(regen.iter().any(|w| *w > 100_000.0));
 }
 
+/// Qualifying at Road Atlanta in the rain (Lexus RCF LMGT3, Nov 2026):
+/// out-lap, a lap the game stopped counting when the car slid off into the
+/// grass (no track-limits warning), a clean lap, back to the garage.
+#[test]
+fn road_atlanta_rain_qualifying() {
+    let Some(r) = session_on("lmu:michelin_raceway_road_atlanta:4083") else {
+        return;
+    };
+    assert_eq!(r.sessions.len(), 1);
+    let s = &r.sessions[0];
+    assert_eq!(s.session_type, sy_model::SessionType::Qualifying);
+    assert_eq!(s.car_key, "lmu:lexus_rcf_lmgt3:gt3");
+    assert_eq!(
+        s.conditions.weather.as_deref(),
+        Some("rain 30 %, track wet 40 %")
+    );
+    let laps: Vec<Summary> = r.laps.iter().map(summary).collect();
+    assert_eq!(
+        laps,
+        vec![
+            (
+                0,
+                Some(141_320),
+                false,
+                reason("not timed by the game"),
+                true,
+                false,
+                false
+            ),
+            (
+                1,
+                Some(118_100),
+                false,
+                reason("off track"),
+                false,
+                false,
+                false
+            ),
+            (2, Some(110_901), true, None, false, false, false),
+            (
+                3,
+                None,
+                false,
+                reason("incomplete, back to the garage"),
+                false,
+                false,
+                true
+            ),
+        ]
+    );
+    assert_eq!(r.laps[2].lap.sector_times_ms, vec![13_144, 64_796, 32_961]);
+    // the garage is 45 m before the line
+    check_dist(&r.laps[0], -46.0..-44.0, 4075.0..4084.0);
+    // rain easing off, the track wet; wet tarmac under the tyres
+    let rain = f32s(&r.laps[2], "lmu.rain");
+    assert!(
+        rain.iter().all(|v| (0.14..0.31).contains(v)),
+        "{:?}",
+        rain.first()
+    );
+    let wet = f32s(&r.laps[2], "lmu.track_wetness");
+    assert!(wet.iter().all(|v| (v - 0.6).abs() < 0.01));
+    let surface = match &r.laps[2].telemetry.channel("lmu.surface_fl").unwrap().data {
+        ChannelData::I32(v) => v.clone(),
+        other => panic!("{other:?}"),
+    };
+    let wet_tarmac = surface.iter().filter(|s| **s == 1).count();
+    assert!(
+        wet_tarmac > surface.len() * 8 / 10,
+        "{wet_tarmac} of {}",
+        surface.len()
+    );
+}
+
+/// Race at Sebring's school circuit (BMW M4 LMGT3, Nov 2026), restarted
+/// from the menu just after the first lap ("Restart race"): two sessions.
+/// The game times the first lap of a race from the green flag (rolling
+/// start, 180 m before the line).
+#[test]
+fn sebring_race_restarted() {
+    let Some(r) = session_on("lmu:sebring_school_circuit:3083") else {
+        return;
+    };
+    assert_eq!(r.sessions.len(), 2);
+    assert!(
+        r.sessions
+            .iter()
+            .all(|s| s.session_type == sy_model::SessionType::Race)
+    );
+    assert_ne!(r.sessions[0].id, r.sessions[1].id);
+    let of = |i: usize| -> Vec<Summary> {
+        r.laps
+            .iter()
+            .filter(|l| l.lap.session_id == r.sessions[i].id)
+            .map(summary)
+            .collect()
+    };
+    // the line crossed a moment before the restart: no lap
+    assert_eq!(
+        of(0),
+        vec![(0, Some(83_385), true, None, false, false, false)]
+    );
+    assert_eq!(
+        of(1),
+        vec![
+            (0, Some(77_580), true, None, false, false, false),
+            (1, Some(67_721), true, None, false, false, false),
+            (
+                2,
+                None,
+                false,
+                reason("incomplete, back to the garage"),
+                false,
+                false,
+                true
+            ),
+        ]
+    );
+    check_dist(&r.laps[0], -186.0..-180.0, 3075.0..3084.0);
+    check_dist(&r.laps[1], -155.0..-148.0, 3075.0..3084.0);
+}
+
+/// Online practice at Spa (BMW M4 LMGT3, Nov 2026), joined 42 minutes
+/// into the server's session: the session starts when the player joined.
+#[test]
+fn spa_online_practice() {
+    let Some(r) = session_on("lmu:circuit_de_spa_francorchamps:6982") else {
+        return;
+    };
+    assert_eq!(r.sessions.len(), 1);
+    let s = &r.sessions[0];
+    assert_eq!(s.session_type, sy_model::SessionType::Practice);
+    assert_eq!(s.started_at.unix_timestamp(), 1_794_506_596);
+    let info = s.session_info.as_ref().unwrap();
+    assert_eq!(info["online"], true);
+    let laps: Vec<Summary> = r.laps.iter().map(summary).collect();
+    assert_eq!(
+        laps,
+        vec![
+            (
+                0,
+                Some(157_210),
+                false,
+                reason("not timed by the game"),
+                true,
+                false,
+                false
+            ),
+            (1, Some(143_982), true, None, false, false, false),
+            (
+                2,
+                None,
+                false,
+                reason("incomplete, back to the garage"),
+                false,
+                false,
+                true
+            ),
+        ]
+    );
+    assert_eq!(r.laps[1].lap.sector_times_ms, vec![38_316, 65_620, 40_046]);
+}
+
 fn records(path: &Path) -> Vec<sy_capture::RawRecord> {
     let mut source = SpoolSource::open(path).expect("open spool");
     let mut v = Vec::new();
@@ -321,7 +484,12 @@ fn dump_scoring() {
                     let s = Scoring::parse(&rec.payload).unwrap();
                     let p = &s.player;
                     let key = format!(
-                        "sess {} phase {} rt {} len {:.1} laps {} last {:.3} s1 {:.3} s2 {:.3} pits {} pit_state {} count {} ctrl {} nveh {}",
+                        "rain {:.2} wet {:.2}/{:.2}/{:.2} cloud {:.2} sess {} phase {} rt {} len {:.1} laps {} last {:.3} s1 {:.3} s2 {:.3} pits {} pit_state {} count {} ctrl {} nveh {}",
+                        s.raining,
+                        s.min_path_wetness,
+                        s.avg_path_wetness,
+                        s.max_path_wetness,
+                        s.dark_cloud,
                         s.session,
                         s.game_phase,
                         s.in_realtime,
@@ -463,8 +631,9 @@ fn dump_window() {
                         continue;
                     }
                     println!(
-                        "  T et {:.3} dt {:.4} lap {} start {:.3} sec {} pos [{:.1} {:.1} {:.1}] v {:.1} gear {} thr {:.2} brk {:.2} st {:.3} acc [{:.2} {:.2} {:.2}] rot [{:.3} {:.3} {:.3}] yaw {:.3} inv {} tl {} ve {:.4} bat {:.3}",
+                        "  T et {:.3} surf {:?} dt {:.4} lap {} start {:.3} sec {} pos [{:.1} {:.1} {:.1}] v {:.1} gear {} thr {:.2} brk {:.2} st {:.3} acc [{:.2} {:.2} {:.2}] rot [{:.3} {:.3} {:.3}] yaw {:.3} inv {} tl {} ve {:.4} bat {:.3}",
                         t.elapsed_time,
+                        t.wheels.map(|w| w.surface_type),
                         t.delta_time,
                         t.lap_number,
                         t.lap_start_et,

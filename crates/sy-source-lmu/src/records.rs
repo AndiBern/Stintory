@@ -380,6 +380,10 @@ pub struct Scoring {
     pub in_realtime: bool,
     pub dark_cloud: f64,
     pub raining: f64,
+    /// Wetness of the racing line, 0–1
+    pub min_path_wetness: f64,
+    pub max_path_wetness: f64,
+    pub avg_path_wetness: f64,
     pub ambient_temp_c: f64,
     pub track_temp_c: f64,
     /// 0 offline, 1 server, 2 client, 3 server and client
@@ -414,6 +418,9 @@ impl Scoring {
             in_realtime: b.bool(o::IN_REALTIME),
             dark_cloud: b.f64(o::DARK_CLOUD),
             raining: b.f64(o::RAINING),
+            min_path_wetness: b.f64(o::MIN_PATH_WETNESS),
+            max_path_wetness: b.f64(o::MAX_PATH_WETNESS),
+            avg_path_wetness: b.f64(o::AVG_PATH_WETNESS),
             ambient_temp_c: b.f64(o::AMBIENT_TEMP),
             track_temp_c: b.f64(o::TRACK_TEMP),
             game_mode: b.u8(o::GAME_MODE),

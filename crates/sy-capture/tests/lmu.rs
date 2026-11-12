@@ -201,7 +201,7 @@ fn practice_laps_times_and_validity() {
     }
 }
 
-/// The 50 Hz distance from 5 Hz scoring stays close to the truth.
+/// The 100 Hz distance from 5 Hz scoring stays close to the truth.
 #[test]
 fn lap_distance_is_interpolated() {
     let mut g = SimLmu::new();
@@ -438,6 +438,61 @@ fn race_start_and_track_limits() {
     );
     assert_eq!(l[2].lap.lap_time_ms, Some(ms(lap2)));
     assert!(l[2].lap.valid);
+}
+
+/// Off the track the game stops counting the lap (`mCountLapFlag` 1)
+/// without a track-limits warning; when it counts it again (2) the lap is
+/// timed.
+#[test]
+fn off_track_without_a_warning() {
+    let mut g = SimLmu::new();
+    let mut rec = g.drive_lap(1.0); // out-lap
+    rec.extend(g.drive(10.0)); // lap 1: off, forgiven
+    g.count_lap_flag = 1;
+    rec.extend(g.drive(2.0));
+    g.count_lap_flag = 2;
+    rec.extend(g.drive_lap(1.0));
+    rec.extend(g.drive(10.0)); // lap 2: off, not counted
+    g.count_lap_flag = 1;
+    g.untimed_next_lap = true;
+    rec.extend(g.drive_lap(0.0));
+    g.count_lap_flag = 2;
+    rec.extend(g.drive_lap(1.0)); // lap 3
+
+    let out = record(rec);
+    let l = laps(&out);
+    let summary: Vec<(u32, bool, Option<&str>)> = l
+        .iter()
+        .map(|l| (l.lap.number, l.lap.valid, l.lap.invalid_reason.as_deref()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (0, false, Some("not timed by the game")),
+            (1, true, None),
+            (2, false, Some("off track")),
+            (3, true, None),
+            (4, false, Some("incomplete")),
+        ]
+    );
+}
+
+/// Online the server's session may have run for long before the player
+/// joined: the session starts when they joined. The key stays the
+/// server's session, so reconnecting keeps it.
+#[test]
+fn online_session_starts_when_joining() {
+    let mut g = SimLmu::new();
+    g.game_mode = 2;
+    g.et = 2500.0;
+    g.lap_start_et = 2500.0;
+    let mut rec = g.drive_lap(1.0);
+    rec.extend(g.drive_lap(1.0));
+    let out = record(rec);
+    let s = sessions(&out);
+    assert_eq!(s.len(), 1);
+    assert_eq!(s[0].started_at.unix_timestamp(), g.epoch_ms / 1000 + 2500);
+    assert_eq!(s[0].session_info.as_ref().unwrap()["online"], true);
 }
 
 /// Restarting the session (elapsed time back to the start) and the next

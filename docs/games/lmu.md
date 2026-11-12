@@ -9,12 +9,15 @@ git) for reference. Our Rust definitions are written from them
 (`layout.rs`); the compiler computes every offset, and the sizes are
 asserted at compile time.
 
-> **Status:** written from the headers, checked with three recordings
+> **Status:** written from the headers, checked with six recordings
 > (Nov 2026, on Windows): practice at Monza (BMW M4 LMGT3,
 > out-lap and in-lap), a race on Monza's Curva Grande layout (Ford
 > Mustang LMGT3: formation lap, rolling start, two track-limits warnings,
-> a pit stop) and practice at Long Beach (Ferrari 499P: back to the
-> garage from the menu twice). They are golden tests
+> a pit stop), practice at Long Beach (Ferrari 499P: back to the
+> garage from the menu twice), qualifying at Road Atlanta in the rain
+> (Lexus RCF LMGT3: off into the grass), a race at Sebring's school
+> circuit restarted from the menu (BMW) and an online practice at Spa
+> (BMW, 30 cars). They are golden tests
 > (`crates/sy-capture/tests/lmu_recordings.rs`, skipped without the
 > files); synthetic tests (`sy_source_lmu::sim`) cover the same cases.
 > Recordings go into `telemetry_examples/LMU/` (raw `.syraw` files,
@@ -100,6 +103,12 @@ shared memory has any number of readers.
 - Virtual energy and the battery are 0–1 (the recordings start at 1 out
   of the garage); regen is in kW in the game (up to 194 kW for the
   Ferrari), W in Stintory.
+- Rain: `mRaining` (0–1) and the racing line's wetness
+  (`mAvgPathWetness`, 0–1; the minimum stays 0, the maximum is the
+  average or a step ahead) come from the scoring, as `lmu.rain` and
+  `lmu.track_wetness` in every sample, and in the session's weather
+  ("rain 30 %, track wet 40 %" at Road Atlanta). `mDarkCloud` stayed 0 in
+  the rain. On a wet track the tyres' surface is 1 (wet) instead of 0.
 - The lap view shows virtual energy / battery, ABS and TC active, the TC
   and ABS levels and the motor map when a lap has them.
 - Session info (player only): session number and name, track length, lap
@@ -147,10 +156,16 @@ another method.
 
 - A session is one session number (`mSession`: 0 test day, 1–4 practice,
   5–8 qualifying, 9 warm-up, 10–13 race) on one track with one car. The
-  elapsed time going back (restart) starts a new session. Its wall-clock
-  start is the scoring's receive time minus the elapsed time.
-  Keys: session `lmu:<driver hash>:<start / 10 s>:<session>:<vehicle
-  hash>`, track `lmu:<track name>:<length in m>`, car
+  elapsed time going back starts a new session: "Restart race" in the
+  menu puts the car into the garage (like going back to the garage),
+  then the session starts again at 0. The game's session started at the
+  scoring's receive time minus the elapsed time; offline that is the
+  session's start in Stintory. Online the server's session may have run
+  for long (42 minutes at Spa) before the player joined, so there the
+  session starts at the player's first scoring record.
+  Keys: session `lmu:<driver hash>:<game's session start / 10
+  s>:<session>:<vehicle hash>` (reconnecting to an online session keeps
+  it), track `lmu:<track name>:<length in m>`, car
   `lmu:<model>:<class>` (e.g. `lmu:porsche_963:hypercar`; LMP2 in WEC and
   ELMS trim are different cars).
 - The game's track name is the venue for a venue's main layout
@@ -175,16 +190,19 @@ another method.
   lap that ended. A time ≤ 0 (−1) means the game didn't time the lap:
   out-laps, in-laps outside races (in a race the in-lap is timed), and a
   lap with a track-limits warning (`mTrackLimitsSteps` went up; the game
-  also stops timing the sectors then). Such laps are invalid, "track
-  limits" or "not timed by the game".
-- `mLapInvalidated` was never set, not even with track-limits warnings;
+  also stops timing the sectors then), or a lap the game stopped
+  counting off the track without a warning (Road Atlanta: sliding into
+  the grass). Such laps are invalid: "track limits", "off track", or
+  "not timed by the game" (out- and in-laps).
+- `mCountLapFlag` (header: 0 lap and time not counted, 1 lap only, 2 both)
+  goes to 1 when the car leaves the track and back to 2 when the game
+  forgives it (cutting a corner without gaining anything gives no
+  warning and the lap is timed); it stays 1 after a warning or a real
+  excursion. It is 1 on out-laps and from the pit entry. A lap whose
+  flag went from 2 to 1 on track and didn't come back is "off track".
+- `mLapInvalidated` was never set, neither with warnings nor for cuts;
   when it is, the lap is invalid ("track limits" or "invalidated by the
   game").
-- `mCountLapFlag` (header: 0 lap and time not counted, 1 lap only, 2 both)
-  goes to 1 for a moment when the car is off the track and back to 2
-  when the game forgives it; it is 1 on out-laps and from the pit entry,
-  and stays 1 after a warning. It agrees with `mLastLapTime`, which we
-  use.
 - Out-lap: the lap starts in the pit lane (sign bit of `mCurrentSector`,
   or `mInPits`); in-lap: it ends there. `mPitState` is 5 in the garage
   (the header lists 0–4); 1 request, 2 entering, 4 in the pit box /
@@ -198,11 +216,16 @@ another method.
   again, the next lap number is an out-lap. Leaving the car otherwise
   (to the monitor) ends the lap as incomplete ("left the car").
 - **Races:** before the start (`mGamePhase` 0–4: formation lap,
-  countdown) nothing is recorded. At the green flag `mLapStartET` is set
-  and the lap number stays 0: with a rolling start the first lap starts
-  before the line (62 m at Monza) and its distance counts up from −62 m.
-  It ends at the line a whole lap later. After the flag (`mGamePhase` 8)
-  the cool-down lap is recorded until the player leaves the car.
+  countdown) nothing is recorded. The game has only rolling starts:
+  "Rolling" (a formation lap) and "Fast" (closer to the line, without a
+  whole lap); no standing starts. At the green flag `mLapStartET` is set
+  and the lap number stays 0: the first lap starts before the line (62 m
+  at Monza, 150–185 m at Sebring) and its distance counts up from there
+  to 0 at the line. It ends at the line a whole lap later, and the game
+  times it from the green flag. After the flag (`mGamePhase` 8) the
+  cool-down lap is recorded until the player leaves the car.
+- A "lap" shorter than a second (100 samples) isn't kept: the line
+  crossed just before going back to the garage or restarting.
 - Pause: the elapsed time stands still and nothing new arrives. While the
   player is on track the recording waits up to an hour; otherwise 10 s of
   silence end it.
@@ -226,8 +249,6 @@ another method.
   100 Hz sample once, but a spool file doesn't show whether the reader
   waited on the events or polled.
 - Linux through the Proton bridge (docs/games/proton.md).
-- Qualifying, a standing start, a race restart, full-course yellow, and
-  a session joined online.
-- Whether `mLapInvalidated` is ever set (cutting a chicane without a
-  warning?).
+- Full-course yellow (`mGamePhase` 6; not reproduced offline).
+- Whether `mLapInvalidated` is ever set.
 - Rain (`mRaining`, the surface types), the tyre wear over a long stint.
