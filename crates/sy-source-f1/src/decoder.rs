@@ -38,7 +38,12 @@
 //!   put before the line. The attempt is aborted ("lap restarted"), the
 //!   run-up skipped, and the lap starts again at the line.
 //! - The UDP format can change within a session (game settings); the
-//!   channels change with it.
+//!   channel layout stays the one the session started with.
+//! - Over the line in the pit lane outside races the game counts no lap:
+//!   `LineCrossed` ends the in-lap there.
+//! - Races: a lap that starts standing on the grid counts from there (some
+//!   grids are after the line). A red flag cuts the lap off; nothing is
+//!   recorded until the game resumes (it skips ahead to a standing restart).
 //! - The session starts once the player drives (not in menus, the garage
 //!   or while spectating).
 //! - Before the line the game counts lap 1 with a negative lap distance.
@@ -103,6 +108,9 @@ struct SessionState {
     uid: u64,
     player: u8,
     format: Format,
+    /// Channel layout: the format the session started with. It stays when
+    /// the game switches formats, so the running lap goes on.
+    layout: Format,
     game_version: String,
     started_at: OffsetDateTime,
     first_time: f32,
@@ -135,6 +143,8 @@ struct SessionState {
     /// After a restart of the lap (time trial), until the car crosses the
     /// line: the run-up isn't recorded
     run_up: bool,
+    /// After a red flag until the race resumes: nothing is recorded
+    red_flag: bool,
 }
 
 /// One channel and how to compute it.
@@ -303,6 +313,10 @@ struct InvalidationNote {
     /// The game's lap number it applies to
     lap: i32,
     reason: String,
+    /// From another penalty (a warning, a stop-go, …) for track limits:
+    /// used when the lap has no "lap invalidated" penalty (races send
+    /// those less)
+    other_penalty: bool,
 }
 
 impl SessionState {
@@ -310,7 +324,9 @@ impl SessionState {
     /// game's penalties, or a generic text.
     fn invalid_reason(&self, lap: i32) -> String {
         let mut reasons: Vec<&str> = Vec::new();
-        for n in self.invalidations.iter().filter(|n| n.lap == lap) {
+        let notes: Vec<_> = self.invalidations.iter().filter(|n| n.lap == lap).collect();
+        let direct = notes.iter().any(|n| !n.other_penalty);
+        for n in notes.into_iter().filter(|n| n.other_penalty != direct) {
             if !reasons.contains(&n.reason.as_str()) {
                 reasons.push(&n.reason);
             }
@@ -397,6 +413,7 @@ impl SessionState {
             uid: h.session_uid,
             player: h.player_car,
             format: h.format,
+            layout: h.format,
             game_version: format!("{}.{:02}", h.game_major, h.game_minor),
             started_at: wall - time::Duration::seconds_f64(f64::from(h.session_time).max(0.0)),
             first_time: h.session_time,
@@ -419,6 +436,7 @@ impl SessionState {
             finished_lap: None,
             invalidations: Vec::new(),
             run_up: false,
+            red_flag: false,
         }
     }
 
@@ -487,7 +505,7 @@ impl SessionState {
             setup: self.setup.as_ref().map(CarSetup::to_json),
             session_info: Some(info),
             sample_rate_hz: sample_rate(&self.telemetry_times),
-            channels: channels(self.format).into_iter().map(|c| c.spec).collect(),
+            channels: channels(self.layout).into_iter().map(|c| c.spec).collect(),
         })
     }
 
@@ -516,8 +534,39 @@ impl SessionState {
             return;
         }
         let Some(prev) = prev else { return };
+        if self.red_flag && ld.lap != prev.lap {
+            self.red_flag = false; // the race resumes (the game skips ahead)
+        }
+        let len = self
+            .session
+            .as_ref()
+            .map_or(0.0, |s| f32::from(s.track_length_m));
+        let wrapped = len > 0.0
+            && prev.lap_distance_m > len - 200.0
+            && (0.0..200.0).contains(&ld.lap_distance_m);
+        let on_track = ld.pit_status == 0 && prev.pit_status == 0;
         if ld.lap == prev.lap
             && ld.last_lap_ms == prev.last_lap_ms
+            && wrapped
+            && !on_track
+            && !self.run_up
+            && self.finished_lap.is_none()
+        {
+            // Over the line in the pit lane, and the game didn't count a
+            // lap (practice, qualifying): an in-lap without a time.
+            if prev.lap_invalid {
+                out.push(SourceEvent::Invalidate {
+                    lap: Some(i32::from(prev.lap)),
+                    reason: self.invalid_reason(i32::from(prev.lap)),
+                });
+            }
+            self.invalidations.retain(|n| n.lap != i32::from(prev.lap));
+            if self.frame_lap.is_some() {
+                out.push(SourceEvent::LineCrossed);
+            }
+        } else if ld.lap == prev.lap
+            && ld.last_lap_ms == prev.last_lap_ms
+            && on_track
             && time > prev_time
             && ld.current_lap_ms + 1000 < prev.current_lap_ms
         {
@@ -528,8 +577,14 @@ impl SessionState {
             // but with the session time.)
             self.restart_lap(ld.lap, out);
         }
-        if ld.lap > prev.lap {
+        if ld.lap == prev.lap + 1 {
             self.lap_completed(&prev, ld.last_lap_ms, out);
+        } else if ld.lap > prev.lap && self.frame_lap.is_some() {
+            // laps skipped (after a red flag): the time isn't this lap's
+            out.push(SourceEvent::LapAborted {
+                reason: "laps skipped by the game".into(),
+            });
+            self.frame_lap = None;
         } else if ld.lap == prev.lap
             && ld.last_lap_ms != prev.last_lap_ms
             && ld.last_lap_ms > 0
@@ -566,8 +621,8 @@ impl SessionState {
     }
 
     /// The game switched between UDP formats 2025 and 2026 (possible in its
-    /// settings while driving). The session goes on; the new channel
-    /// layout ends the running lap.
+    /// settings while driving). The session and its channel layout go on
+    /// (channels only in 2026 stay empty in 2025).
     fn switch_format(&mut self, format: Format) {
         tracing::info!(from = ?self.format, to = ?format, "UDP format changed within the session");
         self.format = format;
@@ -615,7 +670,10 @@ impl SessionState {
             return;
         }
         let Some(ld) = self.lap else { return };
-        if self.session.as_ref().is_some_and(|s| s.spectating) || ld.driver_status == 0 {
+        if self.session.as_ref().is_some_and(|s| s.spectating)
+            || ld.driver_status == 0
+            || self.red_flag
+        {
             return;
         }
         let time = f64::from(h.session_time);
@@ -630,13 +688,15 @@ impl SessionState {
             x: self.motion_ex.as_ref(),
             t2: self.telemetry2.as_ref(),
         };
-        let values = channels(self.format)
+        let values = channels(self.layout)
             .iter()
             .map(|c| (c.get)(&inputs))
             .collect();
         let mut lap = i32::from(ld.lap);
         let mut lap_dist = ld.lap_distance_m;
         let mut in_pits = ld.pit_status != 0;
+        // standing on the grid (start, restart after a red flag)
+        let standing_start = self.is_race() && !in_pits && t.speed_kmh < 2;
         if self.finished_lap == Some(ld.lap) {
             lap += 1; // after the flag
         }
@@ -674,6 +734,7 @@ impl SessionState {
             lap,
             lap_dist,
             in_pits,
+            standing_start,
             values,
         }));
     }
@@ -692,8 +753,16 @@ impl SessionState {
                             time: h.session_time,
                             lap: i32::from(lap) + offset,
                             reason: reason.clone(),
+                            other_penalty: false,
                         });
                     }
+                } else if let Some(reason) = tables::track_limits(infringement) {
+                    self.invalidations.push(InvalidationNote {
+                        time: h.session_time,
+                        lap: i32::from(lap),
+                        reason: reason.to_owned(),
+                        other_penalty: true,
+                    });
                 }
             }
             Event::Flashback { session_time, .. } if self.meta.is_some() => {
@@ -705,6 +774,18 @@ impl SessionState {
                 });
                 self.last_frame_time = Some(to - 1e-6);
             }
+            Event::RedFlag if self.meta.is_some() => {
+                // the game stops the race and later skips ahead to the
+                // restart from the grid
+                if self.frame_lap.is_some() {
+                    out.push(SourceEvent::LapAborted {
+                        reason: "red flag".into(),
+                    });
+                    self.frame_lap = None;
+                }
+                self.red_flag = true;
+            }
+            Event::LightsOut => self.red_flag = false,
             Event::SessionEnded => {
                 if self.meta.is_some() && !self.ended {
                     out.push(SourceEvent::SessionEnd);

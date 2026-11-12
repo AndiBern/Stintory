@@ -243,6 +243,23 @@ pub fn car_name(formula_id: u8, team_id: Option<u16>) -> String {
     }
 }
 
+/// The track-limits part of an infringement type, e.g. "corner cutting".
+/// `None` for other infringements (collisions, pit lane, …).
+pub fn track_limits(infringement: u8) -> Option<&'static str> {
+    Some(match infringement {
+        7 => "corner cutting (time gained)",
+        8 | 9 => "corner cutting (overtake)",
+        25 => "corner cutting",
+        26 => "running wide",
+        // "corner cutting ran wide gained time" minor/significant/extreme
+        27..=29 => "track limits (time gained)",
+        30 => "wall riding",
+        31 => "flashback used",
+        32 => "reset to track",
+        _ => return None,
+    })
+}
+
 /// Why the game invalidated a lap: a penalty of type 10–15 ("lap
 /// invalidated", with or without the next or previous lap) and its
 /// infringement type. `None` for other penalties.
@@ -250,20 +267,12 @@ pub fn invalidation_reason(penalty_type: u8, infringement: u8) -> Option<String>
     if !(10..=15).contains(&penalty_type) {
         return None;
     }
-    let reason = match infringement {
-        7 => "corner cutting (time gained)",
-        8 | 9 => "corner cutting (overtake)",
-        25 => "corner cutting",
-        26 => "running wide",
-        27..=29 => "running wide (time gained)",
-        30 => "wall riding",
-        31 => "flashback used",
-        32 => "reset to track",
+    Some(match track_limits(infringement) {
+        Some(reason) => reason.to_owned(),
         // "without reason" penalties
-        _ if matches!(penalty_type, 12 | 13 | 15) => "invalidated by the game",
-        other => return Some(format!("invalidated by the game (infringement {other})")),
-    };
-    Some(reason.to_owned())
+        None if matches!(penalty_type, 12 | 13 | 15) => "invalidated by the game".to_owned(),
+        None => format!("invalidated by the game (infringement {infringement})"),
+    })
 }
 
 /// The laps a lap-invalidating penalty applies to, relative to the lap it
@@ -323,6 +332,9 @@ mod tests {
             Some("invalidated by the game")
         );
         assert_eq!(invalidation_reason(5, 26), None, "a warning");
+        // warnings and other penalties: only their track-limits part
+        assert_eq!(track_limits(28), Some("track limits (time gained)"));
+        assert_eq!(track_limits(4), None, "a collision");
         assert_eq!(invalidated_laps(11), &[0, 1]);
         assert_eq!(invalidated_laps(14), &[0, -1]);
         assert!(invalidated_laps(4).is_empty());

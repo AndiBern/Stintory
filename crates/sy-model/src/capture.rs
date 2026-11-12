@@ -101,6 +101,10 @@ pub struct Frame {
     pub lap_dist: f32,
     /// Car is in the pit lane / pit box.
     pub in_pits: bool,
+    /// The car stands on the grid for a standing start. A lap whose first
+    /// sample has this set counts from there, even away from the line (some
+    /// grids are after it).
+    pub standing_start: bool,
     /// Values of [`SessionMeta::channels`], same order. Converted to the
     /// declared [`ValueKind`] when the lap is stored.
     pub values: Vec<f64>,
@@ -137,6 +141,11 @@ pub enum SourceEvent {
         /// Session time the game jumped back to
         to_session_time: f64,
     },
+    /// The car crossed the line but the game didn't count a lap (e.g. in the
+    /// pit lane outside races). The lap being driven is complete, without an
+    /// official time; the next frames start a new lap, even with the same
+    /// number.
+    LineCrossed,
     /// The lap being driven was interrupted without crossing the line (tow,
     /// reset to pits, player left the car). It is stored as incomplete.
     LapAborted {

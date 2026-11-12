@@ -351,7 +351,8 @@ fn silverstone_menu_only() {
 /// Spa with the Alpine (F1 2025), time trial: the game sent UDP format 2025
 /// at first (most of it didn't arrive), then the player restarted the lap,
 /// switched to format 2026 in the game's settings, restarted again and
-/// drove a lap. The session goes on across the switch.
+/// drove a lap. The session and the attempt go on across the switch, with
+/// the channels of 2025 (the format the session started with).
 #[test]
 fn spa_format_switch() {
     let Some(path) = recording(1_794_480_939) else {
@@ -366,7 +367,6 @@ fn spa_format_switch() {
         &[
             (2, None, false, false, false, true),
             (2, None, false, false, false, true),
-            (2, None, false, false, false, true),
             (2, Some(108_998), true, false, false, false),
             (3, None, false, false, false, true),
         ],
@@ -375,7 +375,7 @@ fn spa_format_switch() {
         r.sessions[0].session_info.as_ref().unwrap()["udp_format"],
         2026
     );
-    assert!(r.laps[3].telemetry.channel("f1.active_aero_mode").is_some());
+    assert!(r.laps[2].telemetry.channel("f1.active_aero_mode").is_none());
 }
 
 /// Hungaroring with the Red Bull (F1 2025), time trial in UDP format 2025.
@@ -427,6 +427,157 @@ fn shanghai_race_pit_stop() {
     );
     assert!(r.laps[1].lap.flags.in_lap);
     assert!(!r.laps[2].lap.flags.in_lap && !r.laps[3].lap.flags.out_lap);
+}
+
+/// Time trial in Monaco with the F1 26 RB: wall riding in laps 1 and 2,
+/// running wide in 3, corner cutting in 4 (the game's lap history has all
+/// four invalid).
+#[test]
+fn monaco_wall_riding_and_corner_cutting() {
+    let Some(path) = recording(1_794_490_115) else {
+        return;
+    };
+    let r = replay(&path);
+    check(
+        &r,
+        "Monaco",
+        "f1_25:482/13",
+        "RB (F1 26)",
+        &[
+            (0, None, true, true, false, false),
+            (1, Some(79_700), false, false, false, false),
+            (2, Some(78_581), false, false, false, false),
+            (3, Some(77_535), false, false, false, false),
+            (4, Some(72_077), false, false, false, false),
+            (5, None, false, false, false, true),
+        ],
+    );
+    let reasons: Vec<_> = r.laps[1..5]
+        .iter()
+        .map(|l| l.lap.invalid_reason.as_deref().unwrap())
+        .collect();
+    assert_eq!(
+        reasons,
+        [
+            "wall riding",
+            "wall riding",
+            "running wide",
+            "corner cutting"
+        ]
+    );
+}
+
+/// A Grand Prix weekend at Monza (F1 2025 RB) in one recording, four
+/// sessions:
+/// - Practice: out-lap from the garage, a lap, an in-lap (over the line in
+///   the pit lane: the game doesn't count it), then an out-lap with a
+///   corner cut straight back in.
+/// - Qualifying: "flying lap" start (the car is put 2100 m before the
+///   line: an out-lap), a lap, back to the garage from the menu.
+/// - Race: standing start from a grid 274 m after the line, a pit stop, a
+///   crash with flashbacks in lap 12 (warning for track limits), "restart
+///   session" in lap 13.
+/// - The restarted race: red flag in lap 1, the game skips ahead to a
+///   standing restart in lap 3, a safety car in laps 3 to 5, a pit stop.
+#[test]
+fn monza_grand_prix() {
+    let Some(path) = recording(1_794_490_763) else {
+        return;
+    };
+    let r = replay(&path);
+    let types: Vec<_> = r.sessions.iter().map(|s| s.session_type).collect();
+    use sy_model::SessionType::{Practice, Qualifying, Race};
+    assert_eq!(types, [Practice, Qualifying, Race, Race]);
+    assert!(r.sessions.iter().all(|s| s.car_name == "RB (F1 2025)"));
+    let of = |i: usize| -> Vec<Summary> {
+        let id = r.sessions[i].id;
+        let mut v: Vec<Summary> = r
+            .laps
+            .iter()
+            .filter(|l| l.lap.session_id == id)
+            .map(summary)
+            .collect();
+        if let Some(out) = v.first_mut().filter(|l| l.3) {
+            out.1 = None; // our measurement
+        }
+        v
+    };
+    let id = |i: usize| r.sessions[i].id;
+    let lap = |i: usize, n: usize| r.laps.iter().filter(|l| l.lap.session_id == id(i)).nth(n);
+
+    // practice: the in-laps have no time from the game (ours: measured)
+    let p = of(0);
+    assert_eq!(p[0], (0, None, true, true, false, false));
+    assert_eq!(p[1], (1, Some(83_892), true, false, false, false));
+    assert_eq!((p[2].0, p[2].2, p[2].3, p[2].5), (2, true, false, false));
+    assert_eq!((p[3].0, p[3].2, p[3].3, p[3].5), (2, false, true, false));
+    assert_eq!(p.len(), 4);
+    assert!(lap(0, 2).unwrap().lap.flags.in_lap && lap(0, 3).unwrap().lap.flags.in_lap);
+    assert_eq!(
+        lap(0, 3).unwrap().lap.invalid_reason.as_deref(),
+        Some("corner cutting (time gained)")
+    );
+
+    assert_eq!(
+        of(1),
+        [
+            (0, None, true, true, false, false),
+            (1, Some(81_873), true, false, false, false),
+            (2, None, false, false, false, true),
+        ]
+    );
+
+    let race = of(2);
+    assert_eq!(race[0], (1, Some(86_434), true, false, true, false));
+    assert_eq!(race[5], (6, Some(90_241), true, false, false, false));
+    assert_eq!(race[6], (7, Some(104_849), true, true, false, false));
+    assert_eq!(race[11], (12, Some(95_158), false, false, true, false));
+    assert_eq!(race[12], (13, None, false, false, true, true));
+    assert_eq!(race.len(), 13);
+    assert!(lap(2, 5).unwrap().lap.flags.in_lap);
+    assert_eq!(
+        lap(2, 11).unwrap().lap.invalid_reason.as_deref(),
+        Some("track limits (time gained), corner cutting (time gained)")
+    );
+    let d = f32s(lap(2, 0).unwrap(), names::DIST);
+    assert!((270.0..280.0).contains(&d[0]), "{}", d[0]);
+
+    assert_eq!(
+        of(3),
+        [
+            (1, None, false, false, false, true),
+            (3, Some(104_979), true, false, true, false),
+            (4, Some(101_821), true, false, false, false),
+            (5, Some(120_232), true, false, false, false),
+            (6, Some(95_254), true, false, false, false),
+            (7, None, false, true, false, true),
+        ]
+    );
+    assert_eq!(
+        lap(3, 0).unwrap().lap.invalid_reason.as_deref(),
+        Some("incomplete, red flag")
+    );
+}
+
+/// Time trial in Melbourne with the F1 26 Williams: the game sent 2025 at
+/// first and was switched to 2026 in the middle of lap 1. One lap, valid,
+/// as in the game's history.
+#[test]
+fn melbourne_format_switch_mid_lap() {
+    let Some(path) = recording(1_794_493_468) else {
+        return;
+    };
+    check(
+        &replay(&path),
+        "Melbourne",
+        "f1_25:479/13",
+        "Williams (F1 26)",
+        &[
+            (0, None, true, true, false, false),
+            (1, Some(83_638), true, false, false, false),
+            (2, None, false, false, false, true),
+        ],
+    );
 }
 
 /// Every recording: timed laps start at the line, the map is not mirrored

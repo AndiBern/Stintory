@@ -516,38 +516,143 @@ fn restarting_the_lap() {
     assert!(dist(2).iter().all(|d| *d < 1000.5), "no run-up");
 }
 
-/// Switching the game's UDP format while driving: the session goes on, the
-/// lap running at the switch is cut off.
+/// Switching the game's UDP format while driving: the session and the lap
+/// go on, with the channels of the format the session started with.
 #[test]
 fn format_switch_within_a_session() {
-    let mut g = SimGame::new(Format::F2025);
+    for (from, to) in [
+        (Format::F2025, Format::F2026),
+        (Format::F2026, Format::F2025),
+    ] {
+        let mut g = SimGame::new(from);
+        let mut s = Script::default();
+        s.send(&g.session());
+        s.send(&g.participants());
+        s.drive_lap(&mut g); // lap 1
+        s.drive(&mut g, 5.0);
+        g.format = to;
+        s.drive_lap(&mut g); // lap 2: switched halfway
+        s.drive_lap(&mut g); // lap 3
+        s.send(&g.event(b"SEND", &[]));
+
+        let out = record(s);
+        let started = out
+            .0
+            .iter()
+            .filter(|o| matches!(o, RecorderOutput::SessionStarted(_)))
+            .count();
+        assert_eq!(started, 1);
+        let l = laps(&out);
+        assert_eq!(
+            l.iter().map(|l| summary(l)).collect::<Vec<_>>(),
+            vec![
+                (1, Some(20_000), true, false, false, false, false),
+                (2, Some(20_000), true, false, false, false, false),
+                (3, Some(20_000), true, false, false, false, false),
+                (4, None, false, false, false, true, false),
+            ],
+            "{from} to {to}"
+        );
+        let n = l[1].telemetry.len();
+        assert!((395..=405).contains(&n), "{n} samples");
+        let aero = l
+            .iter()
+            .all(|l| l.telemetry.channel("f1.active_aero_mode").is_some());
+        assert_eq!(aero, from == Format::F2026);
+    }
+}
+
+/// Practice: into the pits at the end of a lap. The game doesn't count a
+/// lap when the car crosses the line in the pit lane; the in-lap ends there
+/// (without a time from the game), the bit to the garage isn't a lap.
+#[test]
+fn practice_in_lap_through_the_pit_lane() {
+    let mut g = SimGame::new(Format::F2026);
+    g.session_type = 1;
     let mut s = Script::default();
     s.send(&g.session());
     s.send(&g.participants());
-    s.drive_lap(&mut g); // lap 1, format 2025
-    s.drive(&mut g, 5.0);
-    g.format = Format::F2026;
-    s.drive_lap(&mut g); // lap 2: switched halfway
-    s.drive_lap(&mut g); // lap 3, format 2026
+    s.drive_lap(&mut g); // lap 1
+    while g.dist < 900.0 {
+        s.drive(&mut g, 0.05);
+    }
+    g.pit = 1;
+    g.driver_status = 2;
+    while g.dist < 995.0 {
+        s.drive(&mut g, 0.05);
+    }
+    // over the line in the pit lane: the lap number stays, the lap time
+    // starts again
+    g.dist -= 1000.0 - 2.5;
+    g.lap_time_s = 0.0;
+    s.drive(&mut g, 3.0);
+    g.driver_status = 0; // in the garage
+    s.drive(&mut g, 2.0);
     s.send(&g.event(b"SEND", &[]));
 
     let out = record(s);
-    let started = out
-        .0
-        .iter()
-        .filter(|o| matches!(o, RecorderOutput::SessionStarted(_)))
-        .count();
-    assert_eq!(started, 1);
     let l = laps(&out);
-    let complete: Vec<_> = l
-        .iter()
-        .filter(|l| !l.lap.flags.incomplete)
-        .map(|l| (l.lap.number, l.lap.lap_time_ms))
-        .collect();
-    assert_eq!(complete, vec![(1, Some(20_000)), (3, Some(20_000))]);
-    let aero = |l: &RecordedLap| l.telemetry.channel("f1.active_aero_mode").is_some();
-    assert!(!aero(l[0]));
-    assert!(aero(l.iter().find(|l| l.lap.number == 3).unwrap()));
+    assert_eq!(
+        l.iter().map(|l| summary(l)).collect::<Vec<_>>(),
+        vec![
+            (1, Some(20_000), true, false, false, false, false),
+            // measured: the game gives no time
+            (2, l[1].lap.lap_time_ms, true, false, true, false, false),
+        ]
+    );
+    let ms = l[1].lap.lap_time_ms.unwrap();
+    assert!((19_900..=20_100).contains(&ms), "{ms}");
+}
+
+/// A standing start from a grid after the line (Monza: 274 m), and a red
+/// flag: the lap is cut off, the game skips ahead to the restart from the
+/// grid two laps on, and that lap counts from the grid too.
+#[test]
+fn race_grid_after_the_line_and_red_flag() {
+    let mut g = SimGame::new(Format::F2026);
+    g.session_type = 15;
+    g.driver_status = 4;
+    g.dist = 274.0;
+    let mut s = Script::default();
+    s.send(&g.session());
+    s.send(&g.participants());
+    let speed = g.speed_kmh;
+    g.speed_kmh = 0;
+    s.drive(&mut g, 1.0); // on the grid
+    s.send(&g.event(b"LGOT", &[]));
+    g.speed_kmh = speed;
+    s.drive_lap(&mut g); // lap 1 from the grid
+    s.drive(&mut g, 5.0);
+    s.send(&g.event(b"RDFL", &[]));
+    s.drive(&mut g, 3.0); // to the pits under red flag
+    // the game skips ahead: lap 4 on the grid
+    g.time += 600.0;
+    g.lap = 4;
+    g.dist = 274.0;
+    g.last_lap_ms = 300_000;
+    g.speed_kmh = 0;
+    s.drive(&mut g, 1.0);
+    s.send(&g.event(b"LGOT", &[]));
+    g.speed_kmh = speed;
+    s.drive_lap(&mut g);
+    s.send(&g.event(b"SEND", &[]));
+
+    let out = record(s);
+    let l = laps(&out);
+    assert_eq!(
+        l.iter().map(|l| summary(l)).collect::<Vec<_>>(),
+        vec![
+            // the game's times (the sim always reports 20 s)
+            (1, Some(20_000), true, false, false, false, false),
+            (2, None, false, false, false, true, false),
+            (4, Some(20_000), true, false, false, false, false),
+            (5, None, false, false, false, true, false),
+        ]
+    );
+    assert_eq!(
+        l[1].lap.invalid_reason.as_deref(),
+        Some("incomplete, red flag")
+    );
 }
 
 /// Packets from the menus or the garage only: no session.

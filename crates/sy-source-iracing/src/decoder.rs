@@ -640,6 +640,7 @@ impl IracingDecoder {
             lap: lap as i32,
             lap_dist: lap_dist as f32,
             in_pits,
+            standing_start: false,
             values,
         }));
         if !in_pits {

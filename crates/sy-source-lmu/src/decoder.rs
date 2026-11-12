@@ -756,6 +756,7 @@ impl LmuDecoder {
             lap,
             lap_dist: dist.max(0.0) as f32,
             in_pits: t.in_pit_lane() || sc.player.in_pits,
+            standing_start: false,
             values,
         }));
     }

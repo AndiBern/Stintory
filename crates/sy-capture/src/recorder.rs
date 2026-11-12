@@ -129,6 +129,9 @@ struct PendingLap {
     resolved: bool,
     /// Aborted (incomplete); queued only to keep laps in order
     aborted: bool,
+    /// Ended at the line without the game counting it: no official time
+    /// will come
+    untimed: bool,
 }
 
 impl LapBuffer {
@@ -139,7 +142,9 @@ impl LapBuffer {
             dists: Vec::new(),
             values: Vec::new(),
             out_lap: frame.in_pits,
-            joined_mid_lap: !frame.in_pits && frame.lap_dist > config.max_start_dist_m,
+            joined_mid_lap: !frame.in_pits
+                && !frame.standing_start
+                && frame.lap_dist > config.max_start_dist_m,
             flashback: false,
             invalid: Vec::new(),
             last_in_pits: frame.in_pits,
@@ -196,6 +201,7 @@ impl Recorder {
             } => self.on_lap_time(lap, lap_time_ms, sector_times_ms, &mut out),
             SourceEvent::Invalidate { lap, reason } => self.on_invalidate(lap, reason, &mut out),
             SourceEvent::Rewind { to_session_time } => self.on_rewind(to_session_time),
+            SourceEvent::LineCrossed => self.on_line_crossed(&mut out),
             SourceEvent::LapAborted { reason } => self.on_lap_aborted(reason, &mut out),
             SourceEvent::SessionEnd => self.end_session(&mut out),
         }
@@ -302,6 +308,7 @@ impl Recorder {
                     official,
                     resolved: false,
                     aborted: false,
+                    untimed: false,
                 });
             }
             Some(_) => {
@@ -342,7 +349,7 @@ impl Recorder {
         if let Some(p) = active
             .pending
             .iter_mut()
-            .find(|p| p.buffer.lap == lap && !p.aborted)
+            .find(|p| p.buffer.lap == lap && !p.aborted && !p.untimed)
         {
             p.official = Some((lap_time_ms, sector_times_ms));
         } else if active.current.as_ref().is_some_and(|c| c.lap == lap) {
@@ -408,6 +415,26 @@ impl Recorder {
         self.flush_pending(false, out);
     }
 
+    fn on_line_crossed(&mut self, out: &mut Vec<RecorderOutput>) {
+        let Some(active) = self.active.as_mut() else {
+            return;
+        };
+        let Some(buffer) = active.current.take() else {
+            return;
+        };
+        // the next lap starts with the next frame
+        let end_time = active.last_time + 1.0 / f64::from(active.meta.sample_rate_hz.max(1.0));
+        active.pending.push_back(PendingLap {
+            buffer,
+            end_time,
+            official: None,
+            resolved: true,
+            aborted: false,
+            untimed: true,
+        });
+        self.flush_pending(false, out);
+    }
+
     fn on_lap_aborted(&mut self, reason: String, out: &mut Vec<RecorderOutput>) {
         let Some(active) = self.active.as_mut() else {
             return;
@@ -429,6 +456,7 @@ impl Recorder {
                 official: None,
                 resolved: true,
                 aborted: true,
+                untimed: false,
             });
             self.flush_pending(false, out);
         }
@@ -700,6 +728,7 @@ mod tests {
                 lap,
                 lap_dist: dist,
                 in_pits,
+                standing_start: false,
                 values: vec![50.0, 3.0],
             };
             self.t += 1.0 / HZ;
@@ -1040,6 +1069,7 @@ mod tests {
             lap: 1,
             lap_dist: 0.0,
             in_pits: false,
+            standing_start: false,
             values: vec![1.0],
         }));
         assert!(d.rec.active.as_ref().unwrap().current.is_none());
