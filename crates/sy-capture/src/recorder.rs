@@ -595,7 +595,8 @@ fn build_lap(
     let incomplete = cut_off || buffer.joined_mid_lap;
     let flags = LapFlags {
         out_lap: buffer.out_lap,
-        in_lap: !cut_off && buffer.last_in_pits,
+        // also a lap cut off in the pits (back to the garage from the pit box)
+        in_lap: buffer.last_in_pits,
         incomplete,
         flashback: buffer.flashback,
     };

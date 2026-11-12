@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Le Mans Ultimate through the whole pipeline (decoder + recorder), with
-//! synthetic records (`sy_source_lmu::sim`). Real recordings will replace
-//! these once we have them (docs/games/lmu.md).
+//! synthetic records (`sy_source_lmu::sim`). Real recordings:
+//! `lmu_recordings.rs`.
 
 use std::collections::VecDeque;
 use std::time::Duration;
@@ -327,6 +327,117 @@ fn leaving_the_car_aborts_the_lap() {
         l[2].lap.invalid_reason.as_deref(),
         Some("incomplete, left the car")
     );
+}
+
+/// Back to the garage from the menu: the game puts the car into the garage
+/// and counts the lap as completed, before the scoring says the player
+/// left the car. On track the lap is incomplete; in the pit lane (the pit
+/// box before the line) it is an incomplete in-lap.
+#[test]
+fn back_to_the_garage_from_the_menu() {
+    let mut g = SimLmu::new();
+    let mut rec = g.drive_lap(1.0); // out-lap
+    rec.extend(g.drive(15.0)); // lap 1, half-way
+    rec.extend(g.back_to_garage());
+    rec.extend(g.drive(3.0));
+    // out again: lap 2 is an out-lap, then lap 3 into the pit box
+    g.in_realtime = true;
+    g.untimed_next_lap = true;
+    rec.extend(g.drive_lap(1.0));
+    rec.extend(g.drive(15.0));
+    g.in_pits = true;
+    rec.extend(g.drive(5.0));
+    rec.extend(g.back_to_garage());
+    rec.extend(g.drive(3.0));
+
+    let out = record(rec);
+    let l = laps(&out);
+    let summary: Vec<(u32, bool, bool, bool, Option<&str>)> = l
+        .iter()
+        .map(|l| {
+            (
+                l.lap.number,
+                l.lap.flags.out_lap,
+                l.lap.flags.in_lap,
+                l.lap.flags.incomplete,
+                l.lap.invalid_reason.as_deref(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            (0, true, false, false, Some("not timed by the game")),
+            (
+                1,
+                false,
+                false,
+                true,
+                Some("incomplete, back to the garage")
+            ),
+            (2, true, false, false, Some("not timed by the game")),
+            (3, false, true, true, Some("incomplete, back to the garage")),
+        ]
+    );
+    // the lap ends where the car was, not in the garage
+    match &l[1].telemetry.channel(names::DIST).unwrap().data {
+        ChannelData::F32(d) => {
+            let last = *d.last().unwrap();
+            assert!((600.0..1000.0).contains(&last), "{last}");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Races: nothing is recorded before the start; the first lap starts at
+/// the green flag, before the line (rolling start), and counts until the
+/// line after a whole lap. A lap the game doesn't time after a
+/// track-limits warning is invalid for track limits.
+#[test]
+fn race_start_and_track_limits() {
+    let mut g = SimLmu::race();
+    let mut rec = Vec::new();
+    while g.dist < 1940.0 {
+        rec.extend(g.drive(0.1)); // formation lap
+    }
+    let green = g.et;
+    g.green_flag();
+    rec.extend(g.drive_lap(1.0)); // lap 0
+    let line = g.lap_start_et;
+    rec.extend(g.drive(10.0)); // lap 1: a warning, no time
+    g.track_limits_steps += 1;
+    g.untimed_next_lap = true;
+    rec.extend(g.drive_lap(1.0));
+    rec.extend(g.drive_lap(1.0)); // lap 2: clean
+    let lap2 = g.last_lap_time;
+
+    let out = record(rec);
+    assert_eq!(sessions(&out)[0].session_type, SessionType::Race);
+    let l = laps(&out);
+    let numbers: Vec<u32> = l.iter().map(|l| l.lap.number).collect();
+    assert_eq!(numbers, [0, 1, 2, 3]);
+    let first = &l[0];
+    assert!(!first.lap.flags.out_lap && !first.lap.flags.incomplete);
+    match &first.telemetry.channel(names::DIST).unwrap().data {
+        ChannelData::F32(d) => {
+            assert!((-62.0..-55.0).contains(&d[0]), "{}", d[0]);
+            let last = *d.last().unwrap();
+            assert!((last - 2000.0).abs() < 2.0, "{last}");
+            assert!(d.windows(2).all(|w| w[1] >= w[0]), "monotonic");
+        }
+        other => panic!("{other:?}"),
+    }
+    // from the green flag to the line (the sim's lap 0 isn't timed by the
+    // game: our measured time)
+    let t = f64::from(first.lap.lap_time_ms.unwrap()) / 1000.0;
+    assert!((t - (line - green)).abs() < 0.05, "{t} vs {}", line - green);
+    assert_eq!(
+        l[1].lap.invalid_reason.as_deref(),
+        Some("track limits"),
+        "lap 1"
+    );
+    assert_eq!(l[2].lap.lap_time_ms, Some(ms(lap2)));
+    assert!(l[2].lap.valid);
 }
 
 /// Restarting the session (elapsed time back to the start) and the next

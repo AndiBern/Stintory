@@ -108,7 +108,8 @@ pub struct Wheel {
     pub temperature_k: [f64; 3],
     /// Carcass temperature, K
     pub carcass_temp_k: f64,
-    /// Wear, 0–1 of the maximum
+    /// Tread left, 1 new (the header: "wear (0.0-1.0, fraction of
+    /// maximum)"; recordings count down from 1)
     pub wear: f64,
     /// 0 dry, 1 wet, 2 grass, 3 dirt, 4 gravel, 5 rumble strip, 6 special
     pub surface_type: u8,

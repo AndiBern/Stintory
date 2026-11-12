@@ -53,6 +53,11 @@ pub struct SimLmu {
     pub in_realtime: bool,
     /// Session number (10 = race 1)
     pub session: i32,
+    /// `mGamePhase` (3 formation lap, 5 green)
+    pub game_phase: u8,
+    /// Distance of the garage (where [`SimLmu::back_to_garage`] puts the
+    /// car)
+    pub garage_dist: f64,
     /// Wall clock at `et` = 0, Unix ms
     pub epoch_ms: i64,
     /// Livery
@@ -94,6 +99,8 @@ impl SimLmu {
             track_limits_steps: 0,
             in_realtime: true,
             session: 1,
+            game_phase: 5,
+            garage_dist: 1700.0,
             epoch_ms: 1_794_000_000_000,
             vehicle_name: "Proton Competition 2025 #99".into(),
             vehicle_model: "Porsche 963".into(),
@@ -140,6 +147,52 @@ impl SimLmu {
             out.extend(self.drive(0.1));
         }
         out.extend(self.drive(extra));
+        out
+    }
+
+    /// A race on the grid, 300 m after the line, before the formation lap.
+    pub fn race() -> Self {
+        Self {
+            session: 10,
+            game_phase: 3,
+            dist: 300.0,
+            lap_start_et: 0.0,
+            in_pits: false,
+            ..Self::new()
+        }
+    }
+
+    /// Green flag: the first lap starts here (before the line, as in a
+    /// rolling start; the game counts the distance negative up to the line).
+    pub fn green_flag(&mut self) {
+        self.game_phase = 5;
+        self.lap_start_et = self.et;
+        if self.dist > self.track_length / 2.0 {
+            self.dist -= self.track_length;
+        }
+    }
+
+    /// Back to the garage from the menu, as the game does it: the car is
+    /// put into the garage and the lap counted as completed (without a
+    /// time); two samples later the scoring says the player left the car.
+    pub fn back_to_garage(&mut self) -> Vec<RawRecord> {
+        self.dist = self.garage_dist;
+        self.in_pits = true;
+        self.lap += 1;
+        self.total_laps += 1;
+        self.last_lap_time = -1.0;
+        self.last_sectors = (-1.0, -1.0);
+        self.cur_sectors = (-1.0, -1.0);
+        self.lap_start_et = self.et + 0.1;
+        let mut out = Vec::new();
+        for _ in 0..2 {
+            out.push(telemetry_record(&self.telemetry()));
+            self.et += TELEMETRY_DT;
+        }
+        self.in_realtime = false;
+        out.push(self.scoring());
+        self.next_telemetry = self.et + TELEMETRY_DT;
+        self.next_scoring = self.et + SCORING_DT;
         out
     }
 
@@ -259,7 +312,7 @@ impl SimLmu {
             b.f64(o::END_ET, 3600.0);
             b.f64(o::LAP_DIST, self.track_length);
             b.i32(o::NUM_VEHICLES, 20);
-            b.u8(o::GAME_PHASE, 5);
+            b.u8(o::GAME_PHASE, self.game_phase);
             b.u8(o::IN_REALTIME, u8::from(self.in_realtime));
             b.f64(o::AMBIENT_TEMP, 21.0);
             b.f64(o::TRACK_TEMP, 30.0);

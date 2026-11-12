@@ -9,10 +9,17 @@ git) for reference. Our Rust definitions are written from them
 (`layout.rs`); the compiler computes every offset, and the sizes are
 asserted at compile time.
 
-> **Status:** written from the headers and tested with synthetic data
-> (`sy_source_lmu::sim`). Not yet checked with the real game; see *To
-> verify*. Recordings go into `telemetry_examples/LMU/` (raw `.syraw`
-> files, *Settings → Keep raw recordings*).
+> **Status:** written from the headers, checked with three recordings
+> (Nov 2026, on Windows): practice at Monza (BMW M4 LMGT3,
+> out-lap and in-lap), a race on Monza's Curva Grande layout (Ford
+> Mustang LMGT3: formation lap, rolling start, two track-limits warnings,
+> a pit stop) and practice at Long Beach (Ferrari 499P: back to the
+> garage from the menu twice). They are golden tests
+> (`crates/sy-capture/tests/lmu_recordings.rs`, skipped without the
+> files); synthetic tests (`sy_source_lmu::sim`) cover the same cases.
+> Recordings go into `telemetry_examples/LMU/` (raw `.syraw` files,
+> *Settings → Keep raw recordings*); what is still open is under *To
+> verify*.
 
 ## Setting up the game
 
@@ -43,7 +50,9 @@ shared memory has any number of readers.
   space.
 - New frames are signalled by two events, `LMU_Data_HoldEvent` and then
   `LMU_Data_DataEvent` (waiting in that order is the race-free way, says
-  the header). Without them (older builds) we poll every 10 ms.
+  the header). Without them (older builds) we poll every 10 ms. The
+  telemetry comes at 100 Hz (`mDeltaTime` 0.01 s; 50 Hz in the garage), the scoring at 5 Hz;
+  a few samples are missed (up to 0.1 s in the recordings).
 - The game writes under a lock: the mapping `LMU_SharedMemoryLockData`
   (two `LONG`s, `waiters` and `busy`) and the event
   `LMU_SharedMemoryLockEvent`. We take it the way the header's
@@ -79,8 +88,18 @@ shared memory has any number of readers.
   speed limiter, engine torque, water/oil temperature, ride heights and
   downforce front/rear; per wheel (`_fl`, `_fr`, `_rl`, `_rr`) tyre tread
   temperature (average of the three zones), carcass temperature, pressure,
-  wear, brake temperature, ride height, suspension deflection and surface
-  (0 dry, 1 wet, 2 grass, 3 dirt, 4 gravel, 5 rumble strip, 6 special).
+  wear (0 new; the game's `mWear` is what is left, 1 when new, although
+  the header calls it wear), brake temperature (°C), ride height,
+  suspension deflection and surface (0 dry, 1 wet, 2 grass, 3 dirt, 4
+  gravel, 5 rumble strip, 6 special).
+- Steering: `mPhysicalSteeringWheelRange` was 0 for all three cars
+  (`mVisualSteeringWheelRange` 719° for all). The setup's
+  `VM_STEER_LOCK` has the car's range ("516 deg(19.7 )" BMW, "435 (17.7)
+  deg" Ford, "400 (16) deg" Ferrari: the wheel, then the front wheels);
+  `steer` uses it when the game has none.
+- Virtual energy and the battery are 0–1 (the recordings start at 1 out
+  of the garage); regen is in kW in the game (up to 194 kW for the
+  Ferrari), W in Stintory.
 - The lap view shows virtual energy / battery, ABS and TC active, the TC
   and ABS levels and the motor map when a lap has them.
 - Session info (player only): session number and name, track length, lap
@@ -112,8 +131,10 @@ saved in the pits (Monza, Nov 2026):
 - `GET /rest/watch/trackmap`: the current track as points in world
   coordinates (x, y, z with y up): type 0 is the racing surface as a
   closed loop (5 m apart, 5761 m at Monza), type 1 the pit lane, the other
-  types are short segments at the pit boxes. A possible source for track
-  outlines later (docs/PLAN.md §6.3); not used yet.
+  types are short segments at the pit boxes. The shared memory's `mPos`
+  is in the same coordinates (Monza: median 1.8 m from the map's line).
+  A possible source for track outlines later (docs/PLAN.md §6.3); not
+  used yet.
 
 **Not every `GET` is harmless**: `/rest/options/resetVRView` resets the VR
 view, `/rest/multiplayer/join` joins a server, `/rest/watch/play/{id}`
@@ -132,29 +153,56 @@ another method.
   hash>`, track `lmu:<track name>:<length in m>`, car
   `lmu:<model>:<class>` (e.g. `lmu:porsche_963:hypercar`; LMP2 in WEC and
   ELMS trim are different cars).
-- The game's track name is the **venue**, the same for all its layouts
-  (Bahrain has four, from 3.5 to 6.3 km; Paul Ricard five). The layout's
-  length from the scoring (`mLapDist`, 5780.6 m at Monza) tells them
-  apart, so it is part of the track key and the name ("Autodromo
-  Nazionale Monza (5.78 km)"). The game has no field with the layout's
-  name; its track list (REST) has only rounded lengths, some equal for
-  different layouts.
+- The game's track name is the venue for a venue's main layout
+  ("Autodromo Nazionale Monza", 5780.6 m), but other layouts can have
+  their own ("Monza Curva Grande Circuit", 5745.1 m; the REST track list
+  calls both 5.793 km). Whether every layout has its own name is not
+  known (Bahrain has four, Paul Ricard five), so the layout's length from
+  the scoring (`mLapDist`) is part of the track key and the name
+  ("Autodromo Nazionale Monza (5.78 km)").
 - **Lap distance** is only in the scoring, five times a second. A frame's
   distance is the last scoring distance plus speed × time since; the error
   found at the next scoring update is corrected linearly over 0.2 s, so
   the distance stays continuous. At the line (the telemetry's lap number
   goes up) it restarts from the lap's start time `mLapStartET`. With
   synthetic data (speed ±40 % along the lap) it stays within 1.5 m.
+- Laps: the telemetry's `mLapNumber` and the scoring's `mTotalLaps` are
+  the same number (laps completed = the lap being driven, from 0). The
+  out-lap from the garage is lap 0. Crossing the line in the pit lane
+  counts a lap.
 - Lap times: when the player's `mTotalLaps` goes up, `mLastLapTime` and
   `mLastSector1`/`mLastSector2` (cumulative) are the official times of the
-  lap that ended. A time ≤ 0 means the game didn't time the lap: invalid,
-  "not timed by the game".
-- A lap is invalid when the game sets `mLapInvalidated` during it. When the
-  track-limits steps (`mTrackLimitsSteps`) went up in that lap, the reason
-  is "track limits", otherwise "invalidated by the game".
+  lap that ended. A time ≤ 0 (−1) means the game didn't time the lap:
+  out-laps, in-laps outside races (in a race the in-lap is timed), and a
+  lap with a track-limits warning (`mTrackLimitsSteps` went up; the game
+  also stops timing the sectors then). Such laps are invalid, "track
+  limits" or "not timed by the game".
+- `mLapInvalidated` was never set, not even with track-limits warnings;
+  when it is, the lap is invalid ("track limits" or "invalidated by the
+  game").
+- `mCountLapFlag` (header: 0 lap and time not counted, 1 lap only, 2 both)
+  goes to 1 for a moment when the car is off the track and back to 2
+  when the game forgives it; it is 1 on out-laps and from the pit entry,
+  and stays 1 after a warning. It agrees with `mLastLapTime`, which we
+  use.
 - Out-lap: the lap starts in the pit lane (sign bit of `mCurrentSector`,
-  or `mInPits`); in-lap: it ends there. Going back to the garage or the
-  monitor mid-lap ends the lap as incomplete ("left the car").
+  or `mInPits`); in-lap: it ends there. `mPitState` is 5 in the garage
+  (the header lists 0–4); 1 request, 2 entering, 4 in the pit box /
+  leaving.
+- **Back to the garage** from the menu: the car is put into the garage
+  (its position jumps), the lap number and `mTotalLaps` go up (no time,
+  `mLapStartET` a moment in the future), and 0.1 s later the scoring says
+  `mInRealtime` false. Stintory ends the lap where the car was, as
+  incomplete ("back to the garage"); from the pit box (at Long Beach it
+  is before the line) that is an incomplete in-lap. Out of the garage
+  again, the next lap number is an out-lap. Leaving the car otherwise
+  (to the monitor) ends the lap as incomplete ("left the car").
+- **Races:** before the start (`mGamePhase` 0–4: formation lap,
+  countdown) nothing is recorded. At the green flag `mLapStartET` is set
+  and the lap number stays 0: with a rolling start the first lap starts
+  before the line (62 m at Monza) and its distance counts up from −62 m.
+  It ends at the line a whole lap later. After the flag (`mGamePhase` 8)
+  the cool-down lap is recorded until the player leaves the car.
 - Pause: the elapsed time stands still and nothing new arrives. While the
   player is on track the recording waits up to an hour; otherwise 10 s of
   silence end it.
@@ -164,26 +212,22 @@ another method.
 - The world is left-handed with +y up. `pos_x` = x, `pos_y` = z gives an
   unmirrored map: the game's own track map of Monza (REST, same world
   coordinates) runs clockwise that way, as the real track does.
-- From the header, to verify with a recording:
+- Checked with the recordings (steering right turns the path clockwise on
+  that map; all three tracks are driven clockwise, as the real ones):
   car coordinates +x left, +y up, +z back. `g_lat` = −x (positive in
   right-hand turns), `g_long` = −z (positive accelerating), `yaw` from the
-  orientation matrix (the car's forward direction is local −z), yaw rate
-  = `mLocalRot.y` (+ = to the right).
+  orientation matrix (the car's forward direction is local −z; it agrees
+  with the direction of travel within 0.05 rad), yaw rate = `mLocalRot.y`
+  (+ = to the right). `mUnfilteredSteering` is + to the right.
 
 ## To verify with recordings
 
-- The struct layout against the live mapping (the mapping must be at
-  least 324,824 bytes; otherwise the settings say the layout is unknown).
-- That the Hold/Data events and the lock exist and behave as the header
-  says; the telemetry rate.
-- Lap numbering: `mLapNumber` vs `mTotalLaps`, the out-lap from the
-  garage, the race start from the grid, the lap after the flag.
-- Whether out-laps have a time (`mLastLapTime`), and `mCountLapFlag`.
-- `mVirtualEnergy`'s unit (assumed 0–1; the setup shows the starting
-  energy as "100%"), `mPhysicalSteeringWheelRange` in degrees (the setup's
-  steering lock was "516 deg" at Monza), `mBrakeTemp` in °C (the header
-  says so).
-- That `mPos` is in the same coordinates as the REST track map; the signs
-  of g-forces, yaw and yaw rate (see above).
-- That the scoring's track length is the same in every session on a
-  layout, and differs between Monza's two layouts.
+- The Hold/Data events and the lock: the Windows recordings have every
+  100 Hz sample once, but a spool file doesn't show whether the reader
+  waited on the events or polled.
+- Linux through the Proton bridge (docs/games/proton.md).
+- Qualifying, a standing start, a race restart, full-course yellow, and
+  a session joined online.
+- Whether `mLapInvalidated` is ever set (cutting a chicane without a
+  warning?).
+- Rain (`mRaining`, the surface types), the tyre wear over a long stint.

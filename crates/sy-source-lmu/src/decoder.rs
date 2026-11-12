@@ -5,9 +5,20 @@
 //!
 //! # Behaviour
 //!
+//! (Checked with recordings; docs/games/lmu.md.)
+//!
 //! - One frame per telemetry update of the player's car (`mElapsedTime`
 //!   changed), only while driving (`mInRealtime`). Leaving the car mid-lap
-//!   (back to the garage or the monitor) aborts the lap.
+//!   aborts the lap.
+//! - Back to the garage from the menu: the game puts the car into the
+//!   garage (the position jumps) a moment before the scoring says the
+//!   player left the car, and may count the lap as completed. The jump
+//!   aborts the lap where the car was ("back to the garage"); the game's
+//!   lap count for it is ignored.
+//! - Races: nothing before the start (formation lap, countdown:
+//!   `mGamePhase` < 5). The first lap starts at the green flag
+//!   (`mLapStartET`); with a rolling start that is before the line, and
+//!   the distance is negative up to the line.
 //! - **Lap distance** exists only in the scoring, five times a second. Each
 //!   frame's distance is the last scoring distance plus the distance driven
 //!   since then (speed × time); the error found at the next scoring update
@@ -16,19 +27,24 @@
 //!   lap's start time (`mLapStartET`).
 //! - Lap times: when the player's completed laps (`mTotalLaps`) go up, the
 //!   scoring's last lap time and sectors are the official times of the lap
-//!   that ended. No time (≤ 0) means the game didn't time it.
-//! - Validity: the game's `mLapInvalidated` during the lap. When the
-//!   track-limits steps went up in that lap, the reason is "track limits".
+//!   that ended. No time (≤ 0) means the game didn't time it: after a
+//!   track-limits warning in the lap (the steps went up) the reason is
+//!   "track limits", otherwise "not timed by the game" (out-laps, in-laps
+//!   outside races).
+//! - Validity: also the game's `mLapInvalidated` during the lap (never set
+//!   in the recordings so far).
 //! - A session is one session number on one track with one car, started at
 //!   one time (the elapsed time going back means a restart). Its wall-clock
 //!   start is the scoring record's receive time minus the session's elapsed
 //!   time.
 //! - Keys: session `lmu:<driver>:<start>:<session number>:<vehicle>` (driver
-//!   and vehicle as hashes), track `lmu:<track name>`, car
+//!   and vehicle as hashes), track `lmu:<track name>:<length>`, car
 //!   `lmu:<vehicle model>:<class>`.
-//! - Axes (from InternalsPlugin.hpp; to be checked with a recording): the
-//!   world is left-handed with +y up, so `pos_x` = x, `pos_y` = z gives a
-//!   map seen from above. The car's +x points left, +y up, +z back.
+//! - Steering: `mPhysicalSteeringWheelRange` is 0 for the cars recorded so
+//!   far; the setup's `VM_STEER_LOCK` has the wheel's range.
+//! - Axes: the world is left-handed with +y up, so `pos_x` = x, `pos_y` = z
+//!   gives an unmirrored map (the game's track map has the same
+//!   coordinates). The car's +x points left, +y up, +z back.
 
 use std::collections::VecDeque;
 
@@ -52,12 +68,20 @@ const SNAP_M: f64 = 30.0;
 const CORRECTION_S: f64 = 0.2;
 /// Kelvin to °C.
 const KELVIN: f64 = 273.15;
+/// `mGamePhase` of a running session (green flag); races are before the
+/// start below it (formation lap, countdown).
+const PHASE_GREEN: u8 = 5;
+/// The car moved this much further between two samples than it could
+/// drive: it was put somewhere else (back to the garage).
+const JUMP_M: f64 = 20.0;
 
 /// Decoder for LMU records.
 #[derive(Debug, Default)]
 pub struct LmuDecoder {
     scoring: Option<Scoring>,
     setup: Option<serde_json::Value>,
+    /// Steering wheel range of the setup (`VM_STEER_LOCK`), degrees
+    setup_steer_lock: f32,
     s: Option<SessionState>,
 }
 
@@ -114,6 +138,14 @@ impl DistEstimate {
         }
     }
 
+    /// The lap starts before the line (race start): the distance counts
+    /// up to 0 at the line instead of up to the track length.
+    fn before_line(&mut self, track_length: f64) {
+        if track_length > 0.0 && self.dist > track_length / 2.0 {
+            self.dist -= track_length;
+        }
+    }
+
     /// The line was crossed: the lap started at `lap_start_et`.
     fn lap_started(&mut self, et: f64, lap_start_et: f64, speed: f64) {
         self.dist = speed * (et - lap_start_et).clamp(0.0, 1.0);
@@ -156,9 +188,17 @@ struct SessionState {
     last_speed: f64,
     /// Lap number of the last frame (`None` while not driving)
     frame_lap: Option<i32>,
+    /// The running lap started at the line (its distance is ≥ 0)
+    from_line: bool,
+    /// Position, elapsed time and speed of the last telemetry sample
+    last_pos: Option<([f64; 3], f64, f64)>,
+    /// The car was put somewhere else: no frames until the next scoring
+    jumped: bool,
+    /// Frames were skipped because the race hadn't started
+    before_start: bool,
     /// Laps that ended in the telemetry and wait for the scoring's time:
-    /// (lap, elapsed time at the line)
-    untimed: VecDeque<(i32, f64)>,
+    /// (lap, elapsed time at the line, track-limits steps went up)
+    untimed: VecDeque<(i32, f64, bool)>,
     /// The last lap that got the scoring's verdict
     last_timed: Option<i32>,
     total_laps: Option<i16>,
@@ -166,6 +206,8 @@ struct SessionState {
     invalid_reported: Option<i32>,
     /// Track-limits steps at the start of the lap
     track_limits_at_start: u8,
+    /// Track-limits steps of the last frame
+    last_track_limits: u8,
 }
 
 impl SessionState {
@@ -193,12 +235,22 @@ impl SessionState {
             last_frame_et: None,
             last_speed: 0.0,
             frame_lap: None,
+            from_line: false,
+            last_pos: None,
+            jumped: false,
+            before_start: false,
             untimed: VecDeque::new(),
             last_timed: None,
             total_laps: None,
             invalid_reported: None,
             track_limits_at_start: 0,
+            last_track_limits: 0,
         }
+    }
+
+    /// Track-limits steps went up in the running lap.
+    fn track_limits_in_lap(&self) -> bool {
+        self.last_track_limits > self.track_limits_at_start
     }
 
     fn same_session(&self, sc: &Scoring) -> bool {
@@ -254,7 +306,7 @@ impl SessionState {
             "vehicle_class_id": t.vehicle_class,
             "championship": championship(t.vehicle_championship),
             "championship_id": t.vehicle_championship,
-            "steering_range_deg": t.steering_range_deg,
+            "steering_range_deg": (self.steering_range > 0.0).then_some(self.steering_range),
             "max_gears": t.max_gears,
             "fuel_capacity_l": t.fuel_capacity,
             "tyres_front": t.front_compound,
@@ -309,9 +361,10 @@ fn key_part(s: &str) -> String {
     }
 }
 
-/// Track key: the game's track name is the venue (e.g. "Bahrain
-/// International Circuit" for all four Bahrain layouts), so the layout's
-/// length (`mLapDist` of the scoring, whole metres) tells layouts apart.
+/// Track key: the game's track name with the layout's length (`mLapDist`
+/// of the scoring, whole metres). The name of a venue's main layout is the
+/// venue ("Autodromo Nazionale Monza"); other layouts may have their own
+/// ("Monza Curva Grande Circuit") or not, so the length tells them apart.
 pub fn track_key(name: &str, length_m: f64) -> String {
     if length_m > 0.0 {
         format!("lmu:{}:{}", key_part(name), length_m.round() as i64)
@@ -595,7 +648,8 @@ fn channels(with_steer: bool) -> Vec<Ch> {
     });
     wheels!("lmu.tyre_pressure", Unit::Kilopascal, F32, |w| w
         .pressure_kpa);
-    wheels!("lmu.tyre_wear", Unit::Ratio, F32, |w| w.wear);
+    // the game's mWear is what is left (1 new)
+    wheels!("lmu.tyre_wear", Unit::Ratio, F32, |w| 1.0 - w.wear);
     wheels!("lmu.brake_temp", Unit::Celsius, F32, |w| w.brake_temp_c);
     wheels!("lmu.ride_height", Unit::Meter, F32, |w| w.ride_height);
     wheels!("lmu.suspension_deflection", Unit::Meter, F32, |w| {
@@ -620,6 +674,7 @@ impl LmuDecoder {
         }
         let s = self.s.get_or_insert_with(|| SessionState::new(&sc));
         s.last_et = sc.current_et;
+        s.jumped = false;
 
         if !sc.in_realtime {
             if s.frame_lap.take().is_some() && s.meta.is_some() {
@@ -646,22 +701,22 @@ impl LmuDecoder {
             while s
                 .untimed
                 .front()
-                .is_some_and(|&(_, end)| end < sc.current_et - 30.0)
+                .is_some_and(|&(_, end, _)| end < sc.current_et - 30.0)
             {
                 s.untimed.pop_front();
             }
             let lap = match s.untimed.front() {
-                Some(&(lap, end)) if end <= sc.current_et + 0.5 => {
+                Some(&(lap, end, track_limits)) if end <= sc.current_et + 0.5 => {
                     s.untimed.pop_front();
-                    Some(lap)
+                    Some((lap, track_limits))
                 }
                 // the scoring was first; the telemetry's line follows
-                _ => s.frame_lap,
+                _ => s.frame_lap.map(|l| (l, s.track_limits_in_lap())),
             };
-            if let Some(lap) = lap
+            if let Some((lap, track_limits)) = lap
                 && s.last_timed.is_none_or(|t| lap > t)
             {
-                lap_time(&sc, lap, out);
+                lap_time(&sc, lap, track_limits, out);
                 s.last_timed = Some(lap);
             }
         }
@@ -676,6 +731,7 @@ impl LmuDecoder {
         if !sc.in_realtime {
             return;
         }
+        let setup_steer_lock = self.setup_steer_lock;
         let Some(s) = self.s.as_mut() else { return };
         let et = t.elapsed_time;
         if s.last_frame_et.is_some_and(|last| et <= last) {
@@ -703,15 +759,73 @@ impl LmuDecoder {
             s.deltas.push(t.delta_time);
         }
         let speed = t.speed();
+
+        // Back to the garage from the menu: the car is put into the garage
+        // a moment before the scoring says it left the car (and the game
+        // may count the lap as completed). The lap ends where the car was.
+        let prev_pos = s.last_pos.replace((t.pos, et, speed));
+        if let Some((pos, at, prev_speed)) = prev_pos {
+            let moved = pos
+                .iter()
+                .zip(t.pos)
+                .map(|(a, b)| (a - b).powi(2))
+                .sum::<f64>()
+                .sqrt();
+            let could = speed.max(prev_speed) * (et - at).max(0.0) * 2.0;
+            if moved > JUMP_M + could {
+                if let Some(lap) = s.frame_lap.take() {
+                    out.push(SourceEvent::LapAborted {
+                        reason: if t.in_pit_lane() {
+                            "back to the garage".into()
+                        } else {
+                            "car reset".into()
+                        },
+                    });
+                    s.last_timed = s.last_timed.max(Some(lap));
+                }
+                s.est.valid = false;
+                s.jumped = true;
+            }
+        }
+        if s.jumped {
+            return; // until the scoring catches up
+        }
+
         if s.meta.is_none() {
             if s.deltas.len() < RATE_SAMPLES {
                 s.est.advance(et, speed);
                 return;
             }
-            s.steering_range = t.steering_range_deg;
+            s.steering_range = if t.steering_range_deg > 0.0 {
+                t.steering_range_deg
+            } else {
+                setup_steer_lock
+            };
             let meta = s.build_meta(sc, &t, self.setup.as_ref());
             s.meta = Some(meta.clone());
             out.push(SourceEvent::Session(Box::new(meta)));
+        }
+
+        // Races: nothing before the start (formation lap, countdown). The
+        // first lap starts at the green flag (`mLapStartET`), with a
+        // rolling start before the line.
+        if session_type(sc.session) == SessionType::Race
+            && sc.game_phase < PHASE_GREEN
+            && (t.lap_start_et <= 0.0 || t.lap_start_et + 0.5 < sc.current_et)
+        {
+            if s.frame_lap.take().is_some() {
+                out.push(SourceEvent::LapAborted {
+                    reason: "before the start".into(),
+                });
+            }
+            if s.est.valid {
+                s.est.advance(et, speed);
+            }
+            s.before_start = true;
+            return;
+        }
+        if std::mem::take(&mut s.before_start) {
+            s.est.before_line(sc.track_length);
         }
 
         let lap = t.lap_number;
@@ -719,21 +833,31 @@ impl LmuDecoder {
             Some(prev) if lap > prev => {
                 // unless the scoring already timed it (it was first)
                 if s.last_timed.is_none_or(|t| prev > t) {
-                    s.untimed.push_back((prev, et));
+                    s.untimed.push_back((prev, et, s.track_limits_in_lap()));
                 }
                 s.est.lap_started(et, t.lap_start_et, speed);
                 s.track_limits_at_start = t.track_limits_steps;
+                s.from_line = true;
             }
             Some(_) => {}
-            None => s.track_limits_at_start = t.track_limits_steps,
+            None => {
+                s.track_limits_at_start = t.track_limits_steps;
+                s.from_line = false;
+            }
         }
         s.frame_lap = Some(lap);
+        s.last_track_limits = t.track_limits_steps;
         let dist = if s.est.valid {
             s.est.advance(et, speed)
         } else {
             0.0
         };
 
+        // the game reports no range for some cars; the setup has it
+        let mut t = t;
+        if t.steering_range_deg <= 0.0 {
+            t.steering_range_deg = setup_steer_lock;
+        }
         if t.lap_invalidated && s.invalid_reported != Some(lap) {
             s.invalid_reported = Some(lap);
             let reason = if t.track_limits_steps > s.track_limits_at_start {
@@ -754,7 +878,9 @@ impl LmuDecoder {
         out.push(SourceEvent::Frame(Frame {
             session_time: et,
             lap,
-            lap_dist: dist.max(0.0) as f32,
+            // before the line (garage, race start) only when the lap didn't
+            // start at the line
+            lap_dist: if s.from_line { dist.max(0.0) } else { dist } as f32,
             in_pits: t.in_pit_lane() || sc.player.in_pits,
             standing_start: false,
             values,
@@ -770,6 +896,7 @@ impl LmuDecoder {
         if self.setup.as_ref() == Some(&setup) {
             return;
         }
+        self.setup_steer_lock = steer_lock(&setup).unwrap_or(0.0);
         self.setup = Some(setup.clone());
         if let Some(meta) = self.s.as_mut().and_then(|s| s.meta.as_mut()) {
             meta.setup = Some(setup);
@@ -778,13 +905,36 @@ impl LmuDecoder {
     }
 }
 
+/// The steering wheel range of a compact setup (`VM_STEER_LOCK`, e.g.
+/// "516 deg(19.7 )" or "435 (17.7) deg": the wheel's range, then the front
+/// wheels' lock), degrees.
+fn steer_lock(setup: &serde_json::Value) -> Option<f32> {
+    let text = setup.get("VM_STEER_LOCK")?.as_str()?;
+    let number: String = text
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    number
+        .parse::<f32>()
+        .ok()
+        .filter(|d| (90.0..=2000.0).contains(d))
+}
+
 /// The official time of `lap` from the scoring (or why there is none).
-fn lap_time(sc: &Scoring, lap: i32, out: &mut Vec<SourceEvent>) {
+/// `track_limits`: the track-limits steps went up during the lap.
+fn lap_time(sc: &Scoring, lap: i32, track_limits: bool, out: &mut Vec<SourceEvent>) {
     let p = &sc.player;
     if p.last_lap_time <= 0.0 {
+        // the game stops timing a lap at a track-limits warning
         out.push(SourceEvent::Invalidate {
             lap: Some(lap),
-            reason: "not timed by the game".into(),
+            reason: if track_limits {
+                "track limits"
+            } else {
+                "not timed by the game"
+            }
+            .into(),
         });
         return;
     }
@@ -841,7 +991,7 @@ mod tests {
 
     #[test]
     fn layouts_get_their_own_track_key() {
-        // all four Bahrain layouts have this track name
+        // layouts with the same track name
         let name = "Bahrain International Circuit";
         assert_eq!(
             track_key(name, 5411.7),
