@@ -7,6 +7,8 @@
 	import { page } from '$app/state';
 	import { api, type LapSummary, type SessionDetail } from '#lib/api/index.ts';
 	import { app, sharingAvailable } from '#lib/app-state.svelte.ts';
+	import LapTimeChart from '#lib/charts/LapTimeChart.svelte';
+	import { isClean } from '#lib/charts/lap-times.ts';
 	import ExportDialog, { type ExportScope } from '#lib/components/ExportDialog.svelte';
 	import ReferencePicker, { type ReferenceTarget } from '#lib/components/ReferencePicker.svelte';
 	import ShareDialog, { type ShareTarget } from '#lib/components/ShareDialog.svelte';
@@ -53,10 +55,6 @@
 			.catch((e) => (error = e.message));
 	});
 
-	function isClean(l: LapSummary): boolean {
-		return l.valid && !l.outLap && !l.inLap && !l.incomplete && l.lapTimeMs !== null;
-	}
-
 	function bestLap(d: SessionDetail): LapSummary | undefined {
 		return d.laps
 			.filter(isClean)
@@ -69,6 +67,8 @@
 	const best = $derived(detail ? bestLap(detail) : undefined);
 	const visibleLaps = $derived(detail ? detail.laps.filter((l) => showAll || !l.incomplete) : []);
 	const hiddenCount = $derived(detail ? detail.laps.length - visibleLaps.length : 0);
+	/** The lap time chart needs at least two laps with a time. */
+	const showChart = $derived(visibleLaps.filter((l) => l.lapTimeMs !== null).length > 1);
 
 	function toggle(lapId: string) {
 		if (selected.includes(lapId)) selected = selected.filter((s) => s !== lapId);
@@ -250,6 +250,10 @@
 		<ExportDialog bind:open={exporting} scopes={exportScopes} />
 	{/if}
 
+	{#if showChart}
+		<LapTimeChart laps={visibleLaps} bestId={best?.id} />
+	{/if}
+
 	<table class="w-full text-left text-sm">
 		<thead class="text-zinc-400">
 			<tr>
@@ -282,7 +286,8 @@
 						{formatLapTime(l.lapTimeMs)}
 					</td>
 					<td class="text-right font-mono text-zinc-400">
-						{#if best && l.lapTimeMs !== null && !isBest}
+						<!-- an out-lap is often partial (F1 time trial: garage to line); no delta -->
+						{#if best && l.lapTimeMs !== null && !isBest && !l.outLap}
 							{formatDelta(l.lapTimeMs - best.lapTimeMs!)}
 						{/if}
 					</td>
