@@ -30,6 +30,8 @@ use bytes::Bytes;
 #[cfg(feature = "parquet")]
 use parquet::arrow::ArrowWriter;
 #[cfg(feature = "parquet")]
+use parquet::arrow::ProjectionMask;
+#[cfg(feature = "parquet")]
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 #[cfg(feature = "parquet")]
 use parquet::basic::{Compression, ZstdLevel};
@@ -240,9 +242,25 @@ impl LapTelemetry {
     /// Decodes a Parquet file written by [`to_parquet`](Self::to_parquet).
     #[cfg(feature = "parquet")]
     pub fn from_parquet(bytes: impl Into<Bytes>) -> Result<Self, TelemetryError> {
+        Self::from_parquet_channels(bytes, |_| true)
+    }
+
+    /// Like [`from_parquet`](Self::from_parquet), but decodes only the
+    /// channels `keep` accepts; much faster when a few are needed.
+    #[cfg(feature = "parquet")]
+    pub fn from_parquet_channels(
+        bytes: impl Into<Bytes>,
+        keep: impl Fn(&str) -> bool,
+    ) -> Result<Self, TelemetryError> {
         let builder = ParquetRecordBatchReaderBuilder::try_new(bytes.into())?;
-        let schema = builder.schema().clone();
-        let meta = schema.metadata();
+        let full = builder.schema().clone();
+        let meta = full.metadata();
+        let wanted: Vec<usize> = (0..full.fields().len())
+            .filter(|&i| keep(full.field(i).name()))
+            .collect();
+        let schema = Arc::new(full.project(&wanted)?);
+        let mask = ProjectionMask::roots(builder.parquet_schema(), wanted.iter().copied());
+        let builder = builder.with_projection(mask);
 
         let version: u32 = meta
             .get(META_FORMAT_VERSION)

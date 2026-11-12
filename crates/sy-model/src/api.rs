@@ -130,6 +130,74 @@ pub struct LapSummary {
     pub incomplete: bool,
     /// Rewind/flashback during the lap
     pub flashback: bool,
+    /// Weather, fuel and tyres during the lap, from its telemetry (None
+    /// where the telemetry wasn't read)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conditions: Option<LapConditions>,
+}
+
+/// Weather, fuel and tyres of one lap, derived from its telemetry. Each
+/// value is None if the game doesn't provide it (or didn't when the lap was
+/// recorded).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LapConditions {
+    /// Air temperature, °C, average over the lap
+    pub air_temp_c: Option<f32>,
+    /// Track temperature, °C, average over the lap
+    pub track_temp_c: Option<f32>,
+    /// Relative humidity 0–1, average over the lap
+    pub humidity: Option<f32>,
+    /// Weather description (game-specific wording)
+    pub weather: Option<String>,
+    /// Fuel in the tank at the start of the lap
+    pub fuel_start: Option<f32>,
+    /// Fuel used during the lap
+    pub fuel_used: Option<f32>,
+    /// Unit of the fuel values: `l` or `kg`
+    pub fuel_unit: Option<String>,
+    /// Tyre (surface) temperature per wheel, °C, average over the lap
+    pub tyre_temp_c: Option<Wheels>,
+    /// Tyre wear per wheel at the end of the lap, 0 = new … 1 = worn out
+    /// (before a puncture: the game reports a flat tyre as worn out)
+    pub tyre_wear: Option<Wheels>,
+    /// Tyres that went flat (or wheels that came off) during the lap; None
+    /// if none did or the game doesn't say
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tyre_flat: Option<WheelFlags>,
+}
+
+impl LapConditions {
+    /// Nothing is known.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// One flag per wheel.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WheelFlags {
+    /// Front left
+    pub fl: bool,
+    /// Front right
+    pub fr: bool,
+    /// Rear left
+    pub rl: bool,
+    /// Rear right
+    pub rr: bool,
+}
+
+/// One value per wheel.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct Wheels {
+    /// Front left
+    pub fl: f32,
+    /// Front right
+    pub fr: f32,
+    /// Rear left
+    pub rl: f32,
+    /// Rear right
+    pub rr: f32,
 }
 
 impl From<&Lap> for LapSummary {
@@ -145,6 +213,7 @@ impl From<&Lap> for LapSummary {
             in_lap: l.flags.in_lap,
             incomplete: l.flags.incomplete,
             flashback: l.flags.flashback,
+            conditions: None,
         }
     }
 }

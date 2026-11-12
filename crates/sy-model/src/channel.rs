@@ -58,6 +58,12 @@ pub mod names {
     pub const ABS_ACTIVE: &str = "abs_active";
     /// Traction control currently intervening.
     pub const TC_ACTIVE: &str = "tc_active";
+    /// Air temperature, °C.
+    pub const AIR_TEMP: &str = "air_temp";
+    /// Track (surface) temperature, °C.
+    pub const TRACK_TEMP: &str = "track_temp";
+    /// Relative humidity, 0–1.
+    pub const HUMIDITY: &str = "humidity";
 }
 
 /// Physical unit of a channel.

@@ -846,6 +846,23 @@ impl CarTelemetry {
     }
 }
 
+/// Damage and wear of the player's car (packet 10).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CarDamage {
+    /// Tyre wear, percent (RL, RR, FL, FR)
+    pub tyres_wear_pct: [f32; 4],
+}
+
+impl CarDamage {
+    /// The player's entry.
+    pub fn parse(h: &Header, packet: &[u8]) -> Self {
+        let mut r = h.player_entry(packet);
+        Self {
+            tyres_wear_pct: [r.f32(), r.f32(), r.f32(), r.f32()],
+        }
+    }
+}
+
 /// Status of the player's car (packet 7).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct CarStatus {

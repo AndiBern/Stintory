@@ -138,6 +138,12 @@ fn catalunya_time_trial() {
     assert!((30.0..40.0).contains(&d[0]), "{}", d[0]);
     assert!(*d.last().unwrap() > 4600.0);
     assert_eq!(r.laps[4].lap.sector_times_ms, vec![22_376, 30_674, 22_639]);
+    // weather per lap (lap table); time trial: fuel, tyre temperature and
+    // wear stay as they are
+    let c = sy_analysis::lap_conditions(sy_model::GameId::F1_25, &r.laps[4].telemetry);
+    assert_eq!((c.air_temp_c, c.track_temp_c), (Some(27.0), Some(41.0)));
+    assert_eq!(c.weather.as_deref(), Some("Clear"));
+    assert_eq!((c.fuel_start, c.fuel_used), (Some(10.0), Some(0.0)));
 }
 
 /// The recording whose first packet arrived at `unix_s` (session time 0).
@@ -278,6 +284,26 @@ fn brazil_race_f1_world() {
     assert_eq!(r.sessions[0].session_type, sy_model::SessionType::Race);
     let d = f32s(&r.laps[0], names::DIST);
     assert!((-45.0..-40.0).contains(&d[0]), "{}", d[0]);
+    // weather, fuel and tyres per lap (lap table)
+    let c: Vec<_> = r
+        .laps
+        .iter()
+        .map(|l| sy_analysis::lap_conditions(sy_model::GameId::F1_25, &l.telemetry))
+        .collect();
+    assert_eq!(
+        (c[1].air_temp_c, c[1].track_temp_c),
+        (Some(24.0), Some(35.0))
+    );
+    assert_eq!(c[1].weather.as_deref(), Some("Clear"));
+    assert_eq!(c[1].fuel_unit.as_deref(), Some("kg"));
+    let used = c[1].fuel_used.unwrap();
+    assert!((1.1..1.5).contains(&used), "{used}");
+    let temp = c[1].tyre_temp_c.unwrap().rr;
+    assert!((60.0..100.0).contains(&temp), "{temp}");
+    // the damage packet's wear goes up lap by lap
+    let wear: Vec<f32> = c.iter().map(|c| c.tyre_wear.unwrap().fl).collect();
+    assert!(wear.windows(2).all(|w| w[1] > w[0]), "{wear:?}");
+    assert!((0.05..0.08).contains(&wear[4]), "{wear:?}");
 }
 
 /// Time trial in Austria with the F1 26 Ferrari (Nov 2026), checking the

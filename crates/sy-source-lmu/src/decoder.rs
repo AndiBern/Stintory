@@ -669,6 +669,9 @@ fn channels(with_steer: bool) -> Vec<Ch> {
         ch("lmu.downforce_rear", Unit::Newton, F32, |t| {
             t.rear_downforce
         }),
+        // weather (per lap in the lap table)
+        ch_scoring(names::AIR_TEMP, Unit::Celsius, F32, |s| s.ambient_temp_c),
+        ch_scoring(names::TRACK_TEMP, Unit::Celsius, F32, |s| s.track_temp_c),
         ch_scoring("lmu.rain", Unit::Ratio, F32, |s| s.raining),
         ch_scoring("lmu.track_wetness", Unit::Ratio, F32, |s| {
             s.avg_path_wetness
@@ -706,6 +709,12 @@ fn channels(with_steer: bool) -> Vec<Ch> {
         .pressure_kpa);
     // the game's mWear is what is left (1 new)
     wheels!("lmu.tyre_wear", Unit::Ratio, F32, |w| 1.0 - w.wear);
+    wheels!("lmu.tyre_flat", Unit::None, Bool, |w| f64::from(u8::from(
+        w.flat
+    )));
+    wheels!("lmu.wheel_detached", Unit::None, Bool, |w| f64::from(
+        u8::from(w.detached)
+    ));
     wheels!("lmu.brake_temp", Unit::Celsius, F32, |w| w.brake_temp_c);
     wheels!("lmu.ride_height", Unit::Meter, F32, |w| w.ride_height);
     wheels!("lmu.suspension_deflection", Unit::Meter, F32, |w| {

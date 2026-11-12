@@ -5549,6 +5549,7 @@ name = "sy-capture"
 version = "0.1.0"
 dependencies = [
  "serde_json",
+ "sy-analysis",
  "sy-model",
  "sy-source-f1",
  "sy-source-iracing",

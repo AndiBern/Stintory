@@ -21,7 +21,7 @@ use sy_model::api::{
     SessionDetail, SessionSummary,
 };
 use sy_model::bundle::BundleReader;
-use sy_model::{Lap, LapId, LapTelemetry, Origin, Session, SessionId};
+use sy_model::{GameId, Lap, LapId, LapTelemetry, Origin, Session, SessionId};
 use tokio_postgres::Row;
 use uuid::Uuid;
 
@@ -166,13 +166,39 @@ pub async fn get_session(
         .iter()
         .map(lap_from_row)
         .collect::<ApiResult<Vec<_>>>()?;
+    let laps = lap_summaries(&state, summary.game, laps).await?;
     Ok(Json(SessionDetail {
         summary,
         ended_at: row.get(0),
         game_version: row.get(1),
         conditions: ConditionsView::from(&conditions),
-        laps: laps.iter().map(LapSummary::from).collect(),
+        laps,
     }))
+}
+
+/// The lap table rows, with weather, fuel and tyres from each lap's
+/// telemetry (cached, see `sy_analysis::laps_conditions`). A lap whose telemetry
+/// can't be read just has no conditions.
+pub(crate) async fn lap_summaries(
+    state: &SharedState,
+    game: GameId,
+    laps: Vec<Lap>,
+) -> ApiResult<Vec<LapSummary>> {
+    let state = state.clone();
+    Ok(tokio::task::spawn_blocking(move || {
+        let hashes: Vec<_> = laps.iter().map(|l| &l.blob_hash).collect();
+        let conditions = sy_analysis::laps_conditions(game, &hashes, |h| state.blobs.get(h));
+        laps.iter()
+            .zip(conditions)
+            .map(|(lap, conditions)| LapSummary {
+                conditions: conditions
+                    .inspect_err(|e| tracing::warn!(lap = %lap.id, error = %e, "lap conditions"))
+                    .ok(),
+                ..LapSummary::from(lap)
+            })
+            .collect()
+    })
+    .await?)
 }
 
 /// `DELETE /sessions/{id}`: deletes the session with its laps; telemetry

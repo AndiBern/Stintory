@@ -51,6 +51,36 @@ export interface LapSummary {
 	inLap: boolean;
 	incomplete: boolean;
 	flashback: boolean;
+	/** Weather, fuel and tyres from the lap's telemetry (absent if unreadable) */
+	conditions?: LapConditions | null;
+}
+
+/** Per wheel: front left, front right, rear left, rear right. */
+export interface Wheels<T = number> {
+	fl: T;
+	fr: T;
+	rl: T;
+	rr: T;
+}
+
+/** Weather, fuel and tyres of one lap; null where the game doesn't say. */
+export interface LapConditions {
+	/** °C, average over the lap */
+	airTempC: number | null;
+	trackTempC: number | null;
+	/** 0–1 */
+	humidity: number | null;
+	weather: string | null;
+	fuelStart: number | null;
+	fuelUsed: number | null;
+	/** `l` or `kg` */
+	fuelUnit: string | null;
+	/** Surface temperature, °C, average over the lap */
+	tyreTempC: Wheels | null;
+	/** 0 = new … 1 = worn out, at the end of the lap (before a puncture) */
+	tyreWear: Wheels | null;
+	/** Tyres that went flat during the lap */
+	tyreFlat?: Wheels<boolean> | null;
 }
 
 export interface ConditionsView {

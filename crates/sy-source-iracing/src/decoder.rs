@@ -101,6 +101,8 @@ enum Extract {
         scale: f64,
         offset: f64,
     },
+    /// Average of several variables (tyre temperature across the tread)
+    Mean(Vec<VarHeader>),
     /// Local east coordinate (m) around the start/finish line
     PosX,
     /// Local north coordinate (m) around the start/finish line
@@ -441,6 +443,43 @@ impl IracingDecoder {
             1.0,
             0.0,
         );
+        // weather at the start/finish line (per lap in the lap table)
+        var(names::AIR_TEMP, "AirTemp", Unit::Celsius, F32, 1.0, 0.0);
+        var(
+            names::TRACK_TEMP,
+            "TrackTempCrew",
+            Unit::Celsius,
+            F32,
+            1.0,
+            0.0,
+        );
+        var(
+            names::HUMIDITY,
+            "RelativeHumidity",
+            Unit::Ratio,
+            F32,
+            1.0,
+            0.0,
+        );
+        // 0 = clear, 1 = partly cloudy, 2 = mostly cloudy, 3 = overcast
+        var("iracing.skies", "Skies", Unit::None, I32, 1.0, 0.0);
+        var(
+            "iracing.precipitation",
+            "Precipitation",
+            Unit::Ratio,
+            F32,
+            1.0,
+            0.0,
+        );
+        // irsdk_TrackWetness: 0 = unknown, 1 = dry … 7 = extremely wet
+        var(
+            "iracing.track_wetness",
+            "TrackWetness",
+            Unit::None,
+            I32,
+            1.0,
+            0.0,
+        );
         var("iracing.lat", "Lat", Unit::None, F64, 1.0, 0.0);
         var("iracing.lon", "Lon", Unit::None, F64, 1.0, 0.0);
         // local position in metres around the start/finish line
@@ -466,6 +505,21 @@ impl IracingDecoder {
                 ChannelSpec::new(names::POS_Y, Unit::Meter, F32),
                 Extract::PosY,
             ));
+        }
+        // Tyre surface temperature (left, middle, right across the tread),
+        // averaged. Only `.ibt` files have it while driving; live, iRacing
+        // updates tyre temperatures and wear in the pits only.
+        for (wheel, prefix) in [("fl", "LF"), ("fr", "RF"), ("rl", "LR"), ("rr", "RR")] {
+            let vars: Option<Vec<VarHeader>> = ["L", "M", "R"]
+                .iter()
+                .map(|side| t.get(&format!("{prefix}temp{side}")).cloned())
+                .collect();
+            if let Some(vars) = vars {
+                ch.push((
+                    ChannelSpec::new(format!("iracing.tyre_temp_{wheel}"), Unit::Celsius, F32),
+                    Extract::Mean(vars),
+                ));
+            }
         }
         self.channels = ch;
     }
@@ -630,6 +684,14 @@ impl IracingDecoder {
             .map(|(_, e)| match e {
                 Extract::Var { var, scale, offset } => {
                     var.read(row, 0).map_or(f64::NAN, |v| v * scale + offset)
+                }
+                Extract::Mean(vars) => {
+                    let values: Vec<f64> = vars.iter().filter_map(|v| v.read(row, 0)).collect();
+                    if values.is_empty() {
+                        f64::NAN
+                    } else {
+                        values.iter().sum::<f64>() / values.len() as f64
+                    }
                 }
                 Extract::PosX => pos.map_or(f64::NAN, |p| p.0),
                 Extract::PosY => pos.map_or(f64::NAN, |p| p.1),

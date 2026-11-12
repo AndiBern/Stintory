@@ -172,6 +172,16 @@ fn monza_practice_out_and_in_lap() {
     assert!(max <= 258f32.to_radians() + 1e-3, "{max}");
     let wear = f32s(&r.laps[1], "lmu.tyre_wear_fl");
     assert!(wear[0] >= 0.0 && wear.last() > wear.first(), "wear goes up");
+    // the front right went flat in lap 1: the game reports it as worn out
+    // from then on, the lap table shows the wear before and the puncture
+    let c = sy_analysis::lap_conditions(sy_model::GameId::Lmu, &r.laps[1].telemetry);
+    let flat = c.tyre_flat.unwrap();
+    assert!(flat.fr && !flat.fl && !flat.rl && !flat.rr);
+    let wear = c.tyre_wear.unwrap();
+    assert!(wear.fr < 0.05 && wear.fl < 0.05, "{wear:?}");
+    assert_eq!(c.weather.as_deref(), Some("Dry"));
+    assert_eq!(c.fuel_unit.as_deref(), Some("l"));
+    assert!(c.air_temp_c.is_some_and(|t| (16.0..18.0).contains(&t)));
 }
 
 /// Race on Monza's Curva Grande layout (Ford Mustang LMGT3, Nov 2026):
@@ -281,6 +291,14 @@ fn road_atlanta_rain_qualifying() {
         s.conditions.weather.as_deref(),
         Some("rain 30 %, track wet 40 %")
     );
+    // per lap (lap table): the rain eases, the track stays wet
+    let weather: Vec<_> = r
+        .laps
+        .iter()
+        .map(|l| sy_analysis::lap_conditions(sy_model::GameId::Lmu, &l.telemetry).weather)
+        .collect();
+    assert_eq!(weather[1].as_deref(), Some("Rain 30 %, track wet 60 %"));
+    assert_eq!(weather[3].as_deref(), Some("Rain 14 %, track wet 60 %"));
     let laps: Vec<Summary> = r.laps.iter().map(summary).collect();
     assert_eq!(
         laps,

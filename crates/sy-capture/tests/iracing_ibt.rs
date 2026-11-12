@@ -131,6 +131,27 @@ fn oschersleben_race_matches_official_times() {
 
     // official times reported by iRacing (LapLastLapTime)
     assert!(lap(&r, 1, 100_030).lap.valid);
+    // weather, fuel and tyre temperatures per lap (lap table); iRacing only
+    // updates tyre wear in the pits
+    let c = sy_analysis::lap_conditions(sy_model::GameId::Iracing, &lap(&r, 1, 100_030).telemetry);
+    assert_eq!(c.weather.as_deref(), Some("Overcast"));
+    assert!(
+        c.humidity.is_some_and(|h| (0.85..0.87).contains(&h)),
+        "{c:?}"
+    );
+    assert!(
+        c.air_temp_c.is_some_and(|t| (18.0..19.5).contains(&t)),
+        "{c:?}"
+    );
+    assert!(
+        c.fuel_used.is_some_and(|f| (0.8..0.95).contains(&f)),
+        "{c:?}"
+    );
+    assert!(
+        c.tyre_temp_c.is_some_and(|w| (30.0..60.0).contains(&w.fl)),
+        "{c:?}"
+    );
+    assert_eq!(c.tyre_wear, None);
     // In races iRacing counts every lap, but laps with an off-track moment
     // are not clean reference laps for us.
     for (n, t) in [(7, 93_586), (8, 93_903)] {

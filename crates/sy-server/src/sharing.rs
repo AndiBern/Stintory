@@ -28,8 +28,8 @@ use axum::extract::{Path, Query, State};
 use deadpool_postgres::GenericClient;
 use serde::{Deserialize, Serialize};
 use sy_model::api::{
-    ConditionsView, LapSummary, OriginView, REFERENCE_LAPS_MAX, REFERENCE_LAPS_PER_DRIVER,
-    ReferenceLap, ReferenceScope, SessionDetail, SessionSummary,
+    ConditionsView, OriginView, REFERENCE_LAPS_MAX, REFERENCE_LAPS_PER_DRIVER, ReferenceLap,
+    ReferenceScope, SessionDetail, SessionSummary,
 };
 use sy_model::remote::{
     ForeignLapCheck, ForeignLapCheckResult, SharedSession, SharedSessionDetail,
@@ -729,13 +729,14 @@ pub async fn get_shared(
         .await?;
     let conditions: sy_model::session::Conditions = serde_json::from_value(row.get(2))?;
     let laps = readable_laps(&db, viewer, owner, id).await?;
+    let laps = crate::data::lap_summaries(&state, shared.summary.game, laps).await?;
     Ok(Json(SharedSessionDetail {
         detail: SessionDetail {
             summary: shared.summary,
             ended_at: row.get(0),
             game_version: row.get(1),
             conditions: ConditionsView::from(&conditions),
-            laps: laps.iter().map(LapSummary::from).collect(),
+            laps,
         },
         owner: shared.owner,
     }))

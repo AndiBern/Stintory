@@ -113,6 +113,10 @@ pub struct Wheel {
     pub wear: f64,
     /// 0 dry, 1 wet, 2 grass, 3 dirt, 4 gravel, 5 rumble strip, 6 special
     pub surface_type: u8,
+    /// The tyre is flat (puncture)
+    pub flat: bool,
+    /// The wheel came off
+    pub detached: bool,
 }
 
 /// The player's telemetry (`TelemInfoV01`), the fields Stintory uses.
@@ -223,6 +227,8 @@ impl Telemetry {
                 carcass_temp_k: b.f64(at + w::CARCASS_TEMP),
                 wear: b.f64(at + w::WEAR),
                 surface_type: b.u8(at + w::SURFACE_TYPE),
+                flat: b.u8(at + w::FLAT) != 0,
+                detached: b.u8(at + w::DETACHED) != 0,
             }
         };
         Ok(Self {

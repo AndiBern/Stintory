@@ -7,15 +7,20 @@
 //!   compared point by point.
 //! - [`delta`]: time difference between two resampled laps.
 //! - [`compare`]: builds the [`CompareData`] the frontend draws.
+//! - [`lap_conditions`]: weather, fuel and tyres of one lap.
 //!
 //! Used by both the desktop backend and sy-server, so the analysis exists
 //! exactly once.
+
+mod conditions;
 
 use std::collections::BTreeMap;
 
 use sy_model::api::{CompareData, LapTrace};
 use sy_model::channel::names;
 use sy_model::{ChannelData, Lap, LapTelemetry, Unit};
+
+pub use conditions::{is_conditions_channel, lap_conditions, laps_conditions};
 
 /// Default grid resolution in metres.
 pub const DEFAULT_STEP_M: f32 = 1.0;

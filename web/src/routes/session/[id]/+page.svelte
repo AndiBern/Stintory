@@ -5,11 +5,20 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { api, type LapSummary, type SessionDetail } from '#lib/api/index.ts';
+	import { api, type LapConditions, type LapSummary, type SessionDetail } from '#lib/api/index.ts';
 	import { app, sharingAvailable } from '#lib/app-state.svelte.ts';
 	import LapTimeChart from '#lib/charts/LapTimeChart.svelte';
 	import { isClean } from '#lib/charts/lap-times.ts';
+	import ConditionIcon from '#lib/components/ConditionIcon.svelte';
 	import ExportDialog, { type ExportScope } from '#lib/components/ExportDialog.svelte';
+	import {
+		anyFlat,
+		cellText,
+		formatTemp,
+		formatWear,
+		fuelUsedText,
+		visibleColumns
+	} from '#lib/lap-conditions.ts';
 	import ReferencePicker, { type ReferenceTarget } from '#lib/components/ReferencePicker.svelte';
 	import ShareDialog, { type ShareTarget } from '#lib/components/ShareDialog.svelte';
 	import {
@@ -67,6 +76,15 @@
 	const best = $derived(detail ? bestLap(detail) : undefined);
 	const visibleLaps = $derived(detail ? detail.laps.filter((l) => showAll || !l.incomplete) : []);
 	const hiddenCount = $derived(detail ? detail.laps.length - visibleLaps.length : 0);
+	/** Weather, fuel and tyre columns: only those the game provides */
+	const conditionColumns = $derived(visibleColumns(visibleLaps));
+	const WHEELS = [
+		['fl', 'Front left'],
+		['fr', 'Front right'],
+		['rl', 'Rear left'],
+		['rr', 'Rear right']
+	] as const;
+
 	/** The lap time chart needs at least two laps with a time. */
 	const showChart = $derived(visibleLaps.filter((l) => l.lapTimeMs !== null).length > 1);
 
@@ -250,6 +268,45 @@
 		<ExportDialog bind:open={exporting} scopes={exportScopes} />
 	{/if}
 
+	<!-- tyre cell: the average, all four wheels on hover -->
+	{#snippet tyres(c: LapConditions, key: 'tyreTemp' | 'tyreWear')}
+		<span class="group/tyres relative inline-block cursor-default">
+			{#if key === 'tyreWear' && anyFlat(c)}
+				<span class="mr-1 rounded bg-amber-950 px-1 text-xs text-amber-300">flat</span>
+			{/if}
+			<span class="underline decoration-zinc-600 decoration-dotted underline-offset-4"
+				>{cellText(c, key)}</span
+			>
+			<span class="sr-only">
+				{#each WHEELS as [w, label] (w)}
+					{label}: {c.tyreTempC ? formatTemp(c.tyreTempC[w]) : ''}
+					{c.tyreWear ? `wear ${formatWear(c.tyreWear[w])}` : ''}
+					{c.tyreFlat?.[w] ? 'flat' : ''}.
+				{/each}
+			</span>
+			<span
+				class="pointer-events-none absolute top-full right-0 z-20 mt-1 hidden w-max grid-cols-2 gap-1.5 rounded border border-zinc-700 bg-zinc-900 p-2 text-left text-xs shadow-lg group-hover/tyres:grid"
+				aria-hidden="true"
+			>
+				{#each WHEELS as [w, label] (w)}
+					<span class="min-w-24 rounded bg-zinc-800/60 px-2 py-1">
+						<span class="block text-zinc-400">{label}</span>
+						{#if c.tyreTempC}
+							<span class="block text-zinc-100">{formatTemp(c.tyreTempC[w])}</span>
+						{/if}
+						{#if c.tyreWear}
+							<span class="block text-zinc-300"
+								>{formatWear(c.tyreWear[w])} worn{#if c.tyreFlat?.[w]}<span
+										class="ml-1 text-amber-300">· flat</span
+									>{/if}</span
+							>
+						{/if}
+					</span>
+				{/each}
+			</span>
+		</span>
+	{/snippet}
+
 	{#if showChart}
 		<LapTimeChart laps={visibleLaps} bestId={best?.id} />
 	{/if}
@@ -261,6 +318,12 @@
 				<th class="font-normal">Lap</th>
 				<th class="text-right font-normal">Time</th>
 				<th class="text-right font-normal">Δ best</th>
+				{#each conditionColumns as col (col.key)}
+					<th class="pl-4 font-normal" class:text-right={col.key !== 'weather'} title={col.title}>
+						<span class="inline-flex align-middle"><ConditionIcon name={col.key} /></span>
+						<span class="sr-only">{col.title}</span>
+					</th>
+				{/each}
 				<th class="pl-6 font-normal">Status</th>
 				{#if canShare}<th class="font-normal"><span class="sr-only">Sharing</span></th>{/if}
 			</tr>
@@ -291,6 +354,25 @@
 							{formatDelta(l.lapTimeMs - best.lapTimeMs!)}
 						{/if}
 					</td>
+					{#each conditionColumns as col (col.key)}
+						{@const c = l.conditions}
+						{#if col.key === 'tyreTemp' || col.key === 'tyreWear'}
+							<td class="pl-4 text-right whitespace-nowrap tabular-nums">
+								{#if c && cellText(c, col.key)}
+									{@render tyres(c, col.key)}
+								{/if}
+							</td>
+						{:else if col.key === 'weather'}
+							<td class="max-w-48 pl-4 text-xs text-zinc-300">{cellText(c, col.key)}</td>
+						{:else}
+							<td
+								class="pl-4 text-right whitespace-nowrap tabular-nums"
+								title={col.key === 'fuel' ? fuelUsedText(c) : undefined}
+							>
+								{cellText(c, col.key)}
+							</td>
+						{/if}
+					{/each}
 					<td class="pl-6">
 						{#if isBest}<span class="mr-1 rounded bg-purple-900 px-1.5 text-xs text-purple-200"
 								>best</span

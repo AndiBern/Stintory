@@ -90,12 +90,28 @@ pub async fn get_session(state: State<'_, AppState>, id: String) -> CmdResult<Se
                 .into_iter()
                 .find(|s| s.id == id)
                 .ok_or(sy_store::StoreError::SessionNotFound(id))?;
+            // weather, fuel and tyres per lap, from the telemetry
+            let hashes: Vec<_> = laps.iter().map(|l| &l.blob_hash).collect();
+            let conditions =
+                sy_analysis::laps_conditions(session.game, &hashes, |h| store.lap_blob(h));
+            let laps = laps
+                .iter()
+                .zip(conditions)
+                .map(|(lap, conditions)| LapSummary {
+                    conditions: conditions
+                        .inspect_err(
+                            |e| tracing::warn!(lap = %lap.id, error = %e, "lap conditions"),
+                        )
+                        .ok(),
+                    ..LapSummary::from(lap)
+                })
+                .collect();
             Ok(SessionDetail {
                 summary,
                 ended_at: session.ended_at,
                 game_version: session.game_version,
                 conditions: ConditionsView::from(&session.conditions),
-                laps: laps.iter().map(LapSummary::from).collect(),
+                laps,
             })
         })
         .await?)

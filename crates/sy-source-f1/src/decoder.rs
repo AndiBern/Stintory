@@ -69,8 +69,8 @@ use sy_model::{GameId, Unit};
 use time::OffsetDateTime;
 
 use crate::packets::{
-    self, CarMotion, CarSetup, CarStatus, CarTelemetry, CarTelemetry2, Event, Format, Header,
-    LapData, MotionEx, Participant, SessionHistory, id,
+    self, CarDamage, CarMotion, CarSetup, CarStatus, CarTelemetry, CarTelemetry2, Event, Format,
+    Header, LapData, MotionEx, Participant, SessionHistory, id,
 };
 use crate::tables;
 
@@ -122,6 +122,7 @@ struct SessionState {
     /// Session time of `lap`
     lap_time: f32,
     status: Option<CarStatus>,
+    damage: Option<CarDamage>,
     motion_ex: Option<MotionEx>,
     telemetry2: Option<CarTelemetry2>,
     /// Session times of the first telemetry packets (sample rate)
@@ -158,6 +159,8 @@ struct Inputs<'a> {
     t: &'a CarTelemetry,
     m: Option<&'a CarMotion>,
     s: Option<&'a CarStatus>,
+    d: Option<&'a CarDamage>,
+    session: Option<&'a packets::Session>,
     x: Option<&'a MotionEx>,
     t2: Option<&'a CarTelemetry2>,
 }
@@ -294,6 +297,21 @@ fn channels(format: Format) -> Vec<Ch> {
     v.push(ch("f1.surface_fr", Unit::None, I32, |i| {
         f64::from(i.t.surface[3])
     }));
+    // wear 0 = new … 1 = worn out (the game: percent), from the damage packet
+    wheels!("f1.tyre_wear", Unit::Ratio, |i, w| opt(i.d, |d| {
+        f64::from(d.tyres_wear_pct[w]) / 100.0
+    }));
+    // weather from the session packet (per lap in the lap table)
+    v.push(ch(names::AIR_TEMP, Unit::Celsius, F32, |i| {
+        opt(i.session, |s| f64::from(s.air_temp_c))
+    }));
+    v.push(ch(names::TRACK_TEMP, Unit::Celsius, F32, |i| {
+        opt(i.session, |s| f64::from(s.track_temp_c))
+    }));
+    // tables::weather: 0 clear, 1 light cloud, 2 overcast, 3 light rain, …
+    v.push(ch("f1.weather", Unit::None, F32, |i| {
+        opt(i.session, |s| f64::from(s.weather))
+    }));
     if format == Format::F2026 {
         v.push(ch("f1.active_aero_mode", Unit::None, I32, |i| {
             opt(i.t2, |t| f64::from(t.active_aero_mode))
@@ -424,6 +442,7 @@ impl SessionState {
             lap: None,
             lap_time: h.session_time,
             status: None,
+            damage: None,
             motion_ex: None,
             telemetry2: None,
             telemetry_times: Vec::new(),
@@ -685,6 +704,8 @@ impl SessionState {
             t: &t,
             m: self.motion.as_ref(),
             s: self.status.as_ref(),
+            d: self.damage.as_ref(),
+            session: self.session.as_ref(),
             x: self.motion_ex.as_ref(),
             t2: self.telemetry2.as_ref(),
         };
@@ -848,6 +869,7 @@ impl F1Decoder {
             id::LAP_DATA => s.on_lap_data(h.session_time, LapData::parse(&h, packet), &mut out),
             id::MOTION => s.motion = Some(CarMotion::parse(&h, packet)),
             id::CAR_STATUS => s.status = Some(CarStatus::parse(&h, packet)),
+            id::CAR_DAMAGE => s.damage = Some(CarDamage::parse(&h, packet)),
             id::MOTION_EX => s.motion_ex = Some(MotionEx::parse(packet)),
             id::CAR_TELEMETRY_2 => s.telemetry2 = Some(CarTelemetry2::parse(&h, packet)),
             id::CAR_TELEMETRY => s.on_telemetry(&h, CarTelemetry::parse(&h, packet), &mut out),
