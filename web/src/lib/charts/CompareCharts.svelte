@@ -10,25 +10,27 @@
 		data,
 		cursor,
 		labels,
+		range = $bindable(null),
 		onCursor
 	}: {
 		data: CompareData;
 		cursor: number;
 		labels: string[];
+		/** shown part of the lap (m); dragging across a chart sets it */
+		range?: XRange;
 		onCursor: (index: number) => void;
 	} = $props();
-
-	let xRange = $state<XRange>(null);
 	const main = $derived(mainPanels(data));
 	const more = $derived(morePanels(data));
 </script>
 
 <div>
 	{#each main as panel (panel.key)}
-		<ChartPanel {data} {panel} {cursor} {labels} bind:xRange {onCursor} />
+		<ChartPanel {data} {panel} {cursor} {labels} bind:xRange={range} {onCursor} />
 	{/each}
 	<p class="pl-14 text-xs text-zinc-500">
-		Hover to move through the lap · drag to zoom · double-click to reset
+		Hover to move through the lap · drag across a chart to pick a section · double-click for the
+		full lap
 	</p>
 	{#if more.length > 0}
 		<details class="mt-4">
@@ -37,7 +39,7 @@
 			>
 			<div class="mt-3">
 				{#each more as panel (panel.key)}
-					<ChartPanel {data} {panel} {cursor} {labels} bind:xRange {onCursor} />
+					<ChartPanel {data} {panel} {cursor} {labels} bind:xRange={range} {onCursor} />
 				{/each}
 			</div>
 		</details>

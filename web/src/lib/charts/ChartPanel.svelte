@@ -55,8 +55,20 @@
 		};
 	}
 
-	/** set while applying the shared zoom, so it doesn't echo back */
-	let applying = false;
+	/**
+	 * Above 0 while building or applying the shared zoom, so the scale change
+	 * doesn't echo back as a zoom by the user. uPlot reports scale changes a
+	 * microtask later, so this ends a microtask later too.
+	 */
+	let applying = 0;
+	function quietly(change: () => void) {
+		applying++;
+		try {
+			change();
+		} finally {
+			queueMicrotask(() => applying--);
+		}
+	}
 
 	$effect(() => {
 		if (!host) return;
@@ -70,75 +82,77 @@
 			ticks: { stroke: '#424249', width: 1 },
 			font: '11px system-ui, sans-serif'
 		};
-		const u = new uPlot(
-			{
-				width: w,
-				height: p.height,
-				legend: { show: false },
-				scales: { x: { time: false }, y: p.range ? { range: p.range } : {} },
-				series: [
-					{},
-					...s.map((x) => ({
-						stroke: lapColor(x.lap),
-						width: 1.5,
-						dash: x.line?.dash || (p.delta && x.lap === 0) ? [4, 3] : undefined,
-						paths: p.stepped ? uPlot.paths.stepped?.({ align: 1 }) : undefined,
-						points: { show: false }
-					}))
-				],
-				axes: [
-					{
-						...axis,
-						values: (_u, ticks) => {
-							const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1000;
-							return ticks.map((t) => formatKm(t, step));
-						}
-					},
-					{
-						...axis,
-						size: 56,
-						// whole gears only (R, N, 1, 2, …)
-						...(p.key === 'gear' ? { incrs: [1, 2], space: 12 } : {}),
-						values: (_u, ticks) => ticks.map((t) => (p.key === 'gear' ? p.format(t) : String(t)))
-					}
-				],
-				cursor: {
-					x: false,
-					y: false,
-					points: { show: false },
-					drag: { x: true, y: false }
-				},
-				hooks: {
-					ready: [readGeo],
-					setSize: [readGeo],
-					setCursor: [
-						(u) => {
-							const i = u.cursor.idx;
-							if (i != null) onCursor(i);
+		// building reports the initial (full) scale: not a zoom by the user
+		let u!: uPlot;
+		quietly(() => {
+			u = new uPlot(
+				{
+					width: w,
+					height: p.height,
+					legend: { show: false },
+					scales: { x: { time: false }, y: p.range ? { range: p.range } : {} },
+					series: [
+						{},
+						...s.map((x) => ({
+							stroke: lapColor(x.lap),
+							width: 1.5,
+							dash: x.line?.dash || (p.delta && x.lap === 0) ? [4, 3] : undefined,
+							paths: p.stepped ? uPlot.paths.stepped?.({ align: 1 }) : undefined,
+							points: { show: false }
+						}))
+					],
+					axes: [
+						{
+							...axis,
+							values: (_u, ticks) => {
+								const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1000;
+								return ticks.map((t) => formatKm(t, step));
+							}
+						},
+						{
+							...axis,
+							size: 56,
+							// whole gears only (R, N, 1, 2, …)
+							...(p.key === 'gear' ? { incrs: [1, 2], space: 12 } : {}),
+							values: (_u, ticks) => ticks.map((t) => (p.key === 'gear' ? p.format(t) : String(t)))
 						}
 					],
-					setScale: [
-						(u, key) => {
-							readGeo(u);
-							if (key !== 'x' || applying) return;
-							const min = u.scales.x.min ?? full.min;
-							const max = u.scales.x.max ?? full.max;
-							const whole = min <= full.min + 1e-6 && max >= full.max - 1e-6;
-							xRange = whole ? null : { min, max };
-						}
-					]
-				}
-			},
-			[data.distM, ...s.map((x) => x.values)] as uPlot.AlignedData,
-			el
-		);
+					cursor: {
+						x: false,
+						y: false,
+						points: { show: false },
+						drag: { x: true, y: false }
+					},
+					hooks: {
+						ready: [readGeo],
+						setSize: [readGeo],
+						setCursor: [
+							(u) => {
+								const i = u.cursor.idx;
+								if (i != null) onCursor(i);
+							}
+						],
+						setScale: [
+							(u, key) => {
+								readGeo(u);
+								if (key !== 'x' || applying > 0) return;
+								const min = u.scales.x.min ?? full.min;
+								const max = u.scales.x.max ?? full.max;
+								const now = xRange ?? full;
+								if (Math.abs(min - now.min) < 1e-6 && Math.abs(max - now.max) < 1e-6) return;
+								const whole = min <= full.min + 1e-6 && max >= full.max - 1e-6;
+								xRange = whole ? null : { min, max };
+							}
+						]
+					}
+				},
+				[data.distM, ...s.map((x) => x.values)] as uPlot.AlignedData,
+				el
+			);
+			const range = untrack(() => xRange);
+			if (range) u.setScale('x', range);
+		});
 		plot = u;
-		const range = untrack(() => xRange);
-		if (range) {
-			applying = true;
-			u.setScale('x', range);
-			applying = false;
-		}
 		return () => {
 			u.destroy();
 			plot = null;
@@ -155,9 +169,7 @@
 		const u = plot;
 		if (!u) return;
 		if (u.scales.x.min === range.min && u.scales.x.max === range.max) return;
-		applying = true;
-		u.setScale('x', range);
-		applying = false;
+		quietly(() => u.setScale('x', range));
 	});
 
 	const markerX = $derived(

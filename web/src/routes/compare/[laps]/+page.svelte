@@ -9,11 +9,15 @@
 	import CompareCharts from '#lib/charts/CompareCharts.svelte';
 	import FollowMap from '#lib/charts/FollowMap.svelte';
 	import { lapColor } from '#lib/charts/colors.ts';
+	import type { XRange } from '#lib/charts/compare-panels.ts';
 	import {
 		firstIndex,
 		indexAtTime,
 		lastIndex,
+		rebaseDeltas,
 		referenceTime,
+		sectionOf,
+		sectionTime,
 		type OffsetMode
 	} from '#lib/charts/compare-view.ts';
 	import ReferencePicker, { type ReferenceTarget } from '#lib/components/ReferencePicker.svelte';
@@ -30,6 +34,8 @@
 	let mode = $state<OffsetMode>('distance');
 	let playing = $state(false);
 	let speed = $state(1);
+	/** the part of the lap looked at (m); null = the full lap */
+	let range = $state<XRange>(null);
 	const SPEEDS = [0.25, 0.5, 1, 2];
 	let picking = $state<ReferenceTarget | null>(null);
 	let pickError = $state<string | null>(null);
@@ -46,6 +52,7 @@
 			.compareLaps({ lapIds: ids })
 			.then((d) => {
 				data = d;
+				range = null;
 				cursor = firstIndex(d);
 				playing = false;
 			})
@@ -68,6 +75,38 @@
 	const first = $derived(data ? firstIndex(data) : 0);
 	const last = $derived(data ? lastIndex(data) : 0);
 	const refTime = $derived(data ? referenceTime(data, cursor) : null);
+	/** grid indices of the section; the slider and playback stay inside */
+	const section = $derived(data ? sectionOf(data, range) : { start: 0, end: 0 });
+	const sectionStart = $derived(section.start);
+	const inSection = $derived(range !== null);
+	/** in a section, the diff to the reference counts from its start */
+	const view = $derived(data && inSection ? rebaseDeltas(data, sectionStart) : data);
+	/** each lap's time through the section */
+	const sectionTimes = $derived(
+		data && range ? data.laps.map((l) => sectionTime(l, section)) : null
+	);
+
+	// the cursor stays in the section
+	$effect(() => {
+		const { start, end } = section;
+		if (cursor < start || cursor > end) cursor = start;
+	});
+
+	const at = (i: number) => data?.distM[i] ?? 0;
+
+	/** Starts the section at the cursor (keeps its end if that's after). */
+	function startHere() {
+		const end = cursor < section.end ? section.end : last;
+		if (cursor >= end) return;
+		range = { min: at(cursor), max: at(end) };
+	}
+
+	/** Ends the section at the cursor (keeps its start if that's before). */
+	function endHere() {
+		const start = cursor > section.start ? section.start : first;
+		if (cursor <= start) return;
+		range = { min: at(start), max: at(cursor) };
+	}
 
 	/** Moving through the lap by hand stops the playback. */
 	function seek(index: number) {
@@ -80,15 +119,16 @@
 		if (!playing || !data) return;
 		const d = data;
 		const rate = speed;
-		let t = untrack(() => referenceTime(d, cursor >= last ? first : cursor)) ?? 0;
+		const { start, end } = untrack(() => section);
+		let t = untrack(() => referenceTime(d, cursor >= end ? start : cursor)) ?? 0;
 		let previous = performance.now();
 		let frame = 0;
 		const tick = (now: number) => {
 			t += ((now - previous) / 1000) * rate;
 			previous = now;
 			const i = indexAtTime(d.laps[0].channels.t, t);
-			if (i === null) {
-				cursor = last;
+			if (i === null || i >= end) {
+				cursor = end;
 				playing = false;
 				return;
 			}
@@ -181,6 +221,19 @@
 					<span class="rounded bg-zinc-800 px-1.5 text-xs text-zinc-300">reference</span>
 				{/if}
 				{#if !lap.valid}<span class="text-xs text-amber-400/80">invalid</span>{/if}
+				{#if sectionTimes}
+					{@const own = sectionTimes[i]}
+					{@const ref = sectionTimes[0]}
+					<span
+						class="font-mono text-xs text-zinc-300 tabular-nums"
+						title="Time through the section"
+					>
+						{own === null ? '–' : `${own.toFixed(3)} s`}{#if i > 0 && own !== null && ref !== null}
+							<span class="ml-1 text-zinc-500">
+								({own - ref >= 0 ? '+' : '−'}{Math.abs(own - ref).toFixed(3)})</span
+							>{/if}
+					</span>
+				{/if}
 				{#if i > 0}
 					<button
 						type="button"
@@ -201,7 +254,13 @@
 		{/each}
 	</ul>
 
-	<FollowMap {data} {cursor} labels={shortLabels} bind:mode />
+	<FollowMap
+		data={view ?? data}
+		{cursor}
+		labels={shortLabels}
+		section={range ? section : null}
+		bind:mode
+	/>
 
 	<!-- move through the lap: by hand or played back in the reference lap's time -->
 	<div class="my-4 flex flex-wrap items-center gap-3">
@@ -242,8 +301,8 @@
 		<input
 			type="range"
 			class="min-w-48 flex-1 accent-zinc-200"
-			min={first}
-			max={last}
+			min={section.start}
+			max={section.end}
 			step="1"
 			value={cursor}
 			aria-label="Position in the lap"
@@ -257,7 +316,38 @@
 		</span>
 	</div>
 
-	<CompareCharts {data} {cursor} labels={shortLabels} onCursor={seek} />
+	<!-- a part of the lap: start and end at the cursor, or drag across a chart -->
+	<div class="mb-5 flex flex-wrap items-center gap-2 text-xs" role="group" aria-label="Section">
+		<span class="text-zinc-500">Section</span>
+		<button
+			type="button"
+			class="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+			disabled={cursor >= last}
+			onclick={startHere}>Start here</button
+		>
+		<button
+			type="button"
+			class="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+			disabled={cursor <= first}
+			onclick={endHere}>End here</button
+		>
+		{#if range}
+			<span class="font-mono text-zinc-200 tabular-nums">
+				{Math.round(at(section.start))}–{Math.round(at(section.end))} m
+			</span>
+			<span class="text-zinc-500">({Math.round(at(section.end) - at(section.start))} m)</span>
+			<button
+				type="button"
+				class="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
+				onclick={() => (range = null)}>Full lap</button
+			>
+			<span class="text-zinc-500">Diff to ref counts from the section start.</span>
+		{:else}
+			<span class="text-zinc-500">Full lap · or drag across a chart</span>
+		{/if}
+	</div>
+
+	<CompareCharts data={view ?? data} {cursor} labels={shortLabels} bind:range onCursor={seek} />
 {/if}
 
 <!-- added laps go after the current ones; the reference stays -->

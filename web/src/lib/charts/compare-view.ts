@@ -131,3 +131,45 @@ export function gapText(data: CompareData, k: number, cursor: number, mode: Offs
 	if (m === 0) return 'level';
 	return m > 0 ? `${m} m ahead` : `${-m} m behind`;
 }
+
+/** A part of the lap: first and last grid index (both included). */
+export interface Section {
+	start: number;
+	end: number;
+}
+
+/**
+ * The section for a distance range (m), within the reference lap's data;
+ * the whole lap for null.
+ */
+export function sectionOf(data: CompareData, range: { min: number; max: number } | null): Section {
+	const first = firstIndex(data);
+	const last = lastIndex(data);
+	if (!range) return { start: first, end: last };
+	const start = Math.min(last, Math.max(first, Math.ceil(range.min / data.stepM)));
+	const end = Math.max(start, Math.min(last, Math.floor(range.max / data.stepM)));
+	return { start, end };
+}
+
+/**
+ * The data with each lap's diff to the reference counted from `start`: the
+ * time won or lost within the section, not the gap carried into it.
+ */
+export function rebaseDeltas(data: CompareData, start: number): CompareData {
+	return {
+		...data,
+		laps: data.laps.map((lap) => {
+			let base: number | null = null;
+			for (let i = start; i < lap.deltaS.length && base === null; i++) base = lap.deltaS[i];
+			const b = base ?? 0;
+			return { ...lap, deltaS: lap.deltaS.map((d) => (d == null ? null : d - b)) };
+		})
+	};
+}
+
+/** Time (s) a lap took from the section's start to its end; null without data there. */
+export function sectionTime(lap: LapTrace, s: Section): number | null {
+	const a = valueAt(lap.channels.t, s.start);
+	const b = valueAt(lap.channels.t, s.end);
+	return a == null || b == null ? null : b - a;
+}

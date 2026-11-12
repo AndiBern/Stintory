@@ -11,6 +11,9 @@ import {
 	indexAtTime,
 	lastIndex,
 	positionAt,
+	rebaseDeltas,
+	sectionOf,
+	sectionTime,
 	valueAt
 } from './compare-view.ts';
 import { formatDeltaS, formatGear, formatKm } from './compare-panels.ts';
@@ -86,5 +89,25 @@ describe('chart labels', () => {
 		expect(formatKm(2000, 1000)).toBe('2 km');
 		expect([formatGear(-1), formatGear(0), formatGear(3)]).toEqual(['R', 'N', '3']);
 		expect(formatDeltaS(-0.2804)).toBe('−0.280 s');
+	});
+});
+
+describe('sections', () => {
+	it('turns a distance range into grid indices within the lap', () => {
+		expect(sectionOf(data, null)).toEqual({ start: 0, end: 5 });
+		expect(sectionOf(data, { min: 1.4, max: 3.6 })).toEqual({ start: 2, end: 3 });
+		expect(sectionOf(data, { min: -10, max: 99 })).toEqual({ start: 0, end: 5 });
+	});
+
+	it('counts the diff from the section start', () => {
+		const rebased = rebaseDeltas(data, 2);
+		expect(rebased.laps[1].deltaS).toEqual([1, 0.5, 0, -0.5, -1, -1.5]);
+		expect(data.laps[1].deltaS[2]).toBe(-1); // the original stays
+	});
+
+	it('times each lap through the section', () => {
+		const s = { start: 1, end: 4 };
+		expect(sectionTime(data.laps[0], s)).toBe(3);
+		expect(sectionTime(data.laps[1], s)).toBe(1.5);
 	});
 });

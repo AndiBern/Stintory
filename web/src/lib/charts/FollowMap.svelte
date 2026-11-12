@@ -16,13 +16,15 @@
 		headingAt,
 		positionAt,
 		type OffsetMode,
-		type Point
+		type Point,
+		type Section
 	} from './compare-view.ts';
 
 	let {
 		data,
 		cursor,
 		labels,
+		section = null,
 		mode = $bindable('distance')
 	}: {
 		data: CompareData;
@@ -30,6 +32,8 @@
 		cursor: number;
 		/** short label per lap */
 		labels: string[];
+		/** the part of the lap being looked at, highlighted in the overview */
+		section?: Section | null;
 		mode?: OffsetMode;
 	} = $props();
 
@@ -230,6 +234,18 @@
 			ctx.strokeStyle = muted;
 			ctx.lineWidth = 1.5 / os;
 			ctx.stroke();
+			if (section) {
+				const xs = ref.channels.pos_x ?? [];
+				const ys = ref.channels.pos_y ?? [];
+				polyline(
+					ctx,
+					xs.slice(section.start, section.end + 1),
+					ys.slice(section.start, section.end + 1)
+				);
+				ctx.strokeStyle = lapColor(0);
+				ctx.lineWidth = 3.5 / os;
+				ctx.stroke();
+			}
 			ctx.restore();
 			// visible area: the screen corners back in world coordinates
 			const cos = Math.cos(-rotation);
