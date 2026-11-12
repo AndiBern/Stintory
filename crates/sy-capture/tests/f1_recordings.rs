@@ -580,6 +580,63 @@ fn melbourne_format_switch_mid_lap() {
     );
 }
 
+/// Time trial in Melbourne with the F1 26 McLaren, restarted from the menu
+/// after one lap: the game starts a new session (new `sessionUID`).
+#[test]
+fn melbourne_time_trial_restarted() {
+    let Some(path) = recording(1_794_498_209) else {
+        return;
+    };
+    let r = replay(&path);
+    assert_eq!(r.sessions.len(), 2);
+    let laps = |i: usize| -> Vec<Summary> {
+        let mut v: Vec<Summary> = r
+            .laps
+            .iter()
+            .filter(|l| l.lap.session_id == r.sessions[i].id)
+            .map(summary)
+            .collect();
+        v[0].1 = None; // the out-lap: our measurement
+        v
+    };
+    assert_eq!(
+        laps(0),
+        [
+            (0, None, true, true, false, false),
+            (1, Some(81_845), true, false, false, false),
+            (2, None, false, false, false, true),
+        ]
+    );
+    assert_eq!(
+        laps(1),
+        [
+            (0, None, true, true, false, false),
+            (1, Some(80_908), true, false, false, false),
+            (2, None, false, false, false, true),
+        ]
+    );
+}
+
+/// Race in Melbourne with the F1 26 Mercedes: standing start, a virtual
+/// safety car in lap 1.
+#[test]
+fn melbourne_race_virtual_safety_car() {
+    let Some(path) = recording(1_794_499_074) else {
+        return;
+    };
+    check(
+        &replay(&path),
+        "Melbourne",
+        "f1_25:476/13",
+        "Mercedes (F1 26)",
+        &[
+            (1, Some(107_195), true, false, false, false),
+            (2, Some(85_631), true, false, false, false),
+            (3, None, false, false, false, true),
+        ],
+    );
+}
+
 /// Every recording: timed laps start at the line, the map is not mirrored
 /// (steering left turns the path counter-clockwise) and lateral g is
 /// positive in right-hand turns.
