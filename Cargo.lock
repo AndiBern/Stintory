@@ -5416,6 +5416,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sy-analysis",
+ "sy-bridge",
  "sy-capture",
  "sy-model",
  "sy-source-f1",
@@ -5524,6 +5525,23 @@ dependencies = [
  "serde_json",
  "sy-model",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "sy-bridge"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sy-capture",
+ "sy-model",
+ "sy-source-iracing",
+ "sy-source-lmu",
+ "sy-store",
+ "thiserror 2.0.21",
+ "tracing",
+ "tracing-subscriber",
+ "windows",
 ]
 
 [[package]]

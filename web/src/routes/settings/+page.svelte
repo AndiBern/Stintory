@@ -4,6 +4,7 @@
 	import { api, type Settings } from '#lib/api/index.ts';
 	import F1Capture from '#lib/components/F1Capture.svelte';
 	import LmuCapture from '#lib/components/LmuCapture.svelte';
+	import ProtonBridge from '#lib/components/ProtonBridge.svelte';
 	import ServerSync from '#lib/components/ServerSync.svelte';
 	import { formatBytes } from '#lib/format.ts';
 
@@ -47,6 +48,9 @@
 	{#key settings}
 		<F1Capture {settings} onsaved={() => setTimeout(load, 700)} />
 		<LmuCapture {settings} onsaved={() => setTimeout(load, 700)} />
+		{#if settings.bridgeAvailable}
+			<ProtonBridge {settings} onsaved={() => setTimeout(load, 700)} />
+		{/if}
 	{/key}
 {/if}
 

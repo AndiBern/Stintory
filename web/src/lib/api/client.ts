@@ -9,6 +9,7 @@ import type {
 	ExportResult,
 	F1CaptureSettings,
 	LmuCaptureSettings,
+	ProtonBridgeSettings,
 	SyncStatus,
 	ImportProgress,
 	ImportResult,
@@ -93,6 +94,8 @@ export interface ApiClient {
 	/** Applied as soon as no F1 session is being recorded. */
 	setF1Capture(settings: F1CaptureSettings): Promise<void>;
 	setLmuCapture(settings: LmuCaptureSettings): Promise<void>;
+	/** Linux: applied as soon as no game is being recorded through the bridge. */
+	setProtonBridge(settings: ProtonBridgeSettings): Promise<void>;
 	deleteRawRecordings(): Promise<void>;
 	recorderStatus(): Promise<RecorderStatus>;
 

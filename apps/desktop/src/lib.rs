@@ -41,6 +41,14 @@ pub fn run() {
             };
             tracing::info!(data_dir = %data_dir.display(), "opening local store");
             let state = AppState::open(&data_dir)?;
+            if cfg!(not(windows)) {
+                let resources = app.path().resource_dir().ok();
+                let exe = recording::install_bridge(resources.as_deref(), &data_dir);
+                if let Err(e) = &exe {
+                    tracing::warn!(error = %e, "Proton bridge not available");
+                }
+                state.bridge.set_exe(exe);
+            }
             let sync = sync::SyncManager::start(app.handle().clone(), state.store.clone());
             recording::spawn_recovery(app.handle().clone(), state.store.clone());
             recording::spawn_supervisor(
@@ -51,6 +59,7 @@ pub fn run() {
                 sync.clone(),
                 state.f1.clone(),
                 state.lmu.clone(),
+                state.bridge.clone(),
             );
             app.manage(state);
             app.manage(sync);
@@ -79,6 +88,7 @@ pub fn run() {
             commands::set_keep_raw_recordings,
             commands::set_f1_capture,
             commands::set_lmu_capture,
+            commands::set_proton_bridge,
             commands::delete_raw_recordings,
             commands::recorder_status,
         ])

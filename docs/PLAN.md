@@ -7,7 +7,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 | Topic | Decision |
 |---|---|
 | Stack | **Rust** for capture, storage, analysis and server. **Tauri 2** desktop client with a **Svelte 5 + TypeScript** web frontend (SvelteKit, static SPA build) that is reused as the server's web UI |
-| Capture platforms | iRacing and LMU capture on **Windows only**. F1 25 (UDP) on Windows and Linux, also from consoles. Future Proton games get a small in-prefix helper (`sy-bridge.exe`) |
+| Capture platforms | iRacing and LMU capture on **Windows**, and on Linux for games in Proton through a small in-prefix helper (`sy-bridge.exe`, M7). F1 25 (UDP) on Windows and Linux, also from consoles |
 | Linux client | Full viewer: browse, compare, import/export, sync. Plus `.ibt` file import |
 | MVP game | **iRacing** |
 | Server | Docker container: sync + sharing + **web UI** for browsing/comparing laps |
@@ -52,7 +52,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 │  Web frontend (TS): sessions, lap view, compare│
 └───────────────────────────────────────────────┘
  Linux PC: same client, without the Windows-only source adapters (viewer + import + sync)
- Proton (later): game ─shm─► sy-bridge.exe (in prefix) ─localhost TCP─► client
+ Proton (M7):     game ─shm─► sy-bridge.exe (in prefix) ─localhost TCP─► client
 ```
 
 Key idea: **the frontend talks to one API shape** (`ApiClient` interface). In the desktop app it calls the Tauri backend (`invoke`). In the browser it calls the server over HTTP. Both backends use the same Rust crates (`sy-model`, `sy-analysis`), so resampling, delta computation, etc. exist exactly once.
@@ -71,7 +71,7 @@ crates/
   sy-analysis/             # distance resampling, delta, track map, sectors, (later) corners
   sy-sync/                 # sync client (HTTP)
   sy-server/               # axum server binary
-  sy-bridge/               # (later) Windows helper for Proton prefixes
+  sy-bridge/               # Proton bridge: sy-bridge.exe (in the game's prefix) + the app's client
 apps/
   desktop/                 # Tauri 2 app (src-tauri/ + uses web/ build)
 web/                       # SvelteKit app (adapter-static, SPA mode), shared by desktop + server
@@ -387,7 +387,7 @@ Developing on Linux without the games running is a real constraint, so **record 
 | **M4 – Web UI** | Done: `web/` served by the server with HttpApi; account/teams/sharing pages (M3); "shared with me" per track/car (*Sharing → By track and car*: shared laps, fastest driver, own best and gap; lap list fastest first); reference laps for a track+car (own, imported, shared; `GET /reference-laps`, desktop merges local laps with the server's and keeps a chosen shared lap as a local copy); "Compare with…" on the session page; compare page names the drivers and can change the reference, remove and add laps | Compare own lap vs a team mate's shared lap in the browser |
 | **M5 – F1 25** | Done (synthetic packets; to verify with real recordings, docs/games/f1.md): `sy-source-f1` with both UDP formats checked against the spec's packet sizes, player-only filter before the spool, UDP source on all platforms with forwarding to other apps, flashback = rewind + flag, validity from the game (end-of-lap state + session history), F1 settings in the desktop app (port, other devices, forwarding), `simulate` example, console note in docs | Time trial + race laps recorded with correct validity. Flashback laps flagged |
 | **M6 – LMU** | Done (synthetic data; to verify with real recordings, docs/games/lmu.md): `sy-source-lmu` with the layout written from the official headers (sizes asserted at compile time), event wait + the game's lock, player-only records before the spool, scoring interpolation of the lap distance, lap times/sectors/validity from the game, REST poller for the setup (GET only), *Enable Plugins* hint in the sidebar and settings, VE/battery, ABS/TC active and TC/ABS level charts | Laps recorded with correct times; VE/TC/ABS traces visible |
-| **M7 – Proton bridge + more games** | `sy-bridge.exe` (localhost TCP), Steam launch-option docs; next games by demand (ACC, AC EVO, AMS2, rF2, Forza…) | A Proton game captured on Linux end-to-end |
+| **M7 – Proton bridge + more games** | Done (with a simulated LMU; to verify with the real game, docs/games/proton.md): `sy-bridge` crate with `sy-bridge.exe` (LMU, iRacing) streaming the player-only raw records over 127.0.0.1 TCP, started by Proton with the game via the launch option `PROTON_REMOTE_DEBUG_CMD=… %command%`; the Linux app connects, spools and records them like on Windows, installs the exe at a fixed path in its data directory and shows the launch option under *Settings → Proton bridge*; `--simulate-lmu` for trying it without the game; MinGW cross build (`npm run build:bridge`) in CI and in the Linux packages. Not yet: more games (ACC, AC EVO, AMS2, rF2, Forza…), by demand | A Proton game captured on Linux end-to-end |
 | **Later** | OIDC login, corner insights, micro-sectors, theoretical best, MoTeC export, setups, live overlay | – |
 
 M1 is the biggest milestone. A useful internal split is M1a (capture + store + session list) and M1b (lap view + compare).

@@ -23,6 +23,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 sy-analysis.workspace = true
+sy-bridge.workspace = true
 sy-capture.workspace = true
 sy-model.workspace = true
 sy-source-f1.workspace = true

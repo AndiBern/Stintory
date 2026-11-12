@@ -22,7 +22,10 @@ publish its shared memory `LMU_Data`. Without it, Stintory sees the game
 running (its REST API answers on port 6397) but gets no data, and says so
 in the sidebar and under *Settings → Le Mans Ultimate*.
 
-Recording runs on Windows only. Other telemetry apps keep working: the
+Recording runs on Windows, and on Linux when the game runs in Proton:
+there the Proton bridge (`sy-bridge.exe`, started with the game by a Steam
+launch option) reads the shared memory inside the game's prefix and passes
+it on (docs/games/proton.md). Other telemetry apps keep working: the
 shared memory has any number of readers.
 
 ## Reading the shared memory

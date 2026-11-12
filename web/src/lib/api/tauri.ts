@@ -15,6 +15,7 @@ import type {
 	ExportResult,
 	F1CaptureSettings,
 	LmuCaptureSettings,
+	ProtonBridgeSettings,
 	SyncStatus,
 	ImportProgress,
 	ImportResult,
@@ -147,6 +148,10 @@ export class TauriApi implements ApiClient {
 
 	setLmuCapture(settings: LmuCaptureSettings): Promise<void> {
 		return call('set_lmu_capture', { settings });
+	}
+
+	setProtonBridge(settings: ProtonBridgeSettings): Promise<void> {
+		return call('set_proton_bridge', { settings });
 	}
 
 	deleteRawRecordings(): Promise<void> {

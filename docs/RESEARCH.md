@@ -146,7 +146,7 @@ LMU runs on the rFactor 2 engine. Historically all tools used the third-party **
   - `simshmbridge`: a Linux program creates a `/dev/shm` file, and a bridge `.exe` in the prefix creates the Windows mapping backed by that file before the game starts (AC/ACC, AMS2/PC2, LMU, rF2).
   - `winecarte`: mirrors Win32 named mappings into `/dev/shm`.
   - `Datalink`: changes the Proton launch command to start a bridge, which then launches the game.
-- **Our plan:** our own tiny `sy-bridge.exe`, built from the same Rust capture code and cross-compiled. It reads the mapping inside the prefix and streams frames over **localhost TCP** to the native client. That needs no `/dev/shm` tricks or start-order constraints, and it works for every shared-memory game we add. Steam launch option: `sy-bridge.exe --launch %command%`.
+- **Our plan:** our own tiny `sy-bridge.exe`, built from the same Rust capture code and cross-compiled. It reads the mapping inside the prefix and streams frames over **localhost TCP** to the native client. That needs no `/dev/shm` tricks or start-order constraints, and it works for every shared-memory game we add. Steam launch option: `PROTON_REMOTE_DEBUG_CMD=/path/sy-bridge.exe %command%`: Proton's launcher (checked in the `proton` script of Proton 9.0) starts that program with the game's Wine and prefix just before the game and kills it when the game exits. Implemented in M7, see docs/games/proton.md.
 
 ---
 

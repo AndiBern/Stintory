@@ -12,14 +12,14 @@ use sy_capture::pipeline::{self, RunOptions};
 use sy_model::api::{
     AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ExportRequest, ExportResult,
     F1CaptureSettings, ImportProgress, ImportResult, LapSummary, LmuCaptureSettings, OriginView,
-    REFERENCE_LAPS_MAX, RecorderStatus, ReferenceLap, ReferenceScope, SessionDetail,
-    SessionSummary, Settings, SyncStatus,
+    ProtonBridgeSettings, REFERENCE_LAPS_MAX, RecorderStatus, ReferenceLap, ReferenceScope,
+    SessionDetail, SessionSummary, Settings, SyncStatus,
 };
 use sy_model::{LapId, Origin, SessionId};
 use sy_source_iracing::IbtSource;
 use sy_store::{
     EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, F1_CAPTURE, KEEP_RAW_RECORDINGS,
-    LMU_CAPTURE, SpoolState, Store, StoreError,
+    LMU_CAPTURE, PROTON_BRIDGE, SpoolState, Store, StoreError,
 };
 use tauri::{AppHandle, Emitter, State};
 
@@ -492,15 +492,34 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
                 f1_listening: None,
                 f1_error: None,
                 lmu_capture: store.setting(LMU_CAPTURE)?.unwrap_or_default(),
-                lmu_available: cfg!(windows),
+                // on Linux through the Proton bridge
+                lmu_available: true,
                 lmu_status: None,
                 lmu_hint: None,
+                bridge_available: cfg!(not(windows)),
+                proton_bridge: store.setting(PROTON_BRIDGE)?.unwrap_or_default(),
+                bridge_status: None,
+                bridge_error: None,
+                bridge_exe: None,
+                bridge_launch_option: None,
             })
         })
         .await
         .map(|mut s| {
             (s.f1_listening, s.f1_error) = state.f1.status();
-            (s.lmu_status, s.lmu_hint) = state.lmu.status();
+            if s.bridge_available {
+                (s.lmu_status, s.lmu_hint) = state.bridge.lmu_status();
+                (s.bridge_status, s.bridge_error) = state.bridge.status();
+                if let Some(exe) = state.bridge.exe() {
+                    match crate::recording::launch_option(&exe, s.proton_bridge.port) {
+                        Ok(o) => s.bridge_launch_option = Some(o),
+                        Err(e) => s.bridge_error = s.bridge_error.take().or(Some(e)),
+                    }
+                    s.bridge_exe = Some(exe.display().to_string());
+                }
+            } else {
+                (s.lmu_status, s.lmu_hint) = state.lmu.status();
+            }
             s
         })?)
 }
@@ -530,6 +549,26 @@ pub async fn set_lmu_capture(
         .with_store(move |s| s.set_setting(LMU_CAPTURE, &settings))
         .await?;
     state.lmu.changed();
+    state.bridge.changed();
+    Ok(())
+}
+
+/// Settings of the Proton bridge (Linux). Applied as soon as no game is
+/// being recorded through it.
+#[tauri::command]
+pub async fn set_proton_bridge(
+    state: State<'_, AppState>,
+    settings: ProtonBridgeSettings,
+) -> CmdResult<()> {
+    if settings.port < 1024 {
+        return Err(CommandError::BadRequest(
+            "choose a port from 1024 to 65535".into(),
+        ));
+    }
+    state
+        .with_store(move |s| s.set_setting(PROTON_BRIDGE, &settings))
+        .await?;
+    state.bridge.changed();
     Ok(())
 }
 

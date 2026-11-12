@@ -198,6 +198,10 @@ export class HttpApi implements ApiClient, AccountApi {
 		return Promise.reject(notAvailable('Recording'));
 	}
 
+	setProtonBridge(): Promise<void> {
+		return Promise.reject(notAvailable('Recording'));
+	}
+
 	deleteRawRecordings(): Promise<void> {
 		return Promise.reject(notAvailable('Local settings'));
 	}

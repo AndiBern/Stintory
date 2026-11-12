@@ -48,7 +48,9 @@
 	<h2 class="mb-1 font-medium">Le Mans Ultimate</h2>
 	{#if settings.lmuAvailable}
 		<p class="mb-3 text-sm text-zinc-400">
-			Stintory reads the game's own shared memory. In Le Mans Ultimate turn on
+			Stintory reads the game's own shared memory{#if settings.bridgeAvailable}
+				through the Proton bridge: start the game with the launch option under
+				<em>Proton bridge</em> below{/if}. In Le Mans Ultimate turn on
 			<em>Settings → Gameplay → Enable Plugins</em> once and restart the game; no plugin needs to be installed.
 			Recording starts when you drive out of the garage.
 		</p>

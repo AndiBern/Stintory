@@ -26,6 +26,8 @@ pub const SYNC_AUTO: &str = "sync.auto";
 pub const F1_CAPTURE: &str = "capture.f1";
 /// Setting: recording Le Mans Ultimate (`sy_model::api::LmuCaptureSettings`).
 pub const LMU_CAPTURE: &str = "capture.lmu";
+/// Setting: the Proton bridge (`sy_model::api::ProtonBridgeSettings`).
+pub const PROTON_BRIDGE: &str = "capture.proton_bridge";
 /// Setting: the device token, only when the system keychain is unavailable
 /// (`String`).
 pub const SYNC_TOKEN_FALLBACK: &str = "sync.token";

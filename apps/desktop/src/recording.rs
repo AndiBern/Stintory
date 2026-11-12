@@ -3,13 +3,16 @@
 
 //! Background work: crash recovery at startup and the live recording
 //! supervisors (docs/PLAN.md §5): iRacing and Le Mans Ultimate (Windows,
-//! shared memory) and F1 25 (every platform, UDP).
+//! shared memory; on Linux through the Proton bridge) and F1 25 (every
+//! platform, UDP).
 
 use std::net::{SocketAddr, ToSocketAddrs};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use sy_bridge::{BridgeView, GameState, SharedView};
 use sy_capture::RecorderOutput;
 use sy_capture::pipeline::{RunOptions, SharedStore, Sink, finish_spool, run};
 use sy_capture::spool::SpoolWriter;
@@ -70,7 +73,6 @@ impl StatusReporter {
     }
 
     /// Sets the hint shown while waiting (only sends an event on change).
-    #[cfg_attr(not(windows), allow(dead_code))]
     fn hint(&self, hint: Option<&str>) {
         let changed = {
             let s = self.status.lock().unwrap_or_else(|e| e.into_inner());
@@ -282,14 +284,9 @@ impl LmuCapture {
         self.generation.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// (status, hint) for the settings page.
+    /// (status, hint) for the settings page (Windows; on Linux see
+    /// [`BridgeCapture::lmu_status`]).
     pub fn status(&self) -> (Option<String>, Option<String>) {
-        if !cfg!(windows) {
-            return (
-                Some("Le Mans Ultimate can only be recorded on Windows.".into()),
-                None,
-            );
-        }
         self.status
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -304,8 +301,192 @@ impl LmuCapture {
 }
 
 /// Shown when LMU runs without its shared memory.
-#[cfg_attr(not(windows), allow(dead_code))]
 pub const LMU_PLUGINS_HINT: &str = "Le Mans Ultimate is running but shares no telemetry. In the game, turn on Settings → Gameplay → Enable Plugins, then restart the game.";
+
+/// What to tell the user about LMU in a state: (status, hint).
+fn lmu_state_text(state: GameState) -> (&'static str, Option<&'static str>) {
+    match state {
+        GameState::NotRunning => ("Waiting for Le Mans Ultimate.", None),
+        GameState::NoSharedMemory => ("Le Mans Ultimate is running.", Some(LMU_PLUGINS_HINT)),
+        GameState::UnknownLayout => (
+            "This version of Le Mans Ultimate shares its data in a layout Stintory doesn't know yet. Please update Stintory.",
+            None,
+        ),
+        GameState::Idle => (
+            "Connected to Le Mans Ultimate; recording starts on track.",
+            None,
+        ),
+        GameState::Driving => ("Recording Le Mans Ultimate.", None),
+    }
+}
+
+/// The Proton bridge (Linux): `sy-bridge.exe` and the connection to it,
+/// shared with the settings commands.
+#[derive(Debug, Default)]
+pub struct BridgeCapture {
+    /// Bumped when the bridge or LMU settings change
+    generation: AtomicU64,
+    /// What the bridge reports
+    view: SharedView,
+    /// (status, connection error)
+    status: Mutex<(Option<String>, Option<String>)>,
+    /// Where `sy-bridge.exe` was installed, or why it wasn't
+    exe: Mutex<Option<Result<PathBuf, String>>>,
+}
+
+impl BridgeCapture {
+    /// The settings changed: reconnect with them.
+    pub fn changed(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn view(&self) -> BridgeView {
+        self.view.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// (status, error) for the settings page.
+    pub fn status(&self) -> (Option<String>, Option<String>) {
+        let (status, error) = self
+            .status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let install_error = match &*self.exe.lock().unwrap_or_else(|e| e.into_inner()) {
+            Some(Err(e)) => Some(e.clone()),
+            _ => None,
+        };
+        (status, error.or(install_error))
+    }
+
+    #[cfg_attr(windows, allow(dead_code))]
+    fn set_status(&self, status: &str, error: Option<String>) {
+        *self.status.lock().unwrap_or_else(|e| e.into_inner()) = (Some(status.to_owned()), error);
+    }
+
+    /// Where `sy-bridge.exe` is.
+    pub fn exe(&self) -> Option<PathBuf> {
+        match &*self.exe.lock().unwrap_or_else(|e| e.into_inner()) {
+            Some(Ok(p)) => Some(p.clone()),
+            _ => None,
+        }
+    }
+
+    /// Records where `sy-bridge.exe` was installed, or why it wasn't.
+    pub fn set_exe(&self, exe: Result<PathBuf, String>) {
+        *self.exe.lock().unwrap_or_else(|e| e.into_inner()) = Some(exe);
+    }
+
+    /// (status, hint) of Le Mans Ultimate as the bridge sees it.
+    pub fn lmu_status(&self) -> (Option<String>, Option<String>) {
+        let view = self.view();
+        if view.bridge_version.is_none() {
+            return (
+                Some("On Linux, Stintory records Le Mans Ultimate through the Proton bridge. Start the game with the bridge's launch option (see Proton bridge below).".into()),
+                None,
+            );
+        }
+        match view.states.get(&GameId::Lmu) {
+            Some(&state) => {
+                let (status, hint) = lmu_state_text(state);
+                (Some(status.into()), hint.map(str::to_owned))
+            }
+            None => (Some("Connected to the Proton bridge.".into()), None),
+        }
+    }
+}
+
+/// Name of the bridge executable.
+pub const BRIDGE_EXE: &str = "sy-bridge.exe";
+
+/// Puts `sy-bridge.exe` at a fixed place in the data directory, so the
+/// Steam launch option keeps working across updates (an AppImage runs from
+/// a new temporary mount every time). Looks for it in the app's resources,
+/// next to the app, in the Windows cross build (development), or at
+/// `$STINTORY_BRIDGE_EXE`; keeps an earlier copy if none is found.
+pub fn install_bridge(resource_dir: Option<&Path>, data_dir: &Path) -> Result<PathBuf, String> {
+    let target = data_dir.join("proton").join(BRIDGE_EXE);
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf));
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    candidates.extend(std::env::var_os("STINTORY_BRIDGE_EXE").map(PathBuf::from));
+    candidates.extend(resource_dir.map(|d| d.join(BRIDGE_EXE)));
+    if let Some(dir) = &exe_dir {
+        candidates.push(dir.join(BRIDGE_EXE));
+        // development: target/{debug,release}/stintory and
+        // target/x86_64-pc-windows-gnu/release/sy-bridge.exe
+        if let Some(target_dir) = dir.parent() {
+            for profile in ["release", "debug"] {
+                candidates.push(
+                    target_dir
+                        .join("x86_64-pc-windows-gnu")
+                        .join(profile)
+                        .join(BRIDGE_EXE),
+                );
+            }
+        }
+    }
+    let Some(source) = candidates.into_iter().find(|p| p.is_file()) else {
+        return if target.is_file() {
+            Ok(target)
+        } else {
+            Err(format!(
+                "This build of Stintory doesn't include {BRIDGE_EXE}. Build it with `npm run build:bridge`, or put it at {}.",
+                target.display()
+            ))
+        };
+    };
+    let bytes = std::fs::read(&source).map_err(|e| format!("{}: {e}", source.display()))?;
+    if std::fs::read(&target).ok().as_deref() == Some(&bytes[..]) {
+        return Ok(target);
+    }
+    let dir = target.parent().expect("has a parent");
+    let tmp = dir.join(format!(".{BRIDGE_EXE}.tmp"));
+    std::fs::create_dir_all(dir)
+        .and_then(|()| std::fs::write(&tmp, &bytes))
+        .and_then(|()| std::fs::rename(&tmp, &target))
+        .map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            format!("can't copy {BRIDGE_EXE} to {}: {e}", target.display())
+        })?;
+    tracing::info!(from = %source.display(), to = %target.display(), "installed the Proton bridge");
+    Ok(target)
+}
+
+/// The Steam launch option that starts `exe` with a game. Steam runs it
+/// through a shell, then Proton splits `PROTON_REMOTE_DEBUG_CMD` like a
+/// shell (Python's `shlex`) and starts it with Wine in the game's prefix.
+pub fn launch_option(exe: &Path, port: u16) -> Result<String, String> {
+    let path = exe
+        .to_str()
+        .ok_or("the path of sy-bridge.exe isn't valid UTF-8")?;
+    if path
+        .chars()
+        .any(|c| matches!(c, '\'' | '"' | '$' | '`' | '\\') || c.is_control())
+    {
+        return Err(format!(
+            "The path {path} has characters a launch option can't hold; move Stintory's data directory."
+        ));
+    }
+    let plain = |s: &str| {
+        s.chars().all(|c| {
+            c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+' | ':' | '@')
+        })
+    };
+    let mut cmd = if plain(path) {
+        path.to_owned()
+    } else {
+        format!("'{path}'")
+    };
+    if port != sy_bridge::DEFAULT_PORT {
+        cmd.push_str(&format!(" --port {port}"));
+    }
+    Ok(if plain(&cmd) {
+        format!("PROTON_REMOTE_DEBUG_CMD={cmd} %command%")
+    } else {
+        format!("PROTON_REMOTE_DEBUG_CMD=\"{cmd}\" %command%")
+    })
+}
 
 /// No F1 packets for this long after a session ended: the recording ends
 /// (game closed, or in the menus).
@@ -391,7 +572,7 @@ fn wait_for_change(ctx: &Context, settings: &AtomicU64, generation: u64, max: Du
 }
 
 /// Starts the live recording supervisors: F1 25 on every platform, iRacing
-/// and Le Mans Ultimate on Windows.
+/// and Le Mans Ultimate on Windows, the Proton bridge on Linux.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_supervisor(
     app: AppHandle,
@@ -401,6 +582,7 @@ pub fn spawn_supervisor(
     sync: Arc<SyncManager>,
     f1: Arc<F1Capture>,
     lmu: Arc<LmuCapture>,
+    bridge: Arc<BridgeCapture>,
 ) {
     let ctx = Context {
         store,
@@ -426,9 +608,116 @@ pub fn spawn_supervisor(
             .name("recorder-iracing".into())
             .spawn(move || supervise_iracing(ctx))
             .expect("spawn iRacing recorder thread");
+        drop(bridge);
     }
     #[cfg(not(windows))]
-    drop(lmu);
+    {
+        drop(lmu);
+        std::thread::Builder::new()
+            .name("recorder-bridge".into())
+            .spawn(move || supervise_bridge(ctx, bridge))
+            .expect("spawn Proton bridge thread");
+    }
+}
+
+/// Connects to the Proton bridge while a game started with it runs, and
+/// records the games' records like the Windows recorders do.
+#[cfg(not(windows))]
+fn supervise_bridge(ctx: Context, bridge: Arc<BridgeCapture>) {
+    use sy_bridge::BridgeError;
+    use sy_bridge::client::{BridgeClient, Event};
+    use sy_model::api::{LmuCaptureSettings, ProtonBridgeSettings};
+
+    while !ctx.stopping() {
+        let generation = bridge.generation.load(Ordering::Relaxed);
+        let (settings, lmu): (ProtonBridgeSettings, LmuCaptureSettings) = ctx.store.with(|s| {
+            (
+                s.setting(sy_store::PROTON_BRIDGE)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+                s.setting(sy_store::LMU_CAPTURE)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+            )
+        });
+        if !settings.enabled {
+            bridge.set_status("Off.", None);
+            ctx.reporter.hint(None);
+            wait_for_change(
+                &ctx,
+                &bridge.generation,
+                generation,
+                Duration::from_secs(3600),
+            );
+            continue;
+        }
+        let mut games = vec![GameId::Iracing];
+        if lmu.enabled {
+            games.push(GameId::Lmu);
+        }
+        let addr = SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, settings.port));
+        let mut client = match BridgeClient::connect(
+            addr,
+            &games,
+            env!("CARGO_PKG_VERSION"),
+            bridge.view.clone(),
+            Duration::from_millis(500),
+        ) {
+            Ok(c) => c,
+            // nobody listens: no game with the bridge runs
+            Err(BridgeError::Io(_)) => {
+                bridge.set_status(
+                    &format!("Waiting for a game started with the bridge ({addr})."),
+                    None,
+                );
+                wait_for_change(&ctx, &bridge.generation, generation, Duration::from_secs(2));
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!(%addr, error = %e, "can't use the Proton bridge");
+                bridge.set_status("Can't use the Proton bridge.", Some(e.to_string()));
+                wait_for_change(&ctx, &bridge.generation, generation, Duration::from_secs(5));
+                continue;
+            }
+        };
+        let version = bridge.view().bridge_version.unwrap_or_default();
+        tracing::info!(%addr, bridge = %version, "connected to the Proton bridge");
+        bridge.set_status(
+            &format!("Connected to the bridge (sy-bridge {version})."),
+            None,
+        );
+        while !ctx.stopping() && bridge.generation.load(Ordering::Relaxed) == generation {
+            match client.next(Duration::from_millis(500)) {
+                Ok(Some(Event::Record { game, record })) => {
+                    tracing::info!(%game, "recording through the Proton bridge");
+                    ctx.reporter.hint(None);
+                    let mut source = client.source(game, record);
+                    let ended = source.ended();
+                    ctx.record(game, &mut source, &mut |_| ended.load(Ordering::Relaxed));
+                    if let Some(e) = source.take_error() {
+                        tracing::info!(error = %e, "the Proton bridge went away");
+                        break;
+                    }
+                }
+                Ok(Some(Event::Status {
+                    game: GameId::Lmu,
+                    state,
+                })) => {
+                    ctx.reporter.hint(lmu_state_text(state).1);
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    // normal when the game (and with it the bridge) exits
+                    tracing::info!(error = %e, "the Proton bridge went away");
+                    break;
+                }
+            }
+        }
+        drop(client);
+        ctx.reporter.hint(None);
+    }
 }
 
 /// Records Le Mans Ultimate while the player drives; tells the user when
@@ -457,36 +746,27 @@ fn supervise_lmu(ctx: Context, lmu: Arc<LmuCapture>) {
             wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(3600));
             continue;
         }
-        match LiveSource::probe() {
-            Probe::NotRunning => {
-                lmu.set_status("Waiting for Le Mans Ultimate.", None);
-                ctx.reporter.hint(None);
+        let state = match LiveSource::probe() {
+            Probe::NotRunning => GameState::NotRunning,
+            Probe::NoSharedMemory => GameState::NoSharedMemory,
+            Probe::UnknownLayout => GameState::UnknownLayout,
+            Probe::Idle => GameState::Idle,
+            Probe::Driving => GameState::Driving,
+        };
+        let (status, hint) = lmu_state_text(state);
+        lmu.set_status(status, hint);
+        ctx.reporter.hint(hint);
+        match state {
+            GameState::NotRunning | GameState::NoSharedMemory => {
                 wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(2));
             }
-            Probe::NoSharedMemory => {
-                lmu.set_status("Le Mans Ultimate is running.", Some(LMU_PLUGINS_HINT));
-                ctx.reporter.hint(Some(LMU_PLUGINS_HINT));
-                wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(2));
-            }
-            Probe::UnknownLayout => {
-                lmu.set_status(
-                    "This version of Le Mans Ultimate shares its data in a layout Stintory doesn't know yet. Please update Stintory.",
-                    None,
-                );
-                ctx.reporter.hint(None);
+            GameState::UnknownLayout => {
                 wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(10));
             }
-            Probe::Idle => {
-                lmu.set_status(
-                    "Connected to Le Mans Ultimate; recording starts on track.",
-                    None,
-                );
-                ctx.reporter.hint(None);
+            GameState::Idle => {
                 wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(1));
             }
-            Probe::Driving => {
-                lmu.set_status("Recording Le Mans Ultimate.", None);
-                ctx.reporter.hint(None);
+            GameState::Driving => {
                 tracing::info!("Le Mans Ultimate: player on track, recording");
                 let mut source = LiveSource::new();
                 let driving = source.driving();
@@ -557,5 +837,60 @@ mod tests {
         );
         assert!(f1_config(&settings(20777, false, &["192.168.1.5:20777"])).is_ok());
         assert!(f1_config(&settings(20777, false, &["no address"])).is_err());
+    }
+
+    #[test]
+    fn launch_options_survive_the_shell_and_shlex() {
+        let exe = Path::new("/home/me/.local/share/de.stintory.desktop/proton/sy-bridge.exe");
+        assert_eq!(
+            launch_option(exe, 20790).unwrap(),
+            "PROTON_REMOTE_DEBUG_CMD=/home/me/.local/share/de.stintory.desktop/proton/sy-bridge.exe %command%"
+        );
+        assert_eq!(
+            launch_option(exe, 20800).unwrap(),
+            "PROTON_REMOTE_DEBUG_CMD=\"/home/me/.local/share/de.stintory.desktop/proton/sy-bridge.exe --port 20800\" %command%"
+        );
+        assert_eq!(
+            launch_option(Path::new("/home/Max Mustermann/sy-bridge.exe"), 20790).unwrap(),
+            "PROTON_REMOTE_DEBUG_CMD=\"'/home/Max Mustermann/sy-bridge.exe'\" %command%"
+        );
+        for bad in [
+            "/home/o'neil/sy-bridge.exe",
+            "/tmp/$x/sy-bridge.exe",
+            "/a\"b/sy-bridge.exe",
+        ] {
+            assert!(launch_option(Path::new(bad), 20790).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn the_bridge_is_copied_into_the_data_directory() {
+        let dir = std::env::temp_dir().join(format!("stintory-bridge-test-{}", std::process::id()));
+        let resources = dir.join("resources");
+        let data = dir.join("data");
+        std::fs::create_dir_all(&resources).unwrap();
+        let target = data.join("proton").join(BRIDGE_EXE);
+
+        // nothing anywhere (unless the developer built one next to the app)
+        let dev_build = std::env::current_exe()
+            .ok()
+            .and_then(|p| Some(p.parent()?.parent()?.join("x86_64-pc-windows-gnu")))
+            .is_some_and(|p| p.exists());
+        if !dev_build && std::env::var_os("STINTORY_BRIDGE_EXE").is_none() {
+            let e = install_bridge(Some(&resources), &data).unwrap_err();
+            assert!(e.contains("npm run build:bridge"), "{e}");
+
+            std::fs::write(resources.join(BRIDGE_EXE), b"v1").unwrap();
+            assert_eq!(install_bridge(Some(&resources), &data).unwrap(), target);
+            assert_eq!(std::fs::read(&target).unwrap(), b"v1");
+            // an update replaces it
+            std::fs::write(resources.join(BRIDGE_EXE), b"v2").unwrap();
+            install_bridge(Some(&resources), &data).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"v2");
+            // without a source the earlier copy is used
+            std::fs::remove_file(resources.join(BRIDGE_EXE)).unwrap();
+            assert_eq!(install_bridge(Some(&resources), &data).unwrap(), target);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

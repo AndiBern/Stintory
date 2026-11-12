@@ -173,12 +173,31 @@ export interface Settings {
 	f1Error: string | null;
 	/** Recording Le Mans Ultimate (shared memory) */
 	lmuCapture: LmuCaptureSettings;
-	/** Le Mans Ultimate can be recorded on this platform (Windows) */
+	/** Le Mans Ultimate can be recorded on this platform (Windows; Linux through the Proton bridge) */
 	lmuAvailable: boolean;
 	/** What the app sees of Le Mans Ultimate right now */
 	lmuStatus: string | null;
 	/** Something to do in the game first (e.g. turn on Enable Plugins) */
 	lmuHint: string | null;
+	/** Games in Proton can be recorded through the Proton bridge (Linux) */
+	bridgeAvailable: boolean;
+	/** The Proton bridge */
+	protonBridge: ProtonBridgeSettings;
+	/** What the app sees of the bridge right now */
+	bridgeStatus: string | null;
+	/** Why the bridge can't be used (e.g. sy-bridge.exe is missing) */
+	bridgeError: string | null;
+	/** Where sy-bridge.exe is */
+	bridgeExe: string | null;
+	/** The Steam launch option that starts the bridge with a game */
+	bridgeLaunchOption: string | null;
+}
+
+/** Settings of the Proton bridge (Linux). */
+export interface ProtonBridgeSettings {
+	enabled: boolean;
+	/** TCP port on 127.0.0.1; default 20790 */
+	port: number;
 }
 
 /** Settings for recording Le Mans Ultimate. */

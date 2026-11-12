@@ -1,0 +1,43 @@
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[package]
+name = "sy-bridge"
+description = "Stintory's Proton bridge: reads games' shared memory inside a Wine prefix and streams it to the native Linux client"
+license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "sy-bridge"
+path = "src/main.rs"
+
+[dependencies]
+sy-model = { workspace = true, default-features = false }
+sy-source-lmu.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+
+[target.'cfg(windows)'.dependencies]
+sy-source-iracing.workspace = true
+
+[dev-dependencies]
+sy-capture.workspace = true
+sy-store.workspace = true
+
+# examples/fake_lmu.rs publishes a fake LMU_Data (Windows/Wine)
+[target.'cfg(windows)'.dev-dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Memory",
+  "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true

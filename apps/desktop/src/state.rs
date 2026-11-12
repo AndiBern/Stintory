@@ -9,7 +9,7 @@ use sy_capture::pipeline::SharedStore;
 use sy_model::api::{RecorderState, RecorderStatus};
 use sy_store::{Store, StoreError};
 
-use crate::recording::{F1Capture, LmuCapture};
+use crate::recording::{BridgeCapture, F1Capture, LmuCapture};
 
 /// Shared state of the desktop app, managed by Tauri.
 pub struct AppState {
@@ -23,6 +23,8 @@ pub struct AppState {
     pub f1: Arc<F1Capture>,
     /// Le Mans Ultimate recording, shared with the settings commands
     pub lmu: Arc<LmuCapture>,
+    /// The Proton bridge (Linux), shared with the settings commands
+    pub bridge: Arc<BridgeCapture>,
 }
 
 impl AppState {
@@ -36,6 +38,7 @@ impl AppState {
             shutdown: Arc::new(AtomicBool::new(false)),
             f1: Arc::default(),
             lmu: Arc::default(),
+            bridge: Arc::default(),
         })
     }
 

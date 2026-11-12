@@ -390,6 +390,43 @@ pub struct Settings {
     /// *Enable Plugins*)
     #[serde(default)]
     pub lmu_hint: Option<String>,
+    /// Games in Proton can be recorded through the Proton bridge (Linux)
+    #[serde(default)]
+    pub bridge_available: bool,
+    /// The Proton bridge
+    #[serde(default)]
+    pub proton_bridge: ProtonBridgeSettings,
+    /// What the app sees of the bridge right now
+    #[serde(default)]
+    pub bridge_status: Option<String>,
+    /// Why the bridge can't be used (e.g. `sy-bridge.exe` is missing)
+    #[serde(default)]
+    pub bridge_error: Option<String>,
+    /// Where `sy-bridge.exe` is
+    #[serde(default)]
+    pub bridge_exe: Option<String>,
+    /// The Steam launch option that starts the bridge with a game
+    #[serde(default)]
+    pub bridge_launch_option: Option<String>,
+}
+
+/// Settings of the Proton bridge (Linux: games running in Proton).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProtonBridgeSettings {
+    /// Connect to the bridge when a game starts with it
+    pub enabled: bool,
+    /// TCP port of the bridge on 127.0.0.1 (default 20790)
+    pub port: u16,
+}
+
+impl Default for ProtonBridgeSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            port: 20790,
+        }
+    }
 }
 
 /// Settings for recording Le Mans Ultimate.

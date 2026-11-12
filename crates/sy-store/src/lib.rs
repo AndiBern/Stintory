@@ -32,8 +32,8 @@ mod timefmt;
 pub use blobs::BlobStore;
 pub use bundle::{BundleImport, ExportOptions, ExportSelection, ExportStats};
 pub use settings::{
-    EXPORT_DRIVER_NAME, F1_CAPTURE, KEEP_RAW_RECORDINGS, LMU_CAPTURE, SYNC_AUTO, SYNC_CURSOR,
-    SYNC_SERVER_URL, SYNC_TOKEN_FALLBACK,
+    EXPORT_DRIVER_NAME, F1_CAPTURE, KEEP_RAW_RECORDINGS, LMU_CAPTURE, PROTON_BRIDGE, SYNC_AUTO,
+    SYNC_CURSOR, SYNC_SERVER_URL, SYNC_TOKEN_FALLBACK,
 };
 pub use spools::{RAW_DIR, SpoolEntry, SpoolState};
 pub use store::{SAME_LAP_START_TOLERANCE_S, SAME_SESSION_START_TOLERANCE, Store};

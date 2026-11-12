@@ -77,6 +77,16 @@ jobs:
       # must compile and pass clippy for the Windows target.
       - run: rustup target add x86_64-pc-windows-msvc
       - run: cargo clippy --target x86_64-pc-windows-msvc -p sy-source-iracing -p sy-source-lmu --all-targets --locked -- -D warnings
+      # The Proton bridge (sy-bridge.exe) is cross-built with MinGW; the
+      # Linux packages ship it (npm run build:desktop:linux). MinGW also
+      # builds its examples' C dependencies (examples/fake_lmu.rs).
+      - name: Build the Proton bridge
+        run: |
+          SUDO=$(command -v sudo || true)
+          $SUDO apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+          rustup target add x86_64-pc-windows-gnu
+          cargo clippy --target x86_64-pc-windows-gnu -p sy-bridge --all-targets --locked -- -D warnings
+          cargo build --release --locked -p sy-bridge --target x86_64-pc-windows-gnu
 
   licenses:
     name: Licenses
