@@ -42,6 +42,10 @@ pub struct RecorderConfig {
     /// A lap whose first sample is further than this from the start/finish
     /// line (and not in the pits) was joined mid-lap and is incomplete.
     pub max_start_dist_m: f32,
+    /// Session seconds a finished lap is held back after its end, so that a
+    /// rewind (flashback) back across the line can reopen it. 0 for games
+    /// without rewinds.
+    pub rewind_hold_s: f64,
 }
 
 impl Default for RecorderConfig {
@@ -50,6 +54,7 @@ impl Default for RecorderConfig {
             official_time_wait_s: 5.0,
             min_samples: 10,
             max_start_dist_m: 50.0,
+            rewind_hold_s: 0.0,
         }
     }
 }
@@ -122,6 +127,8 @@ struct PendingLap {
     /// The game already told us what it thinks of this lap (e.g. invalid):
     /// no need to wait for an official time.
     resolved: bool,
+    /// Aborted (incomplete); queued only to keep laps in order
+    aborted: bool,
 }
 
 impl LapBuffer {
@@ -209,6 +216,9 @@ impl Recorder {
             if active.meta != meta {
                 let channels_changed = active.meta.channels != meta.channels;
                 if channels_changed {
+                    // Laps still waiting are built with the old layout.
+                    self.flush_pending(true, out);
+                    let active = self.active.as_mut().expect("checked above");
                     // Frames of the running lap don't match the new layout anymore.
                     if let Some(cur) = active.current.take() {
                         let lap = self.build_lap_from(cur, None, true);
@@ -291,6 +301,7 @@ impl Recorder {
                     end_time,
                     official,
                     resolved: false,
+                    aborted: false,
                 });
             }
             Some(_) => {
@@ -328,7 +339,11 @@ impl Recorder {
         let Some(active) = self.active.as_mut() else {
             return;
         };
-        if let Some(p) = active.pending.iter_mut().find(|p| p.buffer.lap == lap) {
+        if let Some(p) = active
+            .pending
+            .iter_mut()
+            .find(|p| p.buffer.lap == lap && !p.aborted)
+        {
             p.official = Some((lap_time_ms, sector_times_ms));
         } else if active.current.as_ref().is_some_and(|c| c.lap == lap) {
             active.early_times.push((lap, lap_time_ms, sector_times_ms));
@@ -349,7 +364,7 @@ impl Recorder {
                 .as_ref()
                 .and_then(LapBuffer::start_time)
                 .is_none_or(|start| to < start)
-                && a.pending.back().is_some()
+                && a.pending.back().is_some_and(|p| !p.aborted)
         };
         if rewinds_into_pending(active) {
             let reopened = active.pending.pop_back().expect("checked");
@@ -376,7 +391,11 @@ impl Recorder {
                 }
             }
             Some(lap) => {
-                if let Some(p) = active.pending.iter_mut().find(|p| p.buffer.lap == lap) {
+                if let Some(p) = active
+                    .pending
+                    .iter_mut()
+                    .find(|p| p.buffer.lap == lap && !p.aborted)
+                {
                     push_reason(&mut p.buffer.invalid, &reason);
                     p.resolved = true;
                 } else if let Some(cur) = active.current.as_mut().filter(|c| c.lap == lap) {
@@ -390,12 +409,28 @@ impl Recorder {
     }
 
     fn on_lap_aborted(&mut self, reason: String, out: &mut Vec<RecorderOutput>) {
-        let Some(mut cur) = self.active.as_mut().and_then(|a| a.current.take()) else {
+        let Some(active) = self.active.as_mut() else {
+            return;
+        };
+        let Some(mut cur) = active.current.take() else {
             return;
         };
         push_reason(&mut cur.invalid, &reason);
-        if let Some(lap) = self.build_lap_from(cur, None, true) {
-            out.push(RecorderOutput::Lap(Box::new(lap)));
+        if active.pending.is_empty() {
+            if let Some(lap) = self.build_lap_from(cur, None, true) {
+                out.push(RecorderOutput::Lap(Box::new(lap)));
+            }
+        } else {
+            // behind laps still waiting (official time, rewind hold)
+            let end_time = active.last_time;
+            active.pending.push_back(PendingLap {
+                buffer: cur,
+                end_time,
+                official: None,
+                resolved: true,
+                aborted: true,
+            });
+            self.flush_pending(false, out);
         }
     }
 
@@ -424,11 +459,26 @@ impl Recorder {
             return;
         };
         while let Some(front) = active.pending.front() {
-            let expired = active.last_time - front.end_time >= self.config.official_time_wait_s;
-            if !(force || front.official.is_some() || front.resolved || expired) {
+            let waited = active.last_time - front.end_time;
+            let known = front.official.is_some()
+                || front.resolved
+                || waited >= self.config.official_time_wait_s;
+            if !(force || (known && waited >= self.config.rewind_hold_s)) {
                 break;
             }
             let p = active.pending.pop_front().expect("front exists");
+            if p.aborted {
+                let lap = build_lap(
+                    &self.config,
+                    active.session.id,
+                    &active.meta,
+                    p.buffer,
+                    None,
+                    true,
+                );
+                out.extend(lap.map(|l| RecorderOutput::Lap(Box::new(l))));
+                continue;
+            }
             let measured = p.buffer.start_time().map(|s| p.end_time - s);
             let lap = build_lap(
                 &self.config,

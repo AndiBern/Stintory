@@ -435,3 +435,130 @@ fn invalidation_reasons_from_penalties() {
         ]
     );
 }
+
+/// A flashback from just after the line back into the lap before: the game
+/// times that lap again. It comes out once, with the new time.
+#[test]
+fn flashback_back_across_the_line() {
+    let mut g = SimGame::new(Format::F2026);
+    let mut s = Script::default();
+    s.send(&g.session());
+    s.send(&g.participants());
+    s.drive_lap(&mut g); // lap 1
+    while g.dist < 850.0 {
+        s.drive(&mut g, 0.05);
+    }
+    let back = g.clone();
+    s.drive_lap(&mut g); // over the line, 1 s into lap 3
+    s.send(&g.flashback(back.time));
+    g = back;
+    g.speed_kmh = 150; // slower this time: 24 s
+    g.invalid = true;
+    s.send(&g.penalty(10, 31));
+    s.drive_lap(&mut g);
+    s.drive(&mut g, 2.0);
+    s.send(&g.event(b"SEND", &[]));
+
+    let out = record(s);
+    let l = laps(&out);
+    assert_eq!(
+        l.iter().map(|l| summary(l)).collect::<Vec<_>>(),
+        vec![
+            (1, Some(20_000), true, false, false, false, false),
+            (2, Some(24_000), false, false, false, false, true),
+            (3, None, false, false, false, true, false),
+        ]
+    );
+    assert_eq!(l[1].lap.invalid_reason.as_deref(), Some("flashback used"));
+    // one pass over the lap: 17 s at 50 m/s, 3.6 s at 41.7 m/s, 20 Hz
+    let n = l[1].telemetry.len();
+    assert!((405..=425).contains(&n), "{n} samples");
+}
+
+/// Restarting the lap from the time trial menu: the game puts the car
+/// before the line and keeps the lap number. The attempt is incomplete,
+/// the run-up isn't recorded, and the lap counts from the line.
+#[test]
+fn restarting_the_lap() {
+    let mut g = SimGame::new(Format::F2026);
+    let mut s = Script::default();
+    s.send(&g.session());
+    s.send(&g.participants());
+    s.drive_lap(&mut g); // lap 1
+    s.drive(&mut g, 5.0);
+    g.invalid = true;
+    s.send(&g.penalty(10, 26));
+    s.drive(&mut g, 1.0);
+    g.restart_lap(300.0);
+    s.drive_lap(&mut g); // run-up, then lap 2 again: the penalty is gone
+    s.send(&g.event(b"SEND", &[]));
+
+    let out = record(s);
+    let l = laps(&out);
+    assert_eq!(
+        l.iter().map(|l| summary(l)).collect::<Vec<_>>(),
+        vec![
+            (1, Some(20_000), true, false, false, false, false),
+            (2, None, false, false, false, true, false),
+            (2, Some(20_000), true, false, false, false, false),
+            (3, None, false, false, false, true, false),
+        ]
+    );
+    assert_eq!(
+        l[1].lap.invalid_reason.as_deref(),
+        Some("incomplete, lap restarted")
+    );
+    let dist = |i: usize| match &l[i].telemetry.channel("dist").unwrap().data {
+        sy_model::ChannelData::F32(v) => v.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert!(dist(2)[0] < 5.0, "starts at the line: {}", dist(2)[0]);
+    assert!(dist(2).iter().all(|d| *d < 1000.5), "no run-up");
+}
+
+/// Switching the game's UDP format while driving: the session goes on, the
+/// lap running at the switch is cut off.
+#[test]
+fn format_switch_within_a_session() {
+    let mut g = SimGame::new(Format::F2025);
+    let mut s = Script::default();
+    s.send(&g.session());
+    s.send(&g.participants());
+    s.drive_lap(&mut g); // lap 1, format 2025
+    s.drive(&mut g, 5.0);
+    g.format = Format::F2026;
+    s.drive_lap(&mut g); // lap 2: switched halfway
+    s.drive_lap(&mut g); // lap 3, format 2026
+    s.send(&g.event(b"SEND", &[]));
+
+    let out = record(s);
+    let started = out
+        .0
+        .iter()
+        .filter(|o| matches!(o, RecorderOutput::SessionStarted(_)))
+        .count();
+    assert_eq!(started, 1);
+    let l = laps(&out);
+    let complete: Vec<_> = l
+        .iter()
+        .filter(|l| !l.lap.flags.incomplete)
+        .map(|l| (l.lap.number, l.lap.lap_time_ms))
+        .collect();
+    assert_eq!(complete, vec![(1, Some(20_000)), (3, Some(20_000))]);
+    let aero = |l: &RecordedLap| l.telemetry.channel("f1.active_aero_mode").is_some();
+    assert!(!aero(l[0]));
+    assert!(aero(l.iter().find(|l| l.lap.number == 3).unwrap()));
+}
+
+/// Packets from the menus or the garage only: no session.
+#[test]
+fn menus_only_make_no_session() {
+    let mut g = SimGame::new(Format::F2026);
+    g.driver_status = 0;
+    let mut s = Script::default();
+    s.send(&g.session());
+    s.send(&g.participants());
+    s.drive(&mut g, 10.0);
+    let out = record(s);
+    assert!(out.0.is_empty(), "{:?}", out.0.first());
+}

@@ -33,6 +33,14 @@
 //! - Flashback (`FLBK`): rewinds to the event's session time; the recorder
 //!   drops the rewound samples and flags the lap. In time trial the game
 //!   invalidates a lap with a flashback.
+//! - Restart of the lap (time trial menu): the lap time goes back to 0
+//!   while the session time goes on, the lap number stays and the car is
+//!   put before the line. The attempt is aborted ("lap restarted"), the
+//!   run-up skipped, and the lap starts again at the line.
+//! - The UDP format can change within a session (game settings); the
+//!   channels change with it.
+//! - The session starts once the player drives (not in menus, the garage
+//!   or while spectating).
 //! - Before the line the game counts lap 1 with a negative lap distance.
 //!   Outside races that is the out-lap from the pit exit (in time trial up
 //!   to almost a lap): it becomes lap 0, flagged out-lap. In races it is
@@ -103,6 +111,8 @@ struct SessionState {
     setup: Option<CarSetup>,
     motion: Option<CarMotion>,
     lap: Option<LapData>,
+    /// Session time of `lap`
+    lap_time: f32,
     status: Option<CarStatus>,
     motion_ex: Option<MotionEx>,
     telemetry2: Option<CarTelemetry2>,
@@ -122,6 +132,9 @@ struct SessionState {
     finished_lap: Option<u8>,
     /// Reasons for invalidated laps from the game's penalties
     invalidations: Vec<InvalidationNote>,
+    /// After a restart of the lap (time trial), until the car crosses the
+    /// line: the run-up isn't recorded
+    run_up: bool,
 }
 
 /// One channel and how to compute it.
@@ -392,6 +405,7 @@ impl SessionState {
             setup: None,
             motion: None,
             lap: None,
+            lap_time: h.session_time,
             status: None,
             motion_ex: None,
             telemetry2: None,
@@ -404,6 +418,7 @@ impl SessionState {
             out_lap: false,
             finished_lap: None,
             invalidations: Vec::new(),
+            run_up: false,
         }
     }
 
@@ -415,6 +430,11 @@ impl SessionState {
     fn build_meta(&self, now: f32) -> Option<SessionMeta> {
         let s = self.session.as_ref()?;
         if self.participant.is_none() && now - self.first_time < PARTICIPANTS_WAIT_S {
+            return None;
+        }
+        // A session starts once the player drives: not in the menus before
+        // a time trial, in the garage, or while spectating.
+        if self.meta.is_none() && (s.spectating || self.lap.is_none_or(|l| l.driver_status == 0)) {
             return None;
         }
         let team = self.participant.as_ref().map(|p| p.team_id);
@@ -489,12 +509,25 @@ impl SessionState {
         out.push(SourceEvent::Session(Box::new(meta)));
     }
 
-    fn on_lap_data(&mut self, ld: LapData, out: &mut Vec<SourceEvent>) {
+    fn on_lap_data(&mut self, time: f32, ld: LapData, out: &mut Vec<SourceEvent>) {
         let prev = self.lap.replace(ld);
+        let prev_time = std::mem::replace(&mut self.lap_time, time);
         if self.meta.is_none() || self.ended {
             return;
         }
         let Some(prev) = prev else { return };
+        if ld.lap == prev.lap
+            && ld.last_lap_ms == prev.last_lap_ms
+            && time > prev_time
+            && ld.current_lap_ms + 1000 < prev.current_lap_ms
+        {
+            // The lap time went back to 0 while session time went on: the
+            // player restarted the lap (time trial). The game puts the car
+            // before the line, keeps the lap number and starts the lap
+            // again at the line. (A flashback also sets the lap time back,
+            // but with the session time.)
+            self.restart_lap(ld.lap, out);
+        }
         if ld.lap > prev.lap {
             self.lap_completed(&prev, ld.last_lap_ms, out);
         } else if ld.lap == prev.lap
@@ -508,12 +541,40 @@ impl SessionState {
             self.lap_completed(&prev, ld.last_lap_ms, out);
             self.finished_lap = Some(ld.lap);
         }
+        if ld.driver_status == 0 {
+            self.run_up = false; // back in the garage, the next lap is an out-lap
+        }
         if ld.driver_status == 0 && prev.driver_status != 0 && self.frame_lap.is_some() {
             out.push(SourceEvent::LapAborted {
                 reason: "returned to the garage".into(),
             });
             self.frame_lap = None;
         }
+    }
+
+    /// The lap `lap` (game numbering) starts again: the attempt so far is
+    /// incomplete and its penalties don't count.
+    fn restart_lap(&mut self, lap: u8, out: &mut Vec<SourceEvent>) {
+        self.invalidations.retain(|n| n.lap < i32::from(lap));
+        self.run_up = true;
+        if self.frame_lap.is_some() {
+            out.push(SourceEvent::LapAborted {
+                reason: "lap restarted".into(),
+            });
+            self.frame_lap = None;
+        }
+    }
+
+    /// The game switched between UDP formats 2025 and 2026 (possible in its
+    /// settings while driving). The session goes on; the new channel
+    /// layout ends the running lap.
+    fn switch_format(&mut self, format: Format) {
+        tracing::info!(from = ?self.format, to = ?format, "UDP format changed within the session");
+        self.format = format;
+        self.motion = None;
+        self.status = None;
+        self.motion_ex = None;
+        self.telemetry2 = None;
     }
 
     fn is_race(&self) -> bool {
@@ -588,6 +649,13 @@ impl SessionState {
             .session
             .as_ref()
             .map_or(0.0, |s| f32::from(s.track_length_m));
+        if self.run_up {
+            if ld.current_lap_ms > 0 && lap_dist < len / 2.0 {
+                self.run_up = false; // crossed the line
+            } else {
+                return;
+            }
+        }
         if !self.out_lap && len > 0.0 && lap_dist < 0.0 && !self.is_race() {
             self.out_lap = true;
             in_pits = true; // the first sample: flags the out-lap
@@ -679,8 +747,7 @@ impl F1Decoder {
         }
         let s = self.s.as_mut().expect("set above");
         if s.format != h.format {
-            tracing::warn!("UDP format changed within a session, packet ignored");
-            return out;
+            s.switch_format(h.format);
         }
         match h.packet_id {
             id::SESSION => {
@@ -697,7 +764,7 @@ impl F1Decoder {
                     s.update_meta(h.session_time, &mut out);
                 }
             }
-            id::LAP_DATA => s.on_lap_data(LapData::parse(&h, packet), &mut out),
+            id::LAP_DATA => s.on_lap_data(h.session_time, LapData::parse(&h, packet), &mut out),
             id::MOTION => s.motion = Some(CarMotion::parse(&h, packet)),
             id::CAR_STATUS => s.status = Some(CarStatus::parse(&h, packet)),
             id::MOTION_EX => s.motion_ex = Some(MotionEx::parse(packet)),

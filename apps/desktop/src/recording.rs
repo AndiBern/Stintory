@@ -218,7 +218,8 @@ pub struct F1Capture {
 }
 
 impl F1Capture {
-    /// The settings changed: applied as soon as no session is recorded.
+    /// The settings changed: applied right away, or after the recording
+    /// when packets are still arriving.
     pub fn changed(&self) {
         self.generation.fetch_add(1, Ordering::Relaxed);
     }
@@ -529,26 +530,36 @@ fn supervise_f1(ctx: Context, f1: Arc<F1Capture>) {
         };
         tracing::info!(addr = %config.listen, "listening for F1 25 packets");
         f1.set_status(Some(config.listen), None);
-        while !ctx.stopping() && f1.generation.load(Ordering::Relaxed) == generation {
-            let result = source.wait_for_data(Duration::from_millis(500));
+        let unsupported = source.unsupported_format_watch();
+        let status = || {
+            let f = unsupported.load(Ordering::Relaxed);
             f1.set_status(
                 Some(config.listen),
-                source.unsupported_format().map(|f| {
+                (f != 0).then(|| {
                     format!(
                         "The game sends UDP format {f}, which Stintory can't read. In the game's UDP Telemetry Settings, set UDP Format to 2026 or 2025."
                     )
                 }),
             );
+        };
+        while !ctx.stopping() && f1.generation.load(Ordering::Relaxed) == generation {
+            let result = source.wait_for_data(Duration::from_millis(500));
+            status();
             match result {
                 Ok(true) => {
                     tracing::info!("F1 25 is sending telemetry, recording");
                     let open = source.session_open();
                     let mut idle_done = |idle: Duration| {
-                        idle >= if open.load(Ordering::Relaxed) {
-                            F1_PAUSE_MAX
-                        } else {
-                            F1_IDLE_END
-                        }
+                        status();
+                        // new settings (another port): stop waiting for the
+                        // game on the old socket
+                        f1.generation.load(Ordering::Relaxed) != generation
+                            || idle
+                                >= if open.load(Ordering::Relaxed) {
+                                    F1_PAUSE_MAX
+                                } else {
+                                    F1_IDLE_END
+                                }
                     };
                     ctx.record(GameId::F1_25, &mut source, &mut idle_done);
                 }

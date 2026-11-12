@@ -13,7 +13,7 @@
 use std::io::ErrorKind;
 use std::net::{SocketAddr, UdpSocket};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::time::{Duration, Instant};
 
 use sy_model::GameId;
@@ -52,8 +52,8 @@ pub struct UdpSource {
     uid: Option<u64>,
     /// A session started and hasn't ended (`SEND`)
     session_open: Arc<AtomicBool>,
-    /// The game sends a UDP format we don't read (e.g. 2024)
-    unsupported_format: Option<u16>,
+    /// The game sends a UDP format we don't read (e.g. 2024); 0: none
+    unsupported_format: Arc<AtomicU16>,
 }
 
 impl UdpSource {
@@ -67,14 +67,20 @@ impl UdpSource {
             buf: vec![0; MAX_PACKET],
             uid: None,
             session_open: Arc::default(),
-            unsupported_format: None,
+            unsupported_format: Arc::default(),
         })
     }
 
     /// The UDP format of the last packets, if it is one we don't read
     /// (the game is set to an older format, e.g. 2024).
     pub fn unsupported_format(&self) -> Option<u16> {
-        self.unsupported_format
+        Some(self.unsupported_format.load(Ordering::Relaxed)).filter(|f| *f != 0)
+    }
+
+    /// [`unsupported_format`](Self::unsupported_format) to watch while
+    /// the source is in use elsewhere (0: none).
+    pub fn unsupported_format_watch(&self) -> Arc<AtomicU16> {
+        self.unsupported_format.clone()
     }
 
     /// True while a session runs: from its first packet until the game
@@ -141,13 +147,13 @@ impl UdpSource {
                 }
             }
             if let Some(filtered) = player_only(packet) {
-                self.unsupported_format = None;
+                self.unsupported_format.store(0, Ordering::Relaxed);
                 self.track_session(&filtered);
                 let now_ms = (OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000) as i64;
                 return Ok(Some(packet_record(now_ms, &filtered)));
             }
             if let Some(f) = older_format(packet) {
-                self.unsupported_format = Some(f);
+                self.unsupported_format.store(f, Ordering::Relaxed);
             }
         }
     }

@@ -80,6 +80,11 @@ pub struct SimGame {
     pub track_length: u16,
     /// Time of the last lap, ms
     pub last_lap_ms: u32,
+    /// Time of the current lap so far, s
+    pub lap_time_s: f32,
+    /// False on the run-up after [`restart_lap`](Self::restart_lap): the
+    /// lap time stays 0 until the line
+    pub timing: bool,
     /// Sector 1 and 2 times of the current lap, ms
     pub sectors: (u16, u16),
     /// The current lap is invalid
@@ -112,6 +117,8 @@ impl SimGame {
             dist: 0.0,
             track_length: 1000,
             last_lap_ms: 0,
+            lap_time_s: 0.0,
+            timing: true,
             sectors: (0, 0),
             invalid: false,
             pit: 0,
@@ -197,6 +204,7 @@ impl SimGame {
         let mut lap = self.packet(id::LAP_DATA);
         let at = lap.car(self.player, 0);
         lap.put(at, &self.last_lap_ms.to_le_bytes())
+            .put(at + 4, &((self.lap_time_s * 1000.0) as u32).to_le_bytes())
             .put(at + 8, &self.sectors.0.to_le_bytes())
             .put(at + 11, &self.sectors.1.to_le_bytes())
             .put(at + 20, &self.dist.to_le_bytes())
@@ -229,15 +237,35 @@ impl SimGame {
         out
     }
 
+    /// Restarts the lap as the time trial menu does: the car is put
+    /// `run_up_m` before the line, the lap time is 0 until the line, and the
+    /// lap number stays.
+    pub fn restart_lap(&mut self, run_up_m: f32) {
+        self.dist = f32::from(self.track_length) - run_up_m;
+        self.lap_time_s = 0.0;
+        self.timing = false;
+        self.invalid = false;
+        self.sectors = (0, 0);
+    }
+
     /// Advances by `dt` seconds at constant speed. Crossing the line starts
     /// the next lap with `last_lap_ms` set (sectors split in thirds) and
-    /// adds the finished lap to the history.
+    /// adds the finished lap to the history; after a restart it starts the
+    /// same lap again.
     pub fn advance(&mut self, dt: f32) {
         self.time += dt;
+        if self.timing {
+            self.lap_time_s += dt;
+        }
         self.dist += f32::from(self.speed_kmh) / 3.6 * dt;
         let len = f32::from(self.track_length);
-        if self.dist >= len {
+        if self.dist >= len && !self.timing {
             self.dist -= len;
+            self.timing = true;
+            self.lap_time_s = 0.0;
+        } else if self.dist >= len {
+            self.dist -= len;
+            self.lap_time_s = 0.0;
             let lap_ms = (len / (f32::from(self.speed_kmh) / 3.6) * 1000.0).round() as u32;
             self.last_lap_ms = lap_ms;
             self.history.push((lap_ms, !self.invalid));

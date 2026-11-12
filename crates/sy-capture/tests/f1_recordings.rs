@@ -10,8 +10,9 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use sy_capture::pipeline::recorder_config;
 use sy_capture::pipeline::{SpoolChain, SpoolSource};
-use sy_capture::{Decoder, RawSource, RecordedLap, Recorder, RecorderConfig, RecorderOutput};
+use sy_capture::{Decoder, RawSource, RecordedLap, Recorder, RecorderOutput};
 use sy_model::channel::names;
 use sy_model::{ChannelData, Session};
 use sy_source_f1::F1Decoder;
@@ -23,6 +24,12 @@ fn recordings() -> Vec<PathBuf> {
         .flatten()
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.extension().is_some_and(|x| x == "syraw"))
+        // the debug dumps can be limited to some files
+        .filter(|p| {
+            std::env::var("F1_RECORDING").map_or(true, |f| {
+                f.split(',').any(|f| p.to_string_lossy().contains(f.trim()))
+            })
+        })
         .collect();
     files.sort();
     files
@@ -40,7 +47,7 @@ fn replay(path: &std::path::Path) -> Recorded {
 fn replay_all(paths: &[PathBuf]) -> Recorded {
     let mut source = SpoolChain::open(paths).expect("open spools");
     let mut decoder = F1Decoder::new();
-    let mut recorder = Recorder::new(RecorderConfig::default());
+    let mut recorder = Recorder::new(recorder_config(sy_model::GameId::F1_25));
     let mut out = Vec::new();
     while let Some(rec) = source.next_record(Duration::ZERO).expect("read") {
         for event in decoder.decode(&rec).expect("decode") {
@@ -273,6 +280,155 @@ fn brazil_race_f1_world() {
     assert!((-45.0..-40.0).contains(&d[0]), "{}", d[0]);
 }
 
+/// Time trial in Austria with the F1 26 Ferrari (Nov 2026), checking the
+/// invalidation reasons: running wide in 1 and 2 (2 was a cut over grass,
+/// the game calls it running wide), a flashback in 3, running wide before
+/// the line in 4 ("this and next lap", so 5 too), a flashback in lap 7
+/// back across the line into lap 6 (the game re-times lap 6 and
+/// invalidates it), lap 7 clean, then a restart of lap 8 from the menu:
+/// the game puts the car before the line and keeps the lap number. Times
+/// and validity match the game's lap history.
+#[test]
+fn austria_f1_26_track_limits_and_restart() {
+    let Some(path) = recording(1_794_479_460) else {
+        return;
+    };
+    let r = replay(&path);
+    check(
+        &r,
+        "Austria",
+        "f1_25:477/13",
+        "Ferrari (F1 26)",
+        &[
+            (0, None, true, true, false, false),
+            (1, Some(69_539), false, false, false, false),
+            (2, Some(69_494), false, false, false, false),
+            (3, Some(69_515), false, false, true, false),
+            (4, Some(68_967), false, false, false, false),
+            (5, Some(69_837), false, false, false, false),
+            (6, Some(67_898), false, false, true, false),
+            (7, Some(67_467), true, false, false, false),
+            (8, None, false, false, false, true),
+            (8, Some(67_185), true, false, false, false),
+            (9, None, false, false, false, true),
+        ],
+    );
+    let reasons: Vec<_> = r
+        .laps
+        .iter()
+        .map(|l| l.lap.invalid_reason.as_deref())
+        .collect();
+    assert_eq!(
+        reasons[1..9],
+        [
+            Some("running wide"),
+            Some("running wide"),
+            Some("flashback used"),
+            Some("running wide"),
+            Some("running wide"),
+            Some("flashback used"),
+            None,
+            Some("incomplete, lap restarted"),
+        ]
+    );
+    // the restarted lap starts at the line, without the run-up
+    let d = f32s(&r.laps[9], names::DIST);
+    assert!(d[0] < 5.0, "{}", d[0]);
+}
+
+/// Silverstone: the game sat in the menu before the time trial (session
+/// time 0) and was never driven. No session.
+#[test]
+fn silverstone_menu_only() {
+    let Some(path) = recording(1_794_480_342) else {
+        return;
+    };
+    let r = replay(&path);
+    assert!(r.sessions.is_empty());
+    assert!(r.laps.is_empty());
+}
+
+/// Spa with the Alpine (F1 2025), time trial: the game sent UDP format 2025
+/// at first (most of it didn't arrive), then the player restarted the lap,
+/// switched to format 2026 in the game's settings, restarted again and
+/// drove a lap. The session goes on across the switch.
+#[test]
+fn spa_format_switch() {
+    let Some(path) = recording(1_794_480_939) else {
+        return;
+    };
+    let r = replay(&path);
+    check(
+        &r,
+        "Spa",
+        "f1_25:5/0",
+        "Alpine (F1 2025)",
+        &[
+            (2, None, false, false, false, true),
+            (2, None, false, false, false, true),
+            (2, None, false, false, false, true),
+            (2, Some(108_998), true, false, false, false),
+            (3, None, false, false, false, true),
+        ],
+    );
+    assert_eq!(
+        r.sessions[0].session_info.as_ref().unwrap()["udp_format"],
+        2026
+    );
+    assert!(r.laps[3].telemetry.channel("f1.active_aero_mode").is_some());
+}
+
+/// Hungaroring with the Red Bull (F1 2025), time trial in UDP format 2025.
+#[test]
+fn hungaroring_format_2025() {
+    let Some(path) = recording(1_794_481_478) else {
+        return;
+    };
+    let r = replay(&path);
+    check(
+        &r,
+        "Hungaroring",
+        "f1_25:2/0",
+        "Red Bull Racing (F1 2025)",
+        &[
+            (0, None, true, true, false, false),
+            (1, Some(86_914), true, false, false, false),
+            (2, None, false, false, false, true),
+        ],
+    );
+    assert_eq!(
+        r.sessions[0].session_info.as_ref().unwrap()["udp_format"],
+        2025
+    );
+    assert_eq!(r.laps[1].lap.sector_times_ms, vec![28_596, 33_607, 24_711]);
+}
+
+/// Five-lap race in Shanghai with the F1 26 Cadillac: standing start (the
+/// grid is after the line here), a pit stop at the end of lap 2, a pause
+/// in lap 4, the flag at the end of lap 5.
+#[test]
+fn shanghai_race_pit_stop() {
+    let Some(path) = recording(1_794_481_898) else {
+        return;
+    };
+    let r = replay(&path);
+    check(
+        &r,
+        "Shanghai",
+        "f1_25:486/13",
+        "Cadillac (F1 26)",
+        &[
+            (1, Some(117_543), true, false, false, false),
+            (2, Some(128_419), true, false, false, false),
+            (3, Some(124_881), true, true, false, false),
+            (4, Some(99_336), true, false, false, false),
+            (5, Some(101_772), true, false, false, false),
+        ],
+    );
+    assert!(r.laps[1].lap.flags.in_lap);
+    assert!(!r.laps[2].lap.flags.in_lap && !r.laps[3].lap.flags.out_lap);
+}
+
 /// Every recording: timed laps start at the line, the map is not mirrored
 /// (steering left turns the path counter-clockwise) and lateral g is
 /// positive in right-hand turns.
@@ -280,7 +436,10 @@ fn brazil_race_f1_world() {
 fn axes_and_distances() {
     for path in recordings() {
         let r = replay(&path);
-        let race = r.sessions[0].session_type == sy_model::SessionType::Race;
+        let Some(session) = r.sessions.first() else {
+            continue; // never drove (menus only)
+        };
+        let race = session.session_type == sy_model::SessionType::Race;
         // a race's lap 1 starts on the grid
         for l in r.laps.iter().filter(|l| !(race && l.lap.number == 1)) {
             let d = f32s(l, names::DIST);
@@ -541,5 +700,110 @@ fn dump_ends() {
         }
         println!("  {}", tail.last().cloned().unwrap_or_default());
         println!("  history {:?}", last_hist);
+    }
+}
+
+/// Debug: lap data twice a second between two session times
+/// (F1_FROM/F1_TO, run with --ignored).
+#[test]
+#[ignore]
+fn dump_window() {
+    use sy_source_f1::packets::{CarMotion, Event, Header, LapData, Session, id};
+    let env = |k: &str, d: f32| {
+        std::env::var(k)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(d)
+    };
+    let (from, to) = (env("F1_FROM", 0.0), env("F1_TO", f32::MAX));
+    for path in recordings() {
+        println!("== {}", path.file_name().unwrap().to_string_lossy());
+        let mut source = SpoolSource::open(&path).unwrap();
+        let mut next = 0.0f32;
+        let mut pos = (0.0, 0.0);
+        while let Some(rec) = source.next_record(Duration::ZERO).unwrap() {
+            let ts = i64::from_le_bytes(rec.payload[..8].try_into().unwrap());
+            let p = &rec.payload[8..];
+            let Ok(h) = Header::parse(p) else { continue };
+            if h.session_time < from || h.session_time > to {
+                continue;
+            }
+            match h.packet_id {
+                id::MOTION => {
+                    let m = CarMotion::parse(&h, p);
+                    pos = (m.position[0], m.position[2]);
+                }
+                id::EVENT => println!("  wall={ts} t={:8.3} {:?}", h.session_time, Event::parse(p)),
+                id::SESSION => {
+                    let s = Session::parse(&h, p);
+                    if s.paused {
+                        println!("  wall={ts} t={:8.3} paused", h.session_time);
+                    }
+                }
+                id::LAP_DATA if h.session_time >= next || (h.session_time - next).abs() > 5.0 => {
+                    next = h.session_time + 0.5;
+                    let l = LapData::parse(&h, p);
+                    println!(
+                        "  wall={ts} t={:8.3} fmt={:?} lap={} dist={:7.1} cur={} last={} pit={} drv={} inv={} res={} pos=({:.0},{:.0})",
+                        h.session_time,
+                        h.format,
+                        l.lap,
+                        l.lap_distance_m,
+                        l.current_lap_ms,
+                        l.last_lap_ms,
+                        l.pit_status,
+                        l.driver_status,
+                        l.lap_invalid,
+                        l.result_status,
+                        pos.0,
+                        pos.1
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Debug: packets per 10 s of wall time, by format and packet id (run with
+/// --ignored).
+#[test]
+#[ignore]
+fn dump_rates() {
+    use sy_source_f1::packets::Header;
+    for path in recordings() {
+        println!("== {}", path.file_name().unwrap().to_string_lossy());
+        let mut source = SpoolSource::open(&path).unwrap();
+        let mut bucket: Option<i64> = None;
+        let mut counts = std::collections::BTreeMap::new();
+        let mut t = (0.0f32, 0.0f32);
+        let flush = |b: i64, counts: &std::collections::BTreeMap<(u16, u8), u32>, t: (f32, f32)| {
+            println!("  +{:4}s t={:7.1}..{:7.1} {:?}", b * 10, t.0, t.1, counts);
+        };
+        let mut first = None;
+        while let Some(rec) = source.next_record(Duration::ZERO).unwrap() {
+            let ts = i64::from_le_bytes(rec.payload[..8].try_into().unwrap());
+            let first = *first.get_or_insert(ts);
+            let b = (ts - first) / 10_000;
+            let p = &rec.payload[8..];
+            let fmt = u16::from_le_bytes([p[0], p[1]]);
+            let (id, time) = match Header::parse(p) {
+                Ok(h) => (h.packet_id, h.session_time),
+                Err(_) => (255, 0.0),
+            };
+            if bucket != Some(b) {
+                if let Some(old) = bucket {
+                    flush(old, &counts, t);
+                }
+                counts.clear();
+                bucket = Some(b);
+                t = (time, time);
+            }
+            t.1 = time;
+            *counts.entry((fmt, id)).or_insert(0u32) += 1;
+        }
+        if let Some(b) = bucket {
+            flush(b, &counts, t);
+        }
     }
 }

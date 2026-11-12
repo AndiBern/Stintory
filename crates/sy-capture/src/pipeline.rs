@@ -105,9 +105,19 @@ pub fn recorder_config(game: GameId) -> RecorderConfig {
             official_time_wait_s: 8.0,
             ..RecorderConfig::default()
         },
+        // a flashback can go back across the line into the last lap
+        GameId::F1_25 => RecorderConfig {
+            rewind_hold_s: F1_REWIND_HOLD_S,
+            ..RecorderConfig::default()
+        },
         _ => RecorderConfig::default(),
     }
 }
+
+/// How long F1 25 laps are held back for flashbacks, session seconds. The
+/// game's flashbacks go back several seconds; a lap shows up this much
+/// later during a live recording.
+pub const F1_REWIND_HOLD_S: f64 = 30.0;
 
 /// Feeds events from `decoder` through `recorder` into `sink`.
 fn emit(
