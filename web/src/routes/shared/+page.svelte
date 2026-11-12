@@ -1,6 +1,7 @@
 <!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import { confirmAction } from '#lib/confirm.ts';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { api, type DefaultSharing, type Grantee, type SharedSession } from '#lib/api/index.ts';
@@ -73,9 +74,9 @@
 		const n = defaults.inheritingSessions;
 		if (
 			audience.length > 0 &&
-			!confirm(
+			!(await confirmAction(
 				`Share what you record with: ${formatAudience(audience)}?\n\nThis applies to ${n} session(s) that use your default now, and to everything you record from now on.`
-			)
+			))
 		)
 			return;
 		try {

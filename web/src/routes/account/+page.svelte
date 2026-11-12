@@ -1,6 +1,7 @@
 <!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import { confirmAction } from '#lib/confirm.ts';
 	import {
 		accountApi,
 		type BrowserSession,
@@ -67,9 +68,11 @@
 		}
 	}
 
-	function removePasskey(p: PasskeyInfo) {
+	async function removePasskey(p: PasskeyInfo) {
 		if (
-			!confirm(`Remove the passkey "${p.name}"? Remove it from your device's password manager too.`)
+			!(await confirmAction(
+				`Remove the passkey "${p.name}"? Remove it from your device's password manager too.`
+			))
 		)
 			return;
 		run(
@@ -93,8 +96,13 @@
 	}
 	if (account) loadDevices();
 
-	function revokeDevice(d: DeviceInfo) {
-		if (!confirm(`Disconnect "${d.name}"? It can't sync anymore until it connects again.`)) return;
+	async function revokeDevice(d: DeviceInfo) {
+		if (
+			!(await confirmAction(
+				`Disconnect "${d.name}"? It can't sync anymore until it connects again.`
+			))
+		)
+			return;
 		run(
 			async () => {
 				await account!.revokeDevice(d.id);
@@ -188,8 +196,8 @@
 		);
 	}
 
-	function disable() {
-		if (!confirm('Turn off two-factor authentication?')) return;
+	async function disable() {
+		if (!(await confirmAction('Turn off two-factor authentication?'))) return;
 		run(
 			async () => {
 				await account!.totpDisable(confirmPassword);

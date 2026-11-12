@@ -21,7 +21,8 @@ export function formatDelta(ms: number): string {
 	return `${sign}${(Math.abs(ms) / 1000).toFixed(3)}`;
 }
 
-const SESSION_TYPES: Record<string, string> = {
+/** Session types in their natural order (practice before race). */
+export const SESSION_TYPES: Record<string, string> = {
 	practice: 'Practice',
 	qualifying: 'Qualifying',
 	race: 'Race',
@@ -34,7 +35,8 @@ export function formatSessionType(type: string): string {
 	return SESSION_TYPES[type] ?? type;
 }
 
-const GAMES: Record<string, string> = {
+/** Supported games. */
+export const GAMES: Record<string, string> = {
 	iracing: 'iRacing',
 	f1_25: 'F1 25',
 	lmu: 'Le Mans Ultimate'

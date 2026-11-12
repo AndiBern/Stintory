@@ -110,7 +110,7 @@
 				if (x == null || y == null) return;
 				ctx.beginPath();
 				ctx.fillStyle = lapColor(i);
-				ctx.strokeStyle = '#09090b';
+				ctx.strokeStyle = '#161619'; // page background (zinc-950)
 				ctx.lineWidth = 2;
 				ctx.arc(px(x), py(y), 5, 0, Math.PI * 2);
 				ctx.fill();

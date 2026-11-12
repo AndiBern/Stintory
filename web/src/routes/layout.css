@@ -1,1 +1,18 @@
 @import 'tailwindcss';
+
+/*
+ * The dark end of zinc, lifted from near-black to dark grey. The UI is built
+ * from these steps: 950 page, 900 panels/inputs/hover, 800 borders, 700 input
+ * borders. Canvas charts use the same values (TrackMap, LapCharts).
+ */
+@theme {
+	--color-zinc-700: #424249;
+	--color-zinc-800: #2e2e33;
+	--color-zinc-900: #212125;
+	--color-zinc-950: #161619;
+}
+
+/* native controls (selects, date pickers, scrollbars) in the dark theme */
+:root {
+	color-scheme: dark;
+}

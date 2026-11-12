@@ -1,6 +1,7 @@
 <!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import { confirmAction } from '#lib/confirm.ts';
 	import { api } from '#lib/api/index.ts';
 	import { app, errorText } from '#lib/app-state.svelte.ts';
 	import { formatAgo } from '#lib/format.ts';
@@ -37,11 +38,11 @@
 		});
 	}
 
-	function disconnect() {
+	async function disconnect() {
 		if (
-			!confirm(
+			!(await confirmAction(
 				'Disconnect from the server? Your data on this computer and on the server stays; this computer just stops syncing.'
-			)
+			))
 		)
 			return;
 		act(async () => {

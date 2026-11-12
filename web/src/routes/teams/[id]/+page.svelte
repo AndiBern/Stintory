@@ -1,6 +1,7 @@
 <!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import { confirmAction } from '#lib/confirm.ts';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -59,7 +60,7 @@
 	const roles = $derived<TeamRole[]>(isOwner ? ['member', 'admin', 'owner'] : ['member', 'admin']);
 
 	async function run(action: () => Promise<unknown>, question?: string) {
-		if (question && !confirm(question)) return;
+		if (question && !(await confirmAction(question))) return;
 		try {
 			await action();
 			await load();
@@ -111,7 +112,10 @@
 	}
 
 	async function leave() {
-		if (!team || !confirm(`Leave ${team.name}? You lose access to what is shared with the team.`))
+		if (
+			!team ||
+			!(await confirmAction(`Leave ${team.name}? You lose access to what is shared with the team.`))
+		)
 			return;
 		try {
 			await server.leaveTeam(id);
@@ -124,7 +128,9 @@
 	async function remove() {
 		if (
 			!team ||
-			!confirm(`Delete ${team.name}? Everything shared with the team stops being shared.`)
+			!(await confirmAction(
+				`Delete ${team.name}? Everything shared with the team stops being shared.`
+			))
 		)
 			return;
 		try {

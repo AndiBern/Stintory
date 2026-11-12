@@ -1,6 +1,7 @@
 <!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import { confirmAction } from '#lib/confirm.ts';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
@@ -108,7 +109,7 @@
 		const question = foreign
 			? 'Remove the copy of this shared session from this computer? You can open it again from "Sharing" as long as it is shared with you.'
 			: `Delete this session with ${detail.laps.length} laps? This cannot be undone.`;
-		if (!confirm(question)) return;
+		if (!(await confirmAction(question))) return;
 		await client.deleteSession(detail.summary.id);
 		goto(resolve(foreign ? '/shared' : '/'));
 	}

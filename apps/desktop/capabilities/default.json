@@ -1,12 +1,13 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "default",
-	"description": "Permissions of the main window. Keep this minimal: our own commands plus the file dialogs for import and export.",
+	"description": "Permissions of the main window. Keep this minimal: our own commands plus the file dialogs for import and export, and the message dialog behind confirm().",
 	"windows": [
 		"main"
 	],
 	"permissions": [
 		"core:default",
+		"dialog:allow-message",
 		"dialog:allow-open",
 		"dialog:allow-save"
 	]

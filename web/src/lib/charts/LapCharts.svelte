@@ -165,8 +165,8 @@
 
 		const axisStyle = {
 			stroke: '#a1a1aa',
-			grid: { stroke: '#27272a' },
-			ticks: { stroke: '#3f3f46' }
+			grid: { stroke: '#2e2e33' },
+			ticks: { stroke: '#424249' }
 		};
 		for (const p of panels(d)) {
 			const { values, series } = seriesData(d, p);

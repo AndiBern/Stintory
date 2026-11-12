@@ -1,6 +1,7 @@
 <!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import { confirmAction } from '#lib/confirm.ts';
 	import {
 		accountApi,
 		type AdminUser,
@@ -54,7 +55,7 @@
 	}
 
 	async function update(u: AdminUser, change: UserUpdate, question?: string) {
-		if (question && !confirm(question)) return;
+		if (question && !(await confirmAction(question))) return;
 		try {
 			const r = await account!.adminUpdateUser(u.id, change);
 			if (r.temporaryPassword) handout = { username: u.username, password: r.temporaryPassword };
