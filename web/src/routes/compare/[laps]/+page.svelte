@@ -1,15 +1,23 @@
 <!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, type CompareData, type LapTrace } from '#lib/api/index.ts';
-	import LapCharts from '#lib/charts/LapCharts.svelte';
-	import TrackMap from '#lib/charts/TrackMap.svelte';
+	import CompareCharts from '#lib/charts/CompareCharts.svelte';
+	import FollowMap from '#lib/charts/FollowMap.svelte';
 	import { lapColor } from '#lib/charts/colors.ts';
+	import {
+		firstIndex,
+		indexAtTime,
+		lastIndex,
+		referenceTime,
+		type OffsetMode
+	} from '#lib/charts/compare-view.ts';
 	import ReferencePicker, { type ReferenceTarget } from '#lib/components/ReferencePicker.svelte';
-	import { formatDelta, formatLapTime } from '#lib/format.ts';
+	import { formatLapTime } from '#lib/format.ts';
 
 	const MAX_COMPARE = 8;
 	const client = api();
@@ -17,7 +25,12 @@
 
 	let data = $state<CompareData | null>(null);
 	let error = $state<string | null>(null);
-	let cursor = $state<number | null>(null);
+	/** grid index of the reference car: map, slider and chart markers */
+	let cursor = $state(0);
+	let mode = $state<OffsetMode>('distance');
+	let playing = $state(false);
+	let speed = $state(1);
+	const SPEEDS = [0.25, 0.5, 1, 2];
 	let picking = $state<ReferenceTarget | null>(null);
 	let pickError = $state<string | null>(null);
 
@@ -31,7 +44,11 @@
 		}
 		client
 			.compareLaps({ lapIds: ids })
-			.then((d) => (data = d))
+			.then((d) => {
+				data = d;
+				cursor = firstIndex(d);
+				playing = false;
+			})
 			.catch((e) => {
 				data = null;
 				error = e.message;
@@ -44,6 +61,43 @@
 	}
 
 	const labels = $derived(data ? data.laps.map(lapLabel) : []);
+	/** for the map and the chart tooltips */
+	const shortLabels = $derived(
+		data ? data.laps.map((l) => (l.driver ? `${l.driver} · L${l.number}` : `Lap ${l.number}`)) : []
+	);
+	const first = $derived(data ? firstIndex(data) : 0);
+	const last = $derived(data ? lastIndex(data) : 0);
+	const refTime = $derived(data ? referenceTime(data, cursor) : null);
+
+	/** Moving through the lap by hand stops the playback. */
+	function seek(index: number) {
+		playing = false;
+		cursor = index;
+	}
+
+	/** Plays the lap in the reference lap's time. */
+	$effect(() => {
+		if (!playing || !data) return;
+		const d = data;
+		const rate = speed;
+		let t = untrack(() => referenceTime(d, cursor >= last ? first : cursor)) ?? 0;
+		let previous = performance.now();
+		let frame = 0;
+		const tick = (now: number) => {
+			t += ((now - previous) / 1000) * rate;
+			previous = now;
+			const i = indexAtTime(d.laps[0].channels.t, t);
+			if (i === null) {
+				cursor = last;
+				playing = false;
+				return;
+			}
+			cursor = Math.round(i);
+			frame = requestAnimationFrame(tick);
+		};
+		frame = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(frame);
+	});
 	/** Set for laps someone shared: keeps "Sharing" highlighted in the menu */
 	const ownerParam = $derived(page.url.searchParams.get('owner'));
 	/** Back to the session of the first own lap, else of the reference. */
@@ -55,12 +109,6 @@
 		const owner = home.owner?.id;
 		return owner ? `${href}?owner=${encodeURIComponent(owner)}` : href;
 	});
-
-	/** Values at the cursor for the legend. */
-	function at(channel: string, lapIndex: number): number | null {
-		if (!data || cursor === null) return null;
-		return data.laps[lapIndex].channels[channel]?.[cursor] ?? null;
-	}
 
 	function show(ids: string[]) {
 		const query = ownerParam ? `?owner=${encodeURIComponent(ownerParam)}` : '';
@@ -133,14 +181,6 @@
 					<span class="rounded bg-zinc-800 px-1.5 text-xs text-zinc-300">reference</span>
 				{/if}
 				{#if !lap.valid}<span class="text-xs text-amber-400/80">invalid</span>{/if}
-				{#if cursor !== null}
-					<span class="font-mono text-xs text-zinc-400">
-						{(at('speed', i) ?? NaN) * 3.6 > 0 ? `${Math.round(at('speed', i)! * 3.6)} km/h` : ''}
-						{#if i > 0 && lap.deltaS[cursor] !== null}
-							{formatDelta(lap.deltaS[cursor]! * 1000)}
-						{/if}
-					</span>
-				{/if}
 				{#if i > 0}
 					<button
 						type="button"
@@ -161,17 +201,63 @@
 		{/each}
 	</ul>
 
-	<div class="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_340px]">
-		<div class="min-w-0">
-			<LapCharts {data} {labels} onCursor={(i) => (cursor = i)} />
-			<p class="mt-1 text-xs text-zinc-500">
-				Drag to zoom, double-click to reset. Distance from the start/finish line.
-			</p>
+	<FollowMap {data} {cursor} labels={shortLabels} bind:mode />
+
+	<!-- move through the lap: by hand or played back in the reference lap's time -->
+	<div class="my-4 flex flex-wrap items-center gap-3">
+		<button
+			type="button"
+			class="flex h-8 w-8 items-center justify-center rounded border border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+			aria-label={playing ? 'Pause' : 'Play'}
+			onclick={() => (playing = !playing)}
+		>
+			{#if playing}
+				<svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"
+					><rect x="6" y="5" width="4" height="14" rx="1" /><rect
+						x="14"
+						y="5"
+						width="4"
+						height="14"
+						rx="1"
+					/></svg
+				>
+			{:else}
+				<svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"
+					><path
+						d="M7 5.5v13a1 1 0 0 0 1.5.86l11-6.5a1 1 0 0 0 0-1.72l-11-6.5A1 1 0 0 0 7 5.5z"
+					/></svg
+				>
+			{/if}
+		</button>
+		<div class="flex rounded border border-zinc-800 p-0.5 text-xs" role="group" aria-label="Speed">
+			{#each SPEEDS as s (s)}
+				<button
+					type="button"
+					class="rounded px-2 py-1 text-zinc-400 hover:text-zinc-100 aria-pressed:bg-zinc-700 aria-pressed:text-zinc-100"
+					aria-pressed={speed === s}
+					onclick={() => (speed = s)}>{s}×</button
+				>
+			{/each}
 		</div>
-		<div class="xl:sticky xl:top-0 xl:self-start">
-			<TrackMap {data} cursorIndex={cursor} />
-		</div>
+		<input
+			type="range"
+			class="min-w-48 flex-1 accent-zinc-200"
+			min={first}
+			max={last}
+			step="1"
+			value={cursor}
+			aria-label="Position in the lap"
+			aria-valuetext="{Math.round(data.distM[cursor] ?? 0)} m"
+			oninput={(e) => seek(Number(e.currentTarget.value))}
+		/>
+		<span class="w-36 text-right font-mono text-xs text-zinc-400 tabular-nums">
+			{Math.round(data.distM[cursor] ?? 0)} m · {refTime === null
+				? '–'
+				: formatLapTime(Math.round(refTime * 1000))}
+		</span>
 	</div>
+
+	<CompareCharts {data} {cursor} labels={shortLabels} onCursor={seek} />
 {/if}
 
 <!-- added laps go after the current ones; the reference stays -->

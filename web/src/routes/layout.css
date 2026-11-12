@@ -3,7 +3,7 @@
 /*
  * The dark end of zinc, lifted from near-black to dark grey. The UI is built
  * from these steps: 950 page, 900 panels/inputs/hover, 800 borders, 700 input
- * borders. Canvas charts use the same values (TrackMap, LapCharts).
+ * borders. Canvas charts read these tokens or use the same values.
  */
 @theme {
 	--color-zinc-700: #424249;
