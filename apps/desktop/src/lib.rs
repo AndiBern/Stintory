@@ -7,6 +7,8 @@
 //! Tauri's `invoke`. They implement the same API shape as sy-server's REST
 //! API, see `web/src/lib/api/`.
 
+#[cfg(target_os = "linux")]
+mod appimage;
 mod commands;
 mod recording;
 mod state;
@@ -30,6 +32,10 @@ pub fn run() {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
+
+    // before the window opens: the compositor looks the icon up when it maps
+    #[cfg(target_os = "linux")]
+    appimage::integrate();
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
