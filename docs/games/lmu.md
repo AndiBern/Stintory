@@ -9,15 +9,17 @@ git) for reference. Our Rust definitions are written from them
 (`layout.rs`); the compiler computes every offset, and the sizes are
 asserted at compile time.
 
-> **Status:** written from the headers, checked with six recordings
-> (Nov 2026, on Windows): practice at Monza (BMW M4 LMGT3,
+> **Status:** written from the headers, checked with recordings (Nov
+> 2026), on Windows: practice at Monza (BMW M4 LMGT3,
 > out-lap and in-lap), a race on Monza's Curva Grande layout (Ford
 > Mustang LMGT3: formation lap, rolling start, two track-limits warnings,
 > a pit stop), practice at Long Beach (Ferrari 499P: back to the
 > garage from the menu twice), qualifying at Road Atlanta in the rain
 > (Lexus RCF LMGT3: off into the grass), a race at Sebring's school
 > circuit restarted from the menu (BMW) and an online practice at Spa
-> (BMW, 30 cars). They are golden tests
+> (BMW, 30 cars), and on Linux through the Proton bridge a practice at
+> Fuji (Cadillac V-Series.R, Bazzite; docs/games/proton.md). They are
+> golden tests
 > (`crates/sy-capture/tests/lmu_recordings.rs`, skipped without the
 > files); synthetic tests (`sy_source_lmu::sim`) cover the same cases.
 > Recordings go into `telemetry_examples/LMU/` (raw `.syraw` files,

@@ -8,8 +8,15 @@ desktop app uses).
 > (Nov 2026): `sy-bridge.exe` in a Wine prefix read a fake `LMU_Data`
 > (mapping, Hold/Data events and the writer's lock, `examples/fake_lmu.rs`)
 > and the native client recorded the laps with the exact times, also when
-> it connected in the middle of a session. Not yet checked with the real
-> game under Proton; see *To verify*.
+> it connected in the middle of a session. **Checked with the real game**
+> (Nov 2026): a practice at Fuji (Cadillac V-Series.R, five timed laps)
+> recorded on Bazzite through the bridge, started by the Steam launch
+> option, has the game's lap and sector times, the car setups from the
+> REST API, and telemetry at 100 Hz with no gap longer than 20 ms, steadier
+> than the Windows recordings (golden test
+> `fuji_practice_through_the_proton_bridge` in
+> `crates/sy-capture/tests/lmu_recordings.rs`). Still open: see *To
+> verify*.
 
 Games such as Le Mans Ultimate publish their telemetry as named Windows
 shared memory. Under Proton that memory exists only inside Wine: a native
@@ -164,12 +171,10 @@ of the app finds the cross-built `sy-bridge.exe` in `target/` on its own;
 
 ## To verify with the real game
 
-- That Steam runs the launch option through a shell and Proton starts the
-  bridge from the Unix path, inside the Steam Linux Runtime container
-  (the data directory is under the home directory, which the container
-  shares).
-- That the bridge sees `LMU_Data`, the Hold/Data events and the lock in
-  the game's prefix, and the LMU REST API on `127.0.0.1:6397`.
+- That the bridge uses the Hold/Data events and the lock in the game's
+  prefix (it found `LMU_Data` and the REST API on `127.0.0.1:6397`, and the
+  data arrived at the full rate, but a recording can't tell events from
+  the polling fallback).
 - That the bridge is killed when the game exits and Steam shows the game
   as stopped.
-- Telemetry rate and latency through the bridge compared with Windows.
+- The delay between the game and the app (not recorded anywhere).

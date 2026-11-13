@@ -564,6 +564,78 @@ fn dump_scoring() {
     }
 }
 
+/// Debug: how regularly the data arrived (run with --ignored): telemetry
+/// rate and gaps, scoring rate, and how much the read time wandered
+/// against the game clock. Compares recordings from Windows with ones made
+/// through the Proton bridge.
+#[test]
+#[ignore]
+fn dump_timing() {
+    fn pct(v: &mut [f64], p: f64) -> f64 {
+        v.sort_by(f64::total_cmp);
+        v.get(((v.len() as f64 - 1.0) * p).round() as usize)
+            .copied()
+            .unwrap_or(f64::NAN)
+    }
+    for path in recordings() {
+        let recs = records(&path);
+        let mut et = Vec::new();
+        let mut scoring = Vec::new();
+        let mut setups = 0;
+        for r in &recs {
+            match r.kind {
+                KIND_TELEMETRY => et.push(Telemetry::parse(&r.payload).unwrap().elapsed_time),
+                KIND_SCORING => {
+                    let s = Scoring::parse(&r.payload).unwrap();
+                    scoring.push((s.received_unix_ms, s.current_et, s.in_realtime));
+                }
+                KIND_SETUP => setups += 1,
+                _ => {}
+            }
+        }
+        let name = path.file_name().unwrap().to_string_lossy();
+        if et.len() < 2 {
+            println!("{name}: {} telemetry records", et.len());
+            continue;
+        }
+        let mut d: Vec<f64> = et.windows(2).map(|w| w[1] - w[0]).collect();
+        let back = d.iter().filter(|x| **x <= 0.0).count();
+        let (gap_at, gap) = d
+            .iter()
+            .enumerate()
+            .map(|(i, x)| (et[i], *x))
+            .fold((0.0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
+        let over = |t: f64| d.iter().filter(|x| **x > t).count();
+        let (o15, o50, o200) = (over(0.015), over(0.05), over(0.2));
+        let median = pct(&mut d, 0.5);
+        // wall clock − game clock between consecutive scoring reads while
+        // driving: how irregularly the reader got the data
+        let mut wander: Vec<f64> = scoring
+            .windows(2)
+            .filter(|w| w[0].2 && w[1].2 && w[1].1 > w[0].1 && w[1].1 - w[0].1 < 1.0)
+            .map(|w| ((w[1].0 - w[0].0) as f64 / 1000.0 - (w[1].1 - w[0].1)).abs())
+            .collect();
+        let span_s = (scoring.last().map_or(0, |s| s.0) - scoring.first().map_or(0, |s| s.0))
+            as f64
+            / 1000.0;
+        println!(
+            "{name}: telemetry {} over {:.0} s game time, median step {:.4} s ({:.1} Hz), \
+             steps > 15 ms {o15}, > 50 ms {o50}, > 200 ms {o200}, largest {gap:.3} s at {gap_at:.1}, \
+             not forward {back} | scoring {} in {span_s:.0} s wall time ({:.1}/s), \
+             read-time wander p50 {:.1} ms p99 {:.1} ms max {:.1} ms | setups {setups}",
+            et.len(),
+            et[et.len() - 1] - et[0],
+            median,
+            1.0 / median,
+            scoring.len(),
+            scoring.len() as f64 / span_s.max(1.0),
+            pct(&mut wander, 0.5) * 1000.0,
+            pct(&mut wander, 0.99) * 1000.0,
+            pct(&mut wander, 1.0) * 1000.0,
+        );
+    }
+}
+
 /// Debug: session info and the static fields (run with --ignored).
 #[test]
 #[ignore]
@@ -958,5 +1030,58 @@ fn silverstone_national_mixed_compounds() {
             .unwrap();
         assert_eq!([t.fl, t.fr, t.rl, t.rr], ["Hard", "Medium", "Wet", "Hard"]);
         assert_eq!(t.before, None);
+    }
+}
+
+/// Practice at Fuji (Cadillac V-Series.R, Nov 2026), recorded on Linux
+/// (Bazzite) through the Proton bridge (docs/games/proton.md): out of the
+/// garage and straight back, out again, five timed laps, back to the
+/// garage. Same records as on Windows; no sample lost on the way (100 Hz,
+/// at most one 10 ms sample missing at a time).
+#[test]
+fn fuji_practice_through_the_proton_bridge() {
+    let Some(r) = session_on("lmu:fuji_speedway:4536") else {
+        return;
+    };
+    assert_eq!(r.sessions.len(), 1);
+    let s = &r.sessions[0];
+    assert_eq!(s.session_type, sy_model::SessionType::Practice);
+    assert_eq!(s.track_name, "Fuji Speedway (4.54 km)");
+    assert_eq!(s.car_key, "lmu:cadillac_v_series_r:hypercar");
+    let back = reason("incomplete, back to the garage");
+    let got: Vec<Summary> = r.laps.iter().map(summary).collect();
+    assert_eq!(
+        got,
+        vec![
+            (0, None, false, back.clone(), true, false, true),
+            (
+                1,
+                Some(125_860),
+                false,
+                reason("not timed by the game"),
+                true,
+                false,
+                false
+            ),
+            (2, Some(99_917), true, None, false, false, false),
+            (3, Some(94_938), true, None, false, false, false),
+            (4, Some(93_793), true, None, false, false, false),
+            (5, Some(93_271), true, None, false, false, false),
+            (6, Some(91_675), true, None, false, false, false),
+            (7, None, false, back, false, false, true),
+        ]
+    );
+    for l in &r.laps[2..7] {
+        let time = l.lap.lap_time_ms.unwrap();
+        assert_eq!(l.lap.sector_times_ms.iter().sum::<u32>(), time);
+        check_dist(l, 0.0..5.0, 4525.0..4536.0);
+        // 100 Hz: a sample per 10 ms of the lap, none lost on the way
+        let expected = time as usize / 10;
+        assert!(
+            l.telemetry.len().abs_diff(expected) <= expected / 200,
+            "lap {}: {} samples in {time} ms",
+            l.lap.number,
+            l.telemetry.len()
+        );
     }
 }
