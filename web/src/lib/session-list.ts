@@ -120,3 +120,45 @@ export function nextSort(current: Sort, key: SortKey): Sort {
 	if (current.key === key) return { key, descending: !current.descending };
 	return { key, descending: key === 'date' || key === 'laps' };
 }
+
+export const PAGE_SIZES = [25, 50, 100] as const;
+export const DEFAULT_PAGE_SIZE = 50;
+
+export interface Page<T> {
+	items: T[];
+	/** 1-based, clamped to the pages there are */
+	page: number;
+	/** At least 1, so an empty list still has a page */
+	pageCount: number;
+	/** 0-based index of the first item, for "21–40 of 95" */
+	start: number;
+}
+
+/** One page of a list; a page past the end (e.g. after deleting) shows the last one. */
+export function paginate<T>(list: T[], page: number, size: number): Page<T> {
+	const pageCount = Math.max(1, Math.ceil(list.length / size));
+	const current = Math.min(Math.max(1, Math.floor(page) || 1), pageCount);
+	const start = (current - 1) * size;
+	return { items: list.slice(start, start + size), page: current, pageCount, start };
+}
+
+/**
+ * The page buttons to show: first, last and the neighbours of the current
+ * page, with `null` for a gap, e.g. `1 … 4 5 6 … 12`. A gap of one page shows
+ * that page instead.
+ */
+export function pageNumbers(page: number, pageCount: number): (number | null)[] {
+	const shown = new Set([1, pageCount, page - 1, page, page + 1]);
+	const out: (number | null)[] = [];
+	for (let p = 1; p <= pageCount; p++) {
+		const near = shown.has(p) || (shown.has(p - 1) && shown.has(p + 1));
+		if (near) out.push(p);
+		else if (out.at(-1) !== null) out.push(null);
+	}
+	return out;
+}
+
+/** After changing the page size: the page that still has the first row that was shown. */
+export function pageForRow(start: number, size: number): number {
+	return Math.floor(start / size) + 1;
+}

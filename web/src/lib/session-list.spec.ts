@@ -10,6 +10,9 @@ import {
 	filterSessions,
 	isFiltered,
 	nextSort,
+	pageForRow,
+	pageNumbers,
+	paginate,
 	sortSessions
 } from './session-list.ts';
 
@@ -128,5 +131,54 @@ describe('nextSort', () => {
 		expect(nextSort(DEFAULT_SORT, 'date')).toEqual({ key: 'date', descending: false });
 		expect(nextSort(DEFAULT_SORT, 'track')).toEqual({ key: 'track', descending: false });
 		expect(nextSort(DEFAULT_SORT, 'laps')).toEqual({ key: 'laps', descending: true });
+	});
+});
+
+describe('paginate', () => {
+	const items = Array.from({ length: 95 }, (_, i) => i);
+
+	it('cuts out the page', () => {
+		expect(paginate(items, 2, 20)).toEqual({
+			items: items.slice(20, 40),
+			page: 2,
+			pageCount: 5,
+			start: 20
+		});
+		expect(paginate(items, 5, 20).items).toEqual(items.slice(80));
+	});
+
+	it('clamps a page out of range', () => {
+		expect(paginate(items, 9, 20).page).toBe(5);
+		expect(paginate(items, 0, 20).page).toBe(1);
+		expect(paginate(items, NaN, 20).page).toBe(1);
+	});
+
+	it('has one empty page for an empty list', () => {
+		expect(paginate([], 3, 20)).toEqual({ items: [], page: 1, pageCount: 1, start: 0 });
+	});
+});
+
+describe('pageNumbers', () => {
+	it('shows all pages when there are few', () => {
+		expect(pageNumbers(1, 1)).toEqual([1]);
+		expect(pageNumbers(2, 5)).toEqual([1, 2, 3, 4, 5]);
+	});
+
+	it('leaves gaps around the current page', () => {
+		expect(pageNumbers(6, 12)).toEqual([1, null, 5, 6, 7, null, 12]);
+		expect(pageNumbers(1, 12)).toEqual([1, 2, null, 12]);
+		expect(pageNumbers(12, 12)).toEqual([1, null, 11, 12]);
+	});
+
+	it('shows a single page instead of a gap', () => {
+		expect(pageNumbers(4, 12)).toEqual([1, 2, 3, 4, 5, null, 12]);
+	});
+});
+
+describe('pageForRow', () => {
+	it('keeps the first shown row on screen', () => {
+		expect(pageForRow(0, 50)).toBe(1);
+		expect(pageForRow(50, 25)).toBe(3);
+		expect(pageForRow(75, 50)).toBe(2);
 	});
 });
