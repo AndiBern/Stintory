@@ -9,7 +9,8 @@
 		"dev:desktop": "tauri dev",
 		"build:desktop": "tauri build",
 		"build:bridge": "cargo build --release --locked -p sy-bridge --target x86_64-pc-windows-gnu",
-		"build:desktop:linux": "sh scripts/build-desktop-linux.sh",
+		"build:desktop:linux:docker": "sh scripts/build-linux-packages.sh",
+		"build:desktop:linux:host": "sh scripts/build-desktop-linux.sh",
 		"tauri": "tauri"
 	},
 	"devDependencies": {

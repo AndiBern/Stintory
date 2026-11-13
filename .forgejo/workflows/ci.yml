@@ -78,7 +78,7 @@ jobs:
       - run: rustup target add x86_64-pc-windows-msvc
       - run: cargo clippy --target x86_64-pc-windows-msvc -p sy-source-iracing -p sy-source-lmu --all-targets --locked -- -D warnings
       # The Proton bridge (sy-bridge.exe) is cross-built with MinGW; the
-      # Linux packages ship it (npm run build:desktop:linux). MinGW also
+      # Linux packages ship it (npm run build:desktop:linux:docker). MinGW also
       # builds its examples' C dependencies (examples/fake_lmu.rs).
       - name: Build the Proton bridge
         run: |

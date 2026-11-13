@@ -131,17 +131,33 @@ cargo run --release -p sy-bridge --example client        # native
 
 ```sh
 rustup target add x86_64-pc-windows-gnu
-npm run build:bridge          # target/x86_64-pc-windows-gnu/release/sy-bridge.exe
-npm run build:desktop:linux   # Linux packages with sy-bridge.exe inside
+npm run build:bridge               # target/x86_64-pc-windows-gnu/release/sy-bridge.exe
+npm run build:desktop:linux:docker   # Linux packages with sy-bridge.exe inside (needs Docker)
+npm run build:desktop:linux:host     # the same on this system, for trying them out
 ```
 
-`build:desktop:linux` downloads the AppImage runtime once with curl into
-`target/appimage-runtime/` and hands it to the AppImage tool
-(`LDAI_RUNTIME_FILE`): the tool's own download from GitHub can hang
-forever. Extra arguments go to `tauri build`, e.g.
-`npm run build:desktop:linux -- --bundles appimage`.
+**Packages to hand out are built in an Ubuntu 24.04 container**
+(`docker/linux-packages.Dockerfile`, needs Docker; `DOCKER=podman` for
+Podman). A Linux program needs the glibc it was built against or newer,
+and the AppImage bundles the build system's libraries: built on a rolling
+distribution (openSUSE Tumbleweed) the AppImage needed glibc 2.44 and
+failed elsewhere with `libjpeg.so.8: cannot open shared object file`.
+The base sets the oldest systems the packages run on: Ubuntu 24.04
+(glibc 2.39, supported until 2029) covers Ubuntu 24.04+, Debian 13+,
+Fedora 40+ and the rolling distributions, not Ubuntu 22.04 / Debian 12.
+(22.04, glibc 2.35, would be the oldest possible base with WebKitGTK 4.1,
+which Tauri 2 needs; 26.04 would require glibc 2.43.) The AppImage gets the
+base's WebKit and its fixes only while the base is supported; its window
+shows only Stintory's own pages. The container runs as your user; its build and caches go to
+`target/linux-packages/`, the packages to
+`target/linux-packages/target/release/bundle/`.
 
-This needs the MinGW-w64 cross compiler (Debian/Ubuntu:
+Both download the AppImage runtime once with curl and hand it to the
+AppImage tool (`LDAI_RUNTIME_FILE`): the tool's own download from GitHub
+can hang forever. Extra arguments go to `tauri build`, e.g.
+`npm run build:desktop:linux:docker -- --bundles appimage`.
+
+The host build needs the MinGW-w64 cross compiler (Debian/Ubuntu:
 `gcc-mingw-w64-x86-64`; openSUSE: `mingw64-cross-gcc`). A development build
 of the app finds the cross-built `sy-bridge.exe` in `target/` on its own;
 `STINTORY_BRIDGE_EXE=/path/to/sy-bridge.exe` points it at another one.
