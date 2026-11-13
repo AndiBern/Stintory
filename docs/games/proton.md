@@ -135,6 +135,12 @@ npm run build:bridge          # target/x86_64-pc-windows-gnu/release/sy-bridge.e
 npm run build:desktop:linux   # Linux packages with sy-bridge.exe inside
 ```
 
+`build:desktop:linux` downloads the AppImage runtime once with curl into
+`target/appimage-runtime/` and hands it to the AppImage tool
+(`LDAI_RUNTIME_FILE`): the tool's own download from GitHub can hang
+forever. Extra arguments go to `tauri build`, e.g.
+`npm run build:desktop:linux -- --bundles appimage`.
+
 This needs the MinGW-w64 cross compiler (Debian/Ubuntu:
 `gcc-mingw-w64-x86-64`; openSUSE: `mingw64-cross-gcc`). A development build
 of the app finds the cross-built `sy-bridge.exe` in `target/` on its own;
