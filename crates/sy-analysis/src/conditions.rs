@@ -5,15 +5,72 @@
 //! extra columns). Computed when a session is shown, so laps recorded before
 //! a game adapter recorded a value simply have none.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Mutex, OnceLock};
 
-use sy_model::api::{LapConditions, WheelFlags, Wheels};
+use sy_model::api::{LapConditions, TyreCompound, WheelFlags, Wheels};
 use sy_model::channel::names;
 use sy_model::{BlobHash, Channel, ChannelData, GameId, LapTelemetry, Unit};
 
-/// Results kept by telemetry file; a lap's file never changes.
-type Cache = Mutex<HashMap<(GameId, BlobHash), LapConditions>>;
+/// Results kept by telemetry file (a lap's file never changes) and the
+/// session's compound names.
+type Cache = Mutex<HashMap<(GameId, BlobHash, String), LapConditions>>;
+
+/// Names of a session's tyre compound indices. iRacing and LMU record an
+/// index; the names are in the session info (F1 has fixed codes).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CompoundNames {
+    front: BTreeMap<i32, String>,
+    rear: BTreeMap<i32, String>,
+}
+
+impl CompoundNames {
+    /// From the session info (`player.tyre_compounds` for iRacing,
+    /// `tyre_compounds_front` / `_rear` for LMU).
+    pub fn from_session_info(game: GameId, info: Option<&serde_json::Value>) -> Self {
+        let Some(info) = info else {
+            return Self::default();
+        };
+        let table = |v: &serde_json::Value| -> BTreeMap<i32, String> {
+            match v {
+                serde_json::Value::Array(a) => a
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, n)| Some((i as i32, n.as_str()?.to_owned())))
+                    .filter(|(_, n)| !n.is_empty())
+                    .collect(),
+                serde_json::Value::Object(o) => o
+                    .iter()
+                    .filter_map(|(i, n)| Some((i.parse().ok()?, n.as_str()?.to_owned())))
+                    .filter(|(_, n)| !n.is_empty())
+                    .collect(),
+                _ => BTreeMap::new(),
+            }
+        };
+        match game {
+            GameId::Iracing => {
+                let names: BTreeMap<i32, String> = table(&info["player"]["tyre_compounds"])
+                    .into_iter()
+                    .map(|(i, n)| (i, readable(&n)))
+                    .collect();
+                Self {
+                    front: names.clone(),
+                    rear: names,
+                }
+            }
+            GameId::Lmu => Self {
+                front: table(&info["tyre_compounds_front"]),
+                rear: table(&info["tyre_compounds_rear"]),
+            },
+            GameId::F1_25 => Self::default(),
+        }
+    }
+
+    /// Part of the cache key.
+    fn key(&self) -> String {
+        format!("{:?}{:?}", self.front, self.rear)
+    }
+}
 
 /// Entries before the cache starts over (about 100 bytes each).
 const CACHE_MAX: usize = 50_000;
@@ -28,14 +85,21 @@ fn cache() -> &'static Cache {
 /// with `load`, one after the other, and decoded in parallel.
 pub fn laps_conditions<E: std::fmt::Display>(
     game: GameId,
+    names: &CompoundNames,
     hashes: &[&BlobHash],
     mut load: impl FnMut(&BlobHash) -> Result<Vec<u8>, E>,
 ) -> Vec<Result<LapConditions, String>> {
+    let names_key = names.key();
     let mut out: Vec<Option<Result<LapConditions, String>>> = {
         let cache = cache().lock().unwrap_or_else(|e| e.into_inner());
         hashes
             .iter()
-            .map(|h| cache.get(&(game, (*h).clone())).cloned().map(Ok))
+            .map(|h| {
+                cache
+                    .get(&(game, (*h).clone(), names_key.clone()))
+                    .cloned()
+                    .map(Ok)
+            })
             .collect()
     };
     let mut todo: Vec<(usize, Vec<u8>)> = Vec::new();
@@ -61,7 +125,7 @@ pub fn laps_conditions<E: std::fmt::Display>(
                             });
                             (
                                 *i,
-                                t.map(|t| lap_conditions(game, &t))
+                                t.map(|t| lap_conditions_named(game, &t, names))
                                     .map_err(|e| e.to_string()),
                             )
                         })
@@ -81,7 +145,7 @@ pub fn laps_conditions<E: std::fmt::Display>(
         }
         for (i, result) in &decoded {
             if let Ok(c) = result {
-                cache.insert((game, hashes[*i].clone()), c.clone());
+                cache.insert((game, hashes[*i].clone(), names_key.clone()), c.clone());
             }
         }
     }
@@ -154,10 +218,138 @@ pub fn is_conditions_channel(game: GameId, name: &str) -> bool {
         || wheel_of(tyre_temp_prefix(game))
         || tyre_wear_prefix(game).is_some_and(wheel_of)
         || tyre_flat_prefixes(game).iter().any(|p| wheel_of(p))
+        || compound_channels(game).contains(&name)
 }
 
-/// Weather, fuel and tyres of one lap.
+/// Channels behind the tyre compound.
+fn compound_channels(game: GameId) -> &'static [&'static str] {
+    match game {
+        GameId::Iracing => &["iracing.tyre_compound"],
+        GameId::F1_25 => &[
+            "f1.tyre_compound",
+            "f1.tyre_visual_compound",
+            "f1.tyre_age_laps",
+        ],
+        GameId::Lmu => &["lmu.tyre_compound_front", "lmu.tyre_compound_rear"],
+    }
+}
+
+/// iRacing's compound names as words: `AllPurpose` → `All purpose`.
+fn readable(name: &str) -> String {
+    let mut out = String::new();
+    for (i, c) in name.chars().enumerate() {
+        if i > 0 && c.is_uppercase() {
+            out.push(' ');
+            out.extend(c.to_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// F1 visual compound (what the game shows), see the UDP spec.
+fn f1_visual(code: i32) -> Option<&'static str> {
+    Some(match code {
+        16 | 20 => "Soft",
+        17 | 21 => "Medium",
+        18 | 22 => "Hard",
+        19 => "Super soft",
+        7 => "Intermediate",
+        8 | 10 | 15 => "Wet",
+        9 => "Dry",
+        _ => return None,
+    })
+}
+
+/// F1 actual compound: the C number (modern F1 only).
+fn f1_actual(code: i32) -> Option<&'static str> {
+    Some(match code {
+        21 => "C0",
+        20 => "C1",
+        19 => "C2",
+        18 => "C3",
+        17 => "C4",
+        16 => "C5",
+        22 => "C6",
+        _ => return None,
+    })
+}
+
+fn first_last(t: &LapTelemetry, name: &str) -> Option<(i32, i32)> {
+    let c = t.channel(name)?;
+    let first = finite(c).next()?;
+    let last = finite(c).last()?;
+    Some((first.round() as i32, last.round() as i32))
+}
+
+/// The tyres a lap was driven on: the compound at its end (and at its start
+/// if they were changed in it).
+fn tyre_compound(game: GameId, t: &LapTelemetry, names: &CompoundNames) -> Option<TyreCompound> {
+    let changed = |start: String, end: &String| (start != *end).then_some(start);
+    match game {
+        GameId::F1_25 => {
+            let (start, end) = first_last(t, "f1.tyre_visual_compound")?;
+            let name = f1_visual(end)?.to_owned();
+            let changed_from = f1_visual(start).and_then(|s| changed(s.to_owned(), &name));
+            // the set's age at the lap start; after a change, the new set's
+            let age = first_last(t, "f1.tyre_age_laps")
+                .map(|(a, b)| if changed_from.is_some() { b } else { a });
+            Some(TyreCompound {
+                changed_from,
+                detail: first_last(t, "f1.tyre_compound")
+                    .and_then(|(_, a)| f1_actual(a))
+                    .map(str::to_owned),
+                age_laps: age.map(|a| a.max(0) as u32),
+                name,
+            })
+        }
+        GameId::Iracing => {
+            let (start, end) = first_last(t, "iracing.tyre_compound")?;
+            let name = names.front.get(&end)?.clone();
+            Some(TyreCompound {
+                changed_from: names
+                    .front
+                    .get(&start)
+                    .and_then(|s| changed(s.clone(), &name)),
+                name,
+                ..TyreCompound::default()
+            })
+        }
+        GameId::Lmu => {
+            let (fs, fe) = first_last(t, "lmu.tyre_compound_front")?;
+            let (rs, re) = first_last(t, "lmu.tyre_compound_rear")?;
+            let both = |f: i32, r: i32| -> Option<String> {
+                let front = names.front.get(&f)?;
+                let rear = names.rear.get(&r).unwrap_or(front);
+                Some(if front == rear {
+                    front.clone()
+                } else {
+                    format!("{front} / {rear}")
+                })
+            };
+            let name = both(fe, re)?;
+            Some(TyreCompound {
+                changed_from: both(fs, rs).and_then(|s| changed(s, &name)),
+                name,
+                ..TyreCompound::default()
+            })
+        }
+    }
+}
+
+/// Weather, fuel and tyres of one lap (compound names only where the game
+/// has fixed codes: F1).
 pub fn lap_conditions(game: GameId, t: &LapTelemetry) -> LapConditions {
+    lap_conditions_named(game, t, &CompoundNames::default())
+}
+
+/// Weather, fuel and tyres of one lap, with the session's compound names.
+pub fn lap_conditions_named(
+    game: GameId,
+    t: &LapTelemetry,
+    names: &CompoundNames,
+) -> LapConditions {
     let fuel = t.channel(names::FUEL);
     let fuel_start = fuel.and_then(|c| finite(c).next());
     let fuel_end = fuel.and_then(|c| finite(c).last());
@@ -177,9 +369,14 @@ pub fn lap_conditions(game: GameId, t: &LapTelemetry) -> LapConditions {
             Unit::Kilogram => Some("kg".into()),
             _ => None,
         }),
-        tyre_temp_c: wheels(t, tyre_temp_prefix(game), |c| average(finite(c))),
+        // below -100 °C isn't a reading (LMU laps recorded before 0 K was
+        // dropped: the game zeroes the wheels when going back to the garage)
+        tyre_temp_c: wheels(t, tyre_temp_prefix(game), |c| {
+            average(finite(c).filter(|&x| x > -100.0))
+        }),
         tyre_wear: tyre_wear_prefix(game).and_then(|p| wear(game, t, p)),
         tyre_flat: flats(game, t),
+        tyre_compound: tyre_compound(game, t, names),
     }
 }
 
@@ -496,12 +693,87 @@ mod tests {
                 Err("no such file")
             }
         };
-        let first = laps_conditions(GameId::Lmu, &[&hash, &missing], &mut load);
+        let first = laps_conditions(
+            GameId::Lmu,
+            &CompoundNames::default(),
+            &[&hash, &missing],
+            &mut load,
+        );
         assert_eq!(first[0].as_ref().unwrap().fuel_used, Some(0.5));
         assert_eq!(first[1].as_ref().unwrap_err(), "no such file");
-        let again = laps_conditions(GameId::Lmu, &[&hash], &mut load);
+        let again = laps_conditions(GameId::Lmu, &CompoundNames::default(), &[&hash], &mut load);
         assert_eq!(again[0].as_ref().unwrap().fuel_start, Some(12.0));
         assert_eq!(loads, 2, "the second time comes from the cache");
+    }
+
+    #[test]
+    fn impossible_tyre_temperatures_are_ignored() {
+        let mut ch = wheels_of(
+            "lmu.tyre_temp",
+            Unit::Celsius,
+            [
+                vec![80.0, 82.0, -273.15],
+                vec![70.0; 3],
+                vec![60.0; 3],
+                vec![50.0; 3],
+            ],
+        );
+        ch.push((names::FUEL.into(), Unit::Liter, vec![1.0; 3]));
+        let t = tel(ch
+            .iter()
+            .map(|(n, u, v)| (n.as_str(), *u, v.clone()))
+            .collect());
+        assert_eq!(
+            lap_conditions(GameId::Lmu, &t).tyre_temp_c.unwrap().fl,
+            81.0
+        );
+    }
+
+    #[test]
+    fn f1_compound_and_a_change_in_the_lap() {
+        let t = tel(vec![
+            (
+                "f1.tyre_visual_compound",
+                Unit::None,
+                vec![17.0, 17.0, 18.0],
+            ),
+            ("f1.tyre_compound", Unit::None, vec![17.0, 17.0, 18.0]),
+            ("f1.tyre_age_laps", Unit::None, vec![12.0, 12.0, 0.0]),
+        ]);
+        let c = lap_conditions(GameId::F1_25, &t).tyre_compound.unwrap();
+        assert_eq!(c.name, "Hard");
+        assert_eq!(c.detail.as_deref(), Some("C3"));
+        assert_eq!(c.changed_from.as_deref(), Some("Medium"));
+        assert_eq!(c.age_laps, Some(0), "the new set's age");
+    }
+
+    #[test]
+    fn compound_names_from_the_session_info() {
+        let ir =
+            serde_json::json!({ "player": { "tyre_compounds": ["Hard", "Wet", "AllPurpose"] } });
+        let names = CompoundNames::from_session_info(GameId::Iracing, Some(&ir));
+        let t = tel(vec![("iracing.tyre_compound", Unit::None, vec![2.0; 3])]);
+        let c = lap_conditions_named(GameId::Iracing, &t, &names)
+            .tyre_compound
+            .unwrap();
+        assert_eq!(c.name, "All purpose");
+        // without the names (e.g. a copy of a shared session): none
+        assert_eq!(lap_conditions(GameId::Iracing, &t).tyre_compound, None);
+
+        let lmu = serde_json::json!({
+            "tyre_compounds_front": { "0": "Soft", "1": "Medium" },
+            "tyre_compounds_rear": { "1": "Medium" }
+        });
+        let names = CompoundNames::from_session_info(GameId::Lmu, Some(&lmu));
+        let t = tel(vec![
+            ("lmu.tyre_compound_front", Unit::None, vec![0.0; 3]),
+            ("lmu.tyre_compound_rear", Unit::None, vec![1.0; 3]),
+        ]);
+        let c = lap_conditions_named(GameId::Lmu, &t, &names)
+            .tyre_compound
+            .unwrap();
+        assert_eq!(c.name, "Soft / Medium");
+        assert!(is_conditions_channel(GameId::Lmu, "lmu.tyre_compound_rear"));
     }
 
     #[test]

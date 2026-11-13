@@ -165,6 +165,9 @@ pub struct Telemetry {
     pub fuel_capacity: f64,
     pub front_compound: String,
     pub rear_compound: String,
+    /// Compound index (within the tyre brand) of `front_compound`
+    pub front_compound_index: u8,
+    pub rear_compound_index: u8,
     /// Fraction of braking on the rear axle
     pub rear_brake_bias: f64,
     pub turbo_boost: f64,
@@ -266,6 +269,8 @@ impl Telemetry {
             fuel_capacity: b.f64(o::FUEL_CAPACITY),
             front_compound: b.str(o::FRONT_COMPOUND, 18),
             rear_compound: b.str(o::REAR_COMPOUND, 18),
+            front_compound_index: b.u8(o::FRONT_COMPOUND_INDEX),
+            rear_compound_index: b.u8(o::REAR_COMPOUND_INDEX),
             rear_brake_bias: b.f64(o::REAR_BRAKE_BIAS),
             turbo_boost: b.f64(o::TURBO_BOOST),
             steering_range_deg: b.f32(o::STEERING_RANGE),

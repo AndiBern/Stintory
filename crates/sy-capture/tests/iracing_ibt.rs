@@ -152,6 +152,20 @@ fn oschersleben_race_matches_official_times() {
         "{c:?}"
     );
     assert_eq!(c.tyre_wear, None);
+    // the car's only compound, named in the session info
+    let names = sy_analysis::CompoundNames::from_session_info(
+        sy_model::GameId::Iracing,
+        s.session_info.as_ref(),
+    );
+    let c = sy_analysis::lap_conditions_named(
+        sy_model::GameId::Iracing,
+        &lap(&r, 1, 100_030).telemetry,
+        &names,
+    );
+    assert_eq!(
+        c.tyre_compound.map(|t| t.name).as_deref(),
+        Some("All purpose")
+    );
     // In races iRacing counts every lap, but laps with an off-track moment
     // are not clean reference laps for us.
     for (n, t) in [(7, 93_586), (8, 93_903)] {
@@ -326,4 +340,48 @@ fn dead_reckoning_matches_gps() {
         }
     }
     assert!(compared >= 4);
+}
+
+/// Live recording at Okayama (Ray FF1600, Nov 2026): weather and humidity
+/// per lap. Live, iRacing has no tyre temperatures (only `.ibt` files do)
+/// and updates wear in the pits only.
+#[test]
+fn okayama_live_lap_conditions() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../../telemetry_examples/iRacing/iracing-01a1d1b9-8f15-7064-97a2-f474f47cb9fa.syraw",
+    );
+    if !path.exists() {
+        return;
+    }
+    let mut source = sy_capture::pipeline::SpoolSource::open(&path).expect("open spool");
+    let r = run_source(&mut source);
+    let race = r
+        .sessions
+        .iter()
+        .find(|s| s.session_type == sy_model::SessionType::Race)
+        .expect("race");
+    let laps: Vec<_> = r
+        .laps
+        .iter()
+        .filter(|l| l.lap.session_id == race.id)
+        .collect();
+    assert!(laps.len() >= 8, "{} laps", laps.len());
+    for l in &laps {
+        let c = sy_analysis::lap_conditions(sy_model::GameId::Iracing, &l.telemetry);
+        assert_eq!(
+            c.weather.as_deref(),
+            Some("Overcast"),
+            "lap {}",
+            l.lap.number
+        );
+        assert_eq!(c.humidity.map(|h| (h * 100.0).round()), Some(95.0));
+        assert!(c.air_temp_c.is_some_and(|t| (18.5..19.5).contains(&t)));
+        assert!(c.track_temp_c.is_some_and(|t| (20.0..23.0).contains(&t)));
+        assert_eq!((c.tyre_temp_c, c.tyre_wear), (None, None));
+        assert_eq!(c.fuel_unit.as_deref(), Some("l"));
+    }
+    let used = sy_analysis::lap_conditions(sy_model::GameId::Iracing, &laps[3].telemetry)
+        .fuel_used
+        .unwrap();
+    assert!((0.85..0.95).contains(&used), "{used} l");
 }

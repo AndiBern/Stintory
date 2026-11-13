@@ -433,6 +433,8 @@ pub(crate) mod off {
             CURRENT_SECTOR = current_sector; SPEED_LIMITER = speed_limiter;
             MAX_GEARS = max_gears; FUEL_CAPACITY = fuel_capacity;
             FRONT_COMPOUND = front_tire_compound_name; REAR_COMPOUND = rear_tire_compound_name;
+            FRONT_COMPOUND_INDEX = front_tire_compound_index;
+            REAR_COMPOUND_INDEX = rear_tire_compound_index;
             REAR_BRAKE_BIAS = rear_brake_bias; TURBO_BOOST = turbo_boost_pressure;
             STEERING_RANGE = physical_steering_wheel_range;
             BATTERY = battery_charge_fraction;

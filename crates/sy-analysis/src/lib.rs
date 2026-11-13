@@ -20,7 +20,9 @@ use sy_model::api::{CompareData, LapTrace};
 use sy_model::channel::names;
 use sy_model::{ChannelData, Lap, LapTelemetry, Unit};
 
-pub use conditions::{is_conditions_channel, lap_conditions, laps_conditions};
+pub use conditions::{
+    CompoundNames, is_conditions_channel, lap_conditions, lap_conditions_named, laps_conditions,
+};
 
 /// Default grid resolution in metres.
 pub const DEFAULT_STEP_M: f32 = 1.0;

@@ -722,14 +722,15 @@ pub async fn get_shared(
         .ok_or_else(|| ApiError::not_found("session"))?;
     let row = db
         .query_one(
-            "SELECT ended_at, game_version, conditions FROM sessions
+            "SELECT ended_at, game_version, conditions, session_info FROM sessions
              WHERE owner_id = $1 AND id = $2",
             &[&owner, &id],
         )
         .await?;
     let conditions: sy_model::session::Conditions = serde_json::from_value(row.get(2))?;
+    let info: Option<serde_json::Value> = row.get(3);
     let laps = readable_laps(&db, viewer, owner, id).await?;
-    let laps = crate::data::lap_summaries(&state, shared.summary.game, laps).await?;
+    let laps = crate::data::lap_summaries(&state, shared.summary.game, info.as_ref(), laps).await?;
     Ok(Json(SharedSessionDetail {
         detail: SessionDetail {
             summary: shared.summary,

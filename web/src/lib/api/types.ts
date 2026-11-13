@@ -81,6 +81,19 @@ export interface LapConditions {
 	tyreWear: Wheels | null;
 	/** Tyres that went flat during the lap */
 	tyreFlat?: Wheels<boolean> | null;
+	tyreCompound?: TyreCompound | null;
+}
+
+/** The tyres a lap was driven on. */
+export interface TyreCompound {
+	/** At the end of the lap as the game names it, e.g. `Medium` (`Soft / Medium`: front / rear) */
+	name: string;
+	/** F1: the actual compound, e.g. `C3` */
+	detail: string | null;
+	/** The compound at the lap start if the tyres were changed in the lap */
+	changedFrom: string | null;
+	/** Age of the set in laps (F1) */
+	ageLaps: number | null;
 }
 
 export interface ConditionsView {

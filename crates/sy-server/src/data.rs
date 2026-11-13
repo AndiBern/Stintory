@@ -147,12 +147,13 @@ pub async fn get_session(
         .ok_or_else(|| ApiError::not_found("session"))?;
     let row = db
         .query_one(
-            "SELECT ended_at, game_version, conditions FROM sessions
+            "SELECT ended_at, game_version, conditions, session_info FROM sessions
              WHERE owner_id = $1 AND id = $2",
             &[&owner, &id],
         )
         .await?;
     let conditions: sy_model::session::Conditions = serde_json::from_value(row.get(2))?;
+    let info: Option<serde_json::Value> = row.get(3);
     let laps = db
         .query(
             &format!(
@@ -166,7 +167,7 @@ pub async fn get_session(
         .iter()
         .map(lap_from_row)
         .collect::<ApiResult<Vec<_>>>()?;
-    let laps = lap_summaries(&state, summary.game, laps).await?;
+    let laps = lap_summaries(&state, summary.game, info.as_ref(), laps).await?;
     Ok(Json(SessionDetail {
         summary,
         ended_at: row.get(0),
@@ -182,12 +183,16 @@ pub async fn get_session(
 pub(crate) async fn lap_summaries(
     state: &SharedState,
     game: GameId,
+    session_info: Option<&serde_json::Value>,
     laps: Vec<Lap>,
 ) -> ApiResult<Vec<LapSummary>> {
     let state = state.clone();
+    // the tyre compound names (the session info itself stays with the owner)
+    let names = sy_analysis::CompoundNames::from_session_info(game, session_info);
     Ok(tokio::task::spawn_blocking(move || {
         let hashes: Vec<_> = laps.iter().map(|l| &l.blob_hash).collect();
-        let conditions = sy_analysis::laps_conditions(game, &hashes, |h| state.blobs.get(h));
+        let conditions =
+            sy_analysis::laps_conditions(game, &names, &hashes, |h| state.blobs.get(h));
         laps.iter()
             .zip(conditions)
             .map(|(lap, conditions)| LapSummary {

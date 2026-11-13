@@ -103,6 +103,10 @@ pub struct PlayerInfo {
     pub car_class_id: Option<i64>,
     /// Setup file name
     pub setup_name: Option<String>,
+    /// The car's tyre compounds by index (`PlayerTireCompound`), e.g.
+    /// `["Hard", "Wet"]`
+    #[serde(default)]
+    pub tyre_compounds: Vec<String>,
 }
 
 /// Session info filtered to the player (see module docs).
@@ -212,6 +216,7 @@ impl SessionInfo {
                 car_screen_name: ds("CarScreenName"),
                 car_class_id: di("CarClassID"),
                 setup_name: s("DriverInfo.DriverSetupName"),
+                tyre_compounds: tyre_compounds(&y),
             },
             setup: y.get("CarSetup").map(Yaml::to_json),
         }
@@ -221,6 +226,31 @@ impl SessionInfo {
     pub fn session(&self, num: i64) -> Option<&SessionDef> {
         self.sessions.iter().find(|s| s.num == num)
     }
+}
+
+/// `DriverInfo.DriverTires`: compound names by `TireIndex`.
+fn tyre_compounds(y: &Yaml) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in y
+        .path("DriverInfo.DriverTires")
+        .map(Yaml::items)
+        .unwrap_or_default()
+    {
+        let (Some(index), Some(name)) = (
+            t.get("TireIndex").and_then(Yaml::as_i64),
+            t.get("TireCompoundType").and_then(Yaml::as_str),
+        ) else {
+            continue;
+        };
+        let Ok(index) = usize::try_from(index) else {
+            continue;
+        };
+        if index >= out.len() {
+            out.resize(index + 1, String::new());
+        }
+        out[index] = name.to_owned();
+    }
+    out
 }
 
 #[cfg(test)]

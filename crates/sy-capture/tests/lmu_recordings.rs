@@ -298,6 +298,15 @@ fn road_atlanta_rain_qualifying() {
         .map(|l| sy_analysis::lap_conditions(sy_model::GameId::Lmu, &l.telemetry).weather)
         .collect();
     assert_eq!(weather[1].as_deref(), Some("Rain 30 %, track wet 60 %"));
+    // on wet tyres: the name from the session info
+    let names = sy_analysis::CompoundNames::from_session_info(
+        sy_model::GameId::Lmu,
+        s.session_info.as_ref(),
+    );
+    for l in &r.laps {
+        let c = sy_analysis::lap_conditions_named(sy_model::GameId::Lmu, &l.telemetry, &names);
+        assert_eq!(c.tyre_compound.map(|t| t.name).as_deref(), Some("Wet"));
+    }
     assert_eq!(weather[3].as_deref(), Some("Rain 14 %, track wet 60 %"));
     let laps: Vec<Summary> = r.laps.iter().map(summary).collect();
     assert_eq!(
@@ -884,4 +893,44 @@ fn dump_trackmap() {
             ds[ds.len() - 1]
         );
     }
+}
+
+/// Practice at Silverstone (BMW M4 LMGT3, Nov 2026): out-lap, a lap, back to
+/// the garage. Going to the garage the game reports 0 K for the tyres: no
+/// value, not −273 °C.
+#[test]
+fn silverstone_practice_lap_conditions() {
+    let Some(r) = session_on("lmu:silverstone_grand_prix_circuit_wec:5869") else {
+        return;
+    };
+    let c: Vec<_> = r
+        .laps
+        .iter()
+        .map(|l| sy_analysis::lap_conditions(sy_model::GameId::Lmu, &l.telemetry))
+        .collect();
+    assert_eq!(c.len(), 3);
+    for (i, c) in c.iter().enumerate() {
+        assert_eq!(c.weather.as_deref(), Some("Dry"), "lap {i}");
+        assert!(
+            c.air_temp_c.is_some_and(|t| (14.0..17.0).contains(&t)),
+            "lap {i}: {c:?}"
+        );
+        assert!(
+            c.track_temp_c.is_some_and(|t| (22.0..24.0).contains(&t)),
+            "lap {i}: {c:?}"
+        );
+        let temp = c.tyre_temp_c.unwrap();
+        assert!((40.0..70.0).contains(&temp.fl), "lap {i}: {temp:?}");
+        assert!(
+            c.tyre_wear.is_some() && c.tyre_flat.is_none(),
+            "lap {i}: {c:?}"
+        );
+    }
+    let used = c[1].fuel_used.unwrap();
+    assert!((3.0..3.7).contains(&used), "{used} l");
+    let garage = f32s(&r.laps[2], "lmu.tyre_temp_fl");
+    assert!(
+        garage.iter().all(|t| t.is_nan() || *t > 0.0),
+        "no 0 K readings"
+    );
 }

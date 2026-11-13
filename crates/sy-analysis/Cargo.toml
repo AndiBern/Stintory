@@ -11,11 +11,9 @@ rust-version.workspace = true
 authors.workspace = true
 
 [dependencies]
+serde_json.workspace = true
 sy-model.workspace = true
 thiserror.workspace = true
-
-[dev-dependencies]
-serde_json.workspace = true
 
 [lints]
 workspace = true

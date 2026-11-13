@@ -3,7 +3,14 @@
 
 import { describe, expect, it } from 'vitest';
 import type { LapConditions, LapSummary } from './api/index.ts';
-import { anyFlat, cellText, fuelUsedText, visibleColumns } from './lap-conditions.ts';
+import {
+	anyFlat,
+	cellText,
+	compoundColor,
+	compoundDetails,
+	fuelUsedText,
+	visibleColumns
+} from './lap-conditions.ts';
 
 const none: LapConditions = {
 	airTempC: null,
@@ -75,5 +82,30 @@ describe('cellText', () => {
 	it('knows about flat tyres', () => {
 		expect(anyFlat(c)).toBe(false);
 		expect(anyFlat({ ...c, tyreFlat: { fl: false, fr: true, rl: false, rr: false } })).toBe(true);
+	});
+});
+
+describe('tyre compound', () => {
+	const c = {
+		...none,
+		tyreCompound: { name: 'Hard', detail: 'C3', changedFrom: 'Medium', ageLaps: 0 }
+	};
+
+	it('shows the compound and a change in the lap', () => {
+		expect(cellText(c, 'tyres')).toBe('Medium → Hard');
+		expect(compoundDetails(c)).toBe('C3 · 0 laps old · changed from Medium in this lap');
+		expect(visibleColumns([lap(c)]).map((col) => col.key)).toEqual(['tyres']);
+		expect(
+			compoundDetails({
+				...c,
+				tyreCompound: { name: 'Wet', detail: null, changedFrom: null, ageLaps: null }
+			})
+		).toBeUndefined();
+	});
+
+	it('colours the usual compounds', () => {
+		expect(compoundColor('Super soft')).toBe('bg-red-500');
+		expect(compoundColor('Intermediate')).toBe('bg-green-500');
+		expect(compoundColor('All purpose')).toBe('bg-zinc-500');
 	});
 });

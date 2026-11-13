@@ -228,6 +228,17 @@ fn channels(format: Format) -> Vec<Ch> {
             opt(i.s, |s| f64::from(s.front_brake_bias) / 100.0)
         }),
         ch("f1.drs", Unit::None, Bool, |i| f64::from(u8::from(i.t.drs))),
+        // tyres (car status): the compound (actual: C1–C6, inter, wet; visual:
+        // soft, medium, hard, …; codes in the UDP spec) and the set's age
+        ch("f1.tyre_compound", Unit::None, F32, |i| {
+            opt(i.s, |s| f64::from(s.tyre_compound))
+        }),
+        ch("f1.tyre_visual_compound", Unit::None, F32, |i| {
+            opt(i.s, |s| f64::from(s.tyre_visual_compound))
+        }),
+        ch("f1.tyre_age_laps", Unit::None, F32, |i| {
+            opt(i.s, |s| f64::from(s.tyre_age_laps))
+        }),
         ch("f1.ers_store", Unit::Joule, F32, |i| {
             opt(i.s, |s| f64::from(s.ers_store_j))
         }),

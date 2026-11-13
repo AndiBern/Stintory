@@ -480,6 +480,15 @@ impl IracingDecoder {
             1.0,
             0.0,
         );
+        // index into the session info's `player.tyre_compounds`
+        var(
+            "iracing.tyre_compound",
+            "PlayerTireCompound",
+            Unit::None,
+            I32,
+            1.0,
+            0.0,
+        );
         var("iracing.lat", "Lat", Unit::None, F64, 1.0, 0.0);
         var("iracing.lon", "Lon", Unit::None, F64, 1.0, 0.0);
         // local position in metres around the start/finish line

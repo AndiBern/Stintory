@@ -165,6 +165,24 @@ pub struct LapConditions {
     /// if none did or the game doesn't say
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tyre_flat: Option<WheelFlags>,
+    /// The tyre compound
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tyre_compound: Option<TyreCompound>,
+}
+
+/// The tyres a lap was driven on.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TyreCompound {
+    /// At the end of the lap, as the game names it, e.g. `Medium`; front and
+    /// rear if they differ: `Soft / Medium`
+    pub name: String,
+    /// More detail where the game has it (F1: the actual compound, `C3`)
+    pub detail: Option<String>,
+    /// The compound at the start of the lap if the tyres were changed in it
+    pub changed_from: Option<String>,
+    /// Age of the set in laps at the start of the lap (F1)
+    pub age_laps: Option<u32>,
 }
 
 impl LapConditions {

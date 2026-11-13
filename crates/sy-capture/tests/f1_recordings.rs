@@ -583,6 +583,28 @@ fn monza_grand_prix() {
         lap(3, 0).unwrap().lap.invalid_reason.as_deref(),
         Some("incomplete, red flag")
     );
+
+    // tyres (lap table): changed in the race's out-lap after the pit stop,
+    // under the red flag (the restart lap) and at the second pit stop
+    let tyres = |i: usize, n: usize| {
+        let l = lap(i, n).unwrap();
+        let c = sy_analysis::lap_conditions(sy_model::GameId::F1_25, &l.telemetry)
+            .tyre_compound
+            .unwrap();
+        (l.lap.number, c.name, c.changed_from, c.detail, c.age_laps)
+    };
+    let s = |v: &str| Some(v.to_owned());
+    assert_eq!(tyres(2, 0), (1, "Medium".into(), None, s("C4"), Some(0)));
+    assert_eq!(
+        tyres(2, 6),
+        (7, "Hard".into(), s("Medium"), s("C3"), Some(0))
+    );
+    assert_eq!(tyres(3, 1).1, "Hard");
+    assert_eq!(tyres(3, 1).2, s("Medium"));
+    assert_eq!(
+        tyres(3, 5),
+        (7, "Medium".into(), s("Hard"), s("C4"), Some(0))
+    );
 }
 
 /// Time trial in Melbourne with the F1 26 Williams: the game sent 2025 at
@@ -1040,4 +1062,35 @@ fn dump_rates() {
             flush(b, &counts, t);
         }
     }
+}
+
+/// Race in Melbourne with the F1 26 Mercedes (Nov 2026): weather, fuel and
+/// tyre wear per lap from the session and car damage packets.
+#[test]
+fn melbourne_race_lap_conditions() {
+    let Some(path) = recordings()
+        .into_iter()
+        .find(|p| p.to_string_lossy().contains("01a1d555-5f54"))
+    else {
+        return;
+    };
+    let r = replay(&path);
+    assert_eq!(r.sessions[0].track_name, "Melbourne");
+    assert_eq!(r.sessions[0].session_type, sy_model::SessionType::Race);
+    let c: Vec<_> = r
+        .laps
+        .iter()
+        .map(|l| sy_analysis::lap_conditions(sy_model::GameId::F1_25, &l.telemetry))
+        .collect();
+    assert_eq!(c[0].weather.as_deref(), Some("Overcast"));
+    assert_eq!(
+        (c[0].air_temp_c, c[1].track_temp_c),
+        (Some(20.0), Some(27.0))
+    );
+    for (i, c) in c.iter().take(6).enumerate() {
+        let used = c.fuel_used.unwrap();
+        assert!((0.9..1.4).contains(&used), "lap {i}: {used} kg");
+    }
+    let wear: Vec<f32> = c.iter().take(6).map(|c| c.tyre_wear.unwrap().rl).collect();
+    assert!(wear.windows(2).all(|w| w[1] > w[0]), "{wear:?}");
 }

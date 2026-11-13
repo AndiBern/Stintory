@@ -589,7 +589,8 @@ fn spool_replay_is_identical_and_player_only() {
                     l.lap.id,
                     l.lap.lap_time_ms,
                     l.lap.valid,
-                    l.telemetry.clone(),
+                    // the stored file: compares NaN (no value) as equal
+                    l.telemetry.to_parquet().unwrap(),
                 )
             })
             .collect::<Vec<_>>()

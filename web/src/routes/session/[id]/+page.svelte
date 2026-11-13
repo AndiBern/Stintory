@@ -14,6 +14,8 @@
 	import {
 		anyFlat,
 		cellText,
+		compoundColor,
+		compoundDetails,
 		formatTemp,
 		formatWear,
 		fuelUsedText,
@@ -319,7 +321,11 @@
 				<th class="text-right font-normal">Time</th>
 				<th class="text-right font-normal">Δ best</th>
 				{#each conditionColumns as col (col.key)}
-					<th class="pl-4 font-normal" class:text-right={col.key !== 'weather'} title={col.title}>
+					<th
+						class="pl-4 font-normal"
+						class:text-right={col.key !== 'weather' && col.key !== 'tyres'}
+						title={col.title}
+					>
 						<span class="inline-flex align-middle"><ConditionIcon name={col.key} /></span>
 						<span class="sr-only">{col.title}</span>
 					</th>
@@ -364,6 +370,19 @@
 							</td>
 						{:else if col.key === 'weather'}
 							<td class="max-w-48 pl-4 text-xs text-zinc-300">{cellText(c, col.key)}</td>
+						{:else if col.key === 'tyres'}
+							<td class="pl-4 text-sm whitespace-nowrap" title={compoundDetails(c)}>
+								{#if c?.tyreCompound}
+									<span
+										class="mr-1.5 inline-block h-2 w-2 rounded-full {compoundColor(
+											c.tyreCompound.name
+										)}"
+										aria-hidden="true"
+									></span>{cellText(c, col.key)}{#if c.tyreCompound.detail}<span
+											class="ml-1 text-xs text-zinc-500">{c.tyreCompound.detail}</span
+										>{/if}
+								{/if}
+							</td>
 						{:else}
 							<td
 								class="pl-4 text-right whitespace-nowrap tabular-nums"

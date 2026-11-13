@@ -6,7 +6,7 @@
 import type { LapConditions, LapSummary, Wheels } from './api/index.ts';
 
 export type ConditionKey =
-	'airTemp' | 'trackTemp' | 'humidity' | 'weather' | 'fuel' | 'tyreTemp' | 'tyreWear';
+	'airTemp' | 'trackTemp' | 'humidity' | 'weather' | 'fuel' | 'tyres' | 'tyreTemp' | 'tyreWear';
 
 export interface ConditionColumn {
 	key: ConditionKey;
@@ -20,6 +20,7 @@ export const CONDITION_COLUMNS: ConditionColumn[] = [
 	{ key: 'humidity', title: 'Humidity' },
 	{ key: 'weather', title: 'Weather' },
 	{ key: 'fuel', title: 'Fuel at the start of the lap' },
+	{ key: 'tyres', title: 'Tyre compound' },
 	{ key: 'tyreTemp', title: 'Tyre temperature (average of all four over the lap)' },
 	{ key: 'tyreWear', title: 'Tyre wear (average of all four at the end of the lap)' }
 ];
@@ -37,6 +38,8 @@ function value(c: LapConditions, key: ConditionKey): unknown {
 			return c.weather;
 		case 'fuel':
 			return c.fuelStart;
+		case 'tyres':
+			return c.tyreCompound;
 		case 'tyreTemp':
 			return c.tyreTempC;
 		case 'tyreWear':
@@ -78,6 +81,11 @@ export function cellText(c: LapConditions | null | undefined, key: ConditionKey)
 			return c.weather ?? '';
 		case 'fuel':
 			return c.fuelStart == null ? '' : `${c.fuelStart.toFixed(1)} ${c.fuelUnit ?? ''}`.trim();
+		case 'tyres': {
+			const t = c.tyreCompound;
+			if (!t) return '';
+			return t.changedFrom ? `${t.changedFrom} → ${t.name}` : t.name;
+		}
 		case 'tyreTemp':
 			return c.tyreTempC ? `${average(c.tyreTempC).toFixed(0)} °C` : '';
 		case 'tyreWear':
@@ -95,4 +103,30 @@ export function fuelUsedText(c: LapConditions | null | undefined): string | unde
 export function anyFlat(c: LapConditions | null | undefined): boolean {
 	const f = c?.tyreFlat;
 	return !!f && (f.fl || f.fr || f.rl || f.rr);
+}
+
+/** Tooltip of the compound cell: the details the game has. */
+export function compoundDetails(c: LapConditions | null | undefined): string | undefined {
+	const t = c?.tyreCompound;
+	if (!t) return undefined;
+	const parts: string[] = [];
+	if (t.detail) parts.push(t.detail);
+	if (t.ageLaps != null) parts.push(t.ageLaps === 1 ? '1 lap old' : `${t.ageLaps} laps old`);
+	if (t.changedFrom) parts.push(`changed from ${t.changedFrom} in this lap`);
+	return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+/**
+ * The usual colour of a compound (soft red, medium yellow, hard white,
+ * intermediate green, wet blue) as a class; grey for others. The name is
+ * always shown next to it.
+ */
+export function compoundColor(name: string): string {
+	const n = name.toLowerCase();
+	if (n.includes('soft')) return 'bg-red-500';
+	if (n.includes('medium')) return 'bg-yellow-400';
+	if (n.includes('hard')) return 'bg-zinc-100';
+	if (n.includes('inter')) return 'bg-green-500';
+	if (n.includes('wet') || n.includes('rain')) return 'bg-blue-500';
+	return 'bg-zinc-500';
 }

@@ -335,6 +335,8 @@ impl SessionState {
             "fuel_capacity_l": t.fuel_capacity,
             "tyres_front": t.front_compound,
             "tyres_rear": t.rear_compound,
+            "tyre_compounds_front": { t.front_compound_index.to_string(): t.front_compound },
+            "tyre_compounds_rear": { t.rear_compound_index.to_string(): t.rear_compound },
         });
         SessionMeta {
             session_key: self.key(),
@@ -495,6 +497,46 @@ pub fn championship(id: u8) -> Option<&'static str> {
         0x11 => "ELMS 2026",
         _ => return None,
     })
+}
+
+/// Adds the compound names of the fitted tyres to the session info's
+/// index → name tables; true if one was new.
+fn add_compound_names(meta: &mut SessionMeta, t: &Telemetry) -> bool {
+    let Some(serde_json::Value::Object(info)) = meta.session_info.as_mut() else {
+        return false;
+    };
+    let mut added = false;
+    for (key, index, name) in [
+        (
+            "tyre_compounds_front",
+            t.front_compound_index,
+            &t.front_compound,
+        ),
+        (
+            "tyre_compounds_rear",
+            t.rear_compound_index,
+            &t.rear_compound,
+        ),
+    ] {
+        if name.is_empty() {
+            continue;
+        }
+        let table = info
+            .entry(key)
+            .or_insert_with(|| serde_json::Value::Object(Default::default()));
+        if let serde_json::Value::Object(table) = table
+            && !table.contains_key(&index.to_string())
+        {
+            table.insert(index.to_string(), name.clone().into());
+            added = true;
+        }
+    }
+    added
+}
+
+/// °C from K; NaN for 0 K and below (no value from the game).
+fn kelvin_to_celsius(k: f64) -> f64 {
+    if k > 0.0 { k - KELVIN } else { f64::NAN }
 }
 
 fn weather(sc: &Scoring) -> String {
@@ -669,6 +711,14 @@ fn channels(with_steer: bool) -> Vec<Ch> {
         ch("lmu.downforce_rear", Unit::Newton, F32, |t| {
             t.rear_downforce
         }),
+        // tyre compound per axle: an index, the names are in the session info
+        // (`tyre_compounds_front` / `_rear`: index → name)
+        ch("lmu.tyre_compound_front", Unit::None, I32, |t| {
+            f64::from(t.front_compound_index)
+        }),
+        ch("lmu.tyre_compound_rear", Unit::None, I32, |t| {
+            f64::from(t.rear_compound_index)
+        }),
         // weather (per lap in the lap table)
         ch_scoring(names::AIR_TEMP, Unit::Celsius, F32, |s| s.ambient_temp_c),
         ch_scoring(names::TRACK_TEMP, Unit::Celsius, F32, |s| s.track_temp_c),
@@ -699,11 +749,12 @@ fn channels(with_steer: bool) -> Vec<Ch> {
             }));
         };
     }
+    // 0 K: no value (the game zeroes the wheels when going back to the garage)
     wheels!("lmu.tyre_temp", Unit::Celsius, F32, |w| {
-        w.temperature_k.iter().sum::<f64>() / 3.0 - KELVIN
+        kelvin_to_celsius(w.temperature_k.iter().sum::<f64>() / 3.0)
     });
     wheels!("lmu.tyre_carcass_temp", Unit::Celsius, F32, |w| {
-        w.carcass_temp_k - KELVIN
+        kelvin_to_celsius(w.carcass_temp_k)
     });
     wheels!("lmu.tyre_pressure", Unit::Kilopascal, F32, |w| w
         .pressure_kpa);
@@ -889,6 +940,11 @@ impl LmuDecoder {
             let meta = s.build_meta(sc, &t, self.setup.as_ref());
             s.meta = Some(meta.clone());
             out.push(SourceEvent::Session(Box::new(meta)));
+        } else if let Some(meta) = s.meta.as_mut()
+            && add_compound_names(meta, &t)
+        {
+            // new tyres (pit stop): their name for the lap table
+            out.push(SourceEvent::Session(Box::new(meta.clone())));
         }
 
         // Races: nothing before the start (formation lap, countdown). The

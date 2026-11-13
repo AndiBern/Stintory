@@ -40,6 +40,11 @@
 		<!-- fuel pump -->
 		<path d="M4 20V5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v15 M3 20h11 M6.5 7h4" />
 		<path d="M13 10h2a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3" />
+	{:else if name === 'tyres'}
+		<!-- a tyre: tread, sidewall, hub -->
+		<circle cx="12" cy="12" r="9" />
+		<circle cx="12" cy="12" r="5" />
+		<circle cx="12" cy="12" r="1.5" />
 	{:else if name === 'tyreTemp'}
 		<!-- tyre and heat -->
 		<circle cx="10" cy="14" r="7" />
