@@ -711,14 +711,6 @@ fn channels(with_steer: bool) -> Vec<Ch> {
         ch("lmu.downforce_rear", Unit::Newton, F32, |t| {
             t.rear_downforce
         }),
-        // tyre compound per axle: an index, the names are in the session info
-        // (`tyre_compounds_front` / `_rear`: index → name)
-        ch("lmu.tyre_compound_front", Unit::None, I32, |t| {
-            f64::from(t.front_compound_index)
-        }),
-        ch("lmu.tyre_compound_rear", Unit::None, I32, |t| {
-            f64::from(t.rear_compound_index)
-        }),
         // weather (per lap in the lap table)
         ch_scoring(names::AIR_TEMP, Unit::Celsius, F32, |s| s.ambient_temp_c),
         ch_scoring(names::TRACK_TEMP, Unit::Celsius, F32, |s| s.track_temp_c),
@@ -765,6 +757,16 @@ fn channels(with_steer: bool) -> Vec<Ch> {
     )));
     wheels!("lmu.wheel_detached", Unit::None, Bool, |w| f64::from(
         u8::from(w.detached)
+    ));
+    // compound per wheel (it can differ on all four): the index (the same as
+    // the axle's, names in the session info: `tyre_compounds_front` / `_rear`)
+    // and the type (the garage's per-wheel compound setting: 0 soft,
+    // 1 medium, 2 hard, 3 wet)
+    wheels!("lmu.tyre_compound", Unit::None, I32, |w| f64::from(
+        w.compound_index
+    ));
+    wheels!("lmu.tyre_compound_type", Unit::None, I32, |w| f64::from(
+        w.compound_type
     ));
     wheels!("lmu.brake_temp", Unit::Celsius, F32, |w| w.brake_temp_c);
     wheels!("lmu.ride_height", Unit::Meter, F32, |w| w.ride_height);

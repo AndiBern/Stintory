@@ -2,9 +2,9 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <!-- Line icons for the lap table's condition columns (24×24, current colour). -->
 <script lang="ts">
-	import type { ConditionKey } from '#lib/lap-conditions.ts';
+	import type { IconName } from '#lib/lap-conditions.ts';
 
-	let { name, class: cls = 'h-4 w-4' }: { name: ConditionKey; class?: string } = $props();
+	let { name, class: cls = 'h-4 w-4' }: { name: IconName; class?: string } = $props();
 
 	/** Thermometer on the left half */
 	const thermometer = 'M5 4.5a2 2 0 0 1 4 0v9.3a3.5 3.5 0 1 1-4 0z M7 10v6';
@@ -40,7 +40,7 @@
 		<!-- fuel pump -->
 		<path d="M4 20V5a2 2 0 0 1 2-2h5a2 2 0 0 1 2 2v15 M3 20h11 M6.5 7h4" />
 		<path d="M13 10h2a2 2 0 0 1 2 2v4a1.5 1.5 0 0 0 3 0V8l-3-3" />
-	{:else if name === 'tyres'}
+	{:else if name === 'tires'}
 		<!-- a tyre: tread, sidewall, hub -->
 		<circle cx="12" cy="12" r="9" />
 		<circle cx="12" cy="12" r="5" />

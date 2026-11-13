@@ -86,14 +86,17 @@ export interface LapConditions {
 
 /** The tyres a lap was driven on. */
 export interface TyreCompound {
-	/** At the end of the lap as the game names it, e.g. `Medium` (`Soft / Medium`: front / rear) */
-	name: string;
+	/** Per tire at the end of the lap, as the game names them, e.g. `Medium` (LMU can mix all four) */
+	fl: string;
+	fr: string;
+	rl: string;
+	rr: string;
 	/** F1: the actual compound, e.g. `C3` */
 	detail: string | null;
-	/** The compound at the lap start if the tyres were changed in the lap */
-	changedFrom: string | null;
 	/** Age of the set in laps (F1) */
 	ageLaps: number | null;
+	/** The compounds at the lap start if any tire was changed in the lap */
+	before: Wheels<string> | null;
 }
 
 export interface ConditionsView {

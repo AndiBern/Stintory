@@ -457,6 +457,7 @@ pub(crate) mod off {
             SUSPENSION_DEFLECTION = suspension_deflection; RIDE_HEIGHT = ride_height;
             BRAKE_TEMP = brake_temp; PRESSURE = pressure; TEMPERATURE = temperature;
             WEAR = wear; SURFACE_TYPE = surface_type; FLAT = flat; DETACHED = detached;
+            COMPOUND_INDEX = compound_index; COMPOUND_TYPE = compound_type;
             CARCASS_TEMP = tire_carcass_temperature;
         }
     }

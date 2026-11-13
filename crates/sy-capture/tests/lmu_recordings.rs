@@ -305,7 +305,10 @@ fn road_atlanta_rain_qualifying() {
     );
     for l in &r.laps {
         let c = sy_analysis::lap_conditions_named(sy_model::GameId::Lmu, &l.telemetry, &names);
-        assert_eq!(c.tyre_compound.map(|t| t.name).as_deref(), Some("Wet"));
+        // per wheel (LMU can mix compounds on all four)
+        let t = c.tyre_compound.unwrap();
+        assert_eq!([t.fl, t.fr, t.rl, t.rr], ["Wet", "Wet", "Wet", "Wet"]);
+        assert!(l.telemetry.channel("lmu.tyre_compound_rr").is_some());
     }
     assert_eq!(weather[3].as_deref(), Some("Rain 14 %, track wet 60 %"));
     let laps: Vec<Summary> = r.laps.iter().map(summary).collect();
@@ -933,4 +936,27 @@ fn silverstone_practice_lap_conditions() {
         garage.iter().all(|t| t.is_nan() || *t > 0.0),
         "no 0 K readings"
     );
+}
+
+/// Practice at Silverstone National (Alpine A424, Nov 2026) with three
+/// compounds: hard front left and rear right, medium front right, wet rear
+/// left (as the garage names them). The axle values name only two of them;
+/// the medium comes from the wheel's compound type.
+#[test]
+fn silverstone_national_mixed_compounds() {
+    let Some(r) = session_on("lmu:silverstone_national_circuit:2634") else {
+        return;
+    };
+    let names = sy_analysis::CompoundNames::from_session_info(
+        sy_model::GameId::Lmu,
+        r.sessions[0].session_info.as_ref(),
+    );
+    assert!(!r.laps.is_empty());
+    for l in &r.laps {
+        let t = sy_analysis::lap_conditions_named(sy_model::GameId::Lmu, &l.telemetry, &names)
+            .tyre_compound
+            .unwrap();
+        assert_eq!([t.fl, t.fr, t.rl, t.rr], ["Hard", "Medium", "Wet", "Hard"]);
+        assert_eq!(t.before, None);
+    }
 }

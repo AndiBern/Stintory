@@ -117,6 +117,10 @@ pub struct Wheel {
     pub flat: bool,
     /// The wheel came off
     pub detached: bool,
+    /// The tyre's compound (`mCompoundIndex`, per wheel)
+    pub compound_index: u8,
+    /// `mCompoundType`
+    pub compound_type: u8,
 }
 
 /// The player's telemetry (`TelemInfoV01`), the fields Stintory uses.
@@ -232,6 +236,8 @@ impl Telemetry {
                 surface_type: b.u8(at + w::SURFACE_TYPE),
                 flat: b.u8(at + w::FLAT) != 0,
                 detached: b.u8(at + w::DETACHED) != 0,
+                compound_index: b.u8(at + w::COMPOUND_INDEX),
+                compound_type: b.u8(at + w::COMPOUND_TYPE),
             }
         };
         Ok(Self {

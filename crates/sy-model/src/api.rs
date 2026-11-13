@@ -174,15 +174,35 @@ pub struct LapConditions {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TyreCompound {
-    /// At the end of the lap, as the game names it, e.g. `Medium`; front and
-    /// rear if they differ: `Soft / Medium`
-    pub name: String,
+    /// Front left tyre at the end of the lap, as the game names it, e.g.
+    /// `Medium` (all four the same where the game has one compound per car;
+    /// LMU can mix them per wheel)
+    pub fl: String,
+    /// Front right
+    pub fr: String,
+    /// Rear left
+    pub rl: String,
+    /// Rear right
+    pub rr: String,
     /// More detail where the game has it (F1: the actual compound, `C3`)
     pub detail: Option<String>,
-    /// The compound at the start of the lap if the tyres were changed in it
-    pub changed_from: Option<String>,
     /// Age of the set in laps at the start of the lap (F1)
     pub age_laps: Option<u32>,
+    /// The compounds at the start of the lap if any tyre was changed in it
+    pub before: Option<TyreNames>,
+}
+
+/// A compound name per tyre.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TyreNames {
+    /// Front left
+    pub fl: String,
+    /// Front right
+    pub fr: String,
+    /// Rear left
+    pub rl: String,
+    /// Rear right
+    pub rr: String,
 }
 
 impl LapConditions {

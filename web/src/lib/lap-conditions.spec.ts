@@ -7,9 +7,11 @@ import {
 	anyFlat,
 	cellText,
 	compoundColor,
-	compoundDetails,
+	compoundDots,
 	fuelUsedText,
-	visibleColumns
+	tireSummary,
+	visibleColumns,
+	wheelDetails
 } from './lap-conditions.ts';
 
 const none: LapConditions = {
@@ -69,8 +71,7 @@ describe('cellText', () => {
 		expect(cellText(c, 'trackTemp')).toBe('');
 		expect(cellText(c, 'humidity')).toBe('39 %');
 		expect(cellText(c, 'fuel')).toBe('85.6 l');
-		expect(cellText(c, 'tyreTemp')).toBe('64 °C');
-		expect(cellText(c, 'tyreWear')).toBe('1.4 %');
+		expect(cellText(c, 'tires')).toBe('64 °C 1.4 %');
 		expect(cellText(null, 'weather')).toBe('');
 	});
 
@@ -85,27 +86,149 @@ describe('cellText', () => {
 	});
 });
 
-describe('tyre compound', () => {
-	const c = {
+describe('tires', () => {
+	const c: LapConditions = {
 		...none,
-		tyreCompound: { name: 'Hard', detail: 'C3', changedFrom: 'Medium', ageLaps: 0 }
+		tyreTempC: { fl: 60, fr: 80, rl: 60, rr: 56 },
+		tyreWear: { fl: 0.05, fr: 0.02, rl: 0.015, rr: 0.011 },
+		tyreCompound: {
+			fl: 'Soft',
+			fr: 'Soft',
+			rl: 'Soft',
+			rr: 'Soft',
+			detail: 'C5',
+			ageLaps: 5,
+			before: null
+		}
 	};
 
-	it('shows the compound and a change in the lap', () => {
-		expect(cellText(c, 'tyres')).toBe('Medium → Hard');
-		expect(compoundDetails(c)).toBe('C3 · 0 laps old · changed from Medium in this lap');
-		expect(visibleColumns([lap(c)]).map((col) => col.key)).toEqual(['tyres']);
-		expect(
-			compoundDetails({
-				...c,
-				tyreCompound: { name: 'Wet', detail: null, changedFrom: null, ageLaps: null }
-			})
-		).toBeUndefined();
+	it('sums up compound, temperature and wear, leaving out what is missing', () => {
+		expect(cellText(c, 'tires')).toBe('Soft 64 °C 2.4 %');
+		expect(cellText({ ...c, tyreCompound: null }, 'tires')).toBe('64 °C 2.4 %');
+		expect(cellText({ ...none, tyreTempC: c.tyreTempC }, 'tires')).toBe('64 °C');
+		expect(visibleColumns([lap({ tyreWear: c.tyreWear })]).map((col) => col.key)).toEqual([
+			'tires'
+		]);
+	});
+
+	it('says Mixed for different compounds or a change in the lap', () => {
+		const t = c.tyreCompound!;
+		expect(tireSummary({ ...c, tyreCompound: { ...t, rr: 'Medium' } }).compound).toBe('Mixed');
+		const before = { fl: 'Hard', fr: 'Soft', rl: 'Soft', rr: 'Soft' };
+		expect(tireSummary({ ...c, tyreCompound: { ...t, before } }).compound).toBe('Mixed');
+	});
+
+	it('details every tire', () => {
+		const [fl, , rl, rr] = wheelDetails({
+			...c,
+			tyreCompound: { ...c.tyreCompound!, rl: 'Medium', rr: 'Hard', detail: null, ageLaps: 1 },
+			tyreFlat: { fl: false, fr: false, rl: true, rr: false }
+		});
+		expect(fl).toMatchObject({ label: 'Front left', compound: 'Soft – 1 lap', temp: '60 °C' });
+		expect(rl).toMatchObject({ compound: 'Medium – 1 lap', wear: '1.5 %', flat: true });
+		expect(rr).toMatchObject({ compound: 'Hard – 1 lap', compoundName: 'Hard' });
+		expect(wheelDetails(c)[0].compound).toBe('Soft (C5) – 5 laps');
+		expect(wheelDetails({ ...none, tyreWear: c.tyreWear })[1]).toMatchObject({
+			compound: null,
+			temp: null,
+			wear: '2.0 %'
+		});
 	});
 
 	it('colours the usual compounds', () => {
-		expect(compoundColor('Super soft')).toBe('bg-red-500');
-		expect(compoundColor('Intermediate')).toBe('bg-green-500');
-		expect(compoundColor('All purpose')).toBe('bg-zinc-500');
+		// F1: soft red, hard white
+		expect(compoundColor('Super soft', 'f1_25').bg).toBe('bg-red-500');
+		expect(compoundColor('Hard', 'f1_25').bg).toBe('bg-zinc-100');
+		expect(compoundColor('Intermediate', 'f1_25').text).toBe('text-green-500');
+		// LMU: soft white, hard red
+		expect(compoundColor('Soft', 'lmu').bg).toBe('bg-zinc-100');
+		expect(compoundColor('Hard', 'lmu').bg).toBe('bg-red-500');
+		expect(compoundColor('Wet', 'lmu').bg).toBe('bg-blue-500');
+		// iRacing: only wet has a colour
+		expect(compoundColor('Hard', 'iracing').bg).toBe('bg-zinc-500');
+		expect(compoundColor('Wet', 'iracing').bg).toBe('bg-blue-500');
+		expect(compoundColor('Mixed', 'lmu').bg).toBe('bg-zinc-500');
+	});
+});
+
+describe('compound dots', () => {
+	type W = [string, string, string, string];
+	const set = (after: W, before: W | null = null): LapConditions => ({
+		...none,
+		tyreCompound: {
+			fl: after[0],
+			fr: after[1],
+			rl: after[2],
+			rr: after[3],
+			detail: null,
+			ageLaps: null,
+			before: before && { fl: before[0], fr: before[1], rl: before[2], rr: before[3] }
+		}
+	});
+	/** each dot as "before|after" names, or the name alone */
+	const dots = (c: LapConditions) =>
+		compoundDots(c, 'lmu').map((d) =>
+			d.before ? `${d.before.name}|${d.after.name}` : d.after.name
+		);
+
+	it('has one dot if all four are the same', () => {
+		expect(dots(set(['Soft', 'Soft', 'Soft', 'Soft']))).toEqual(['Soft']);
+		expect(compoundDots(set(['Soft', 'Soft', 'Soft', 'Soft']), 'lmu')[0].label).toBe('All tires');
+	});
+
+	it('has two dots if front and rear differ', () => {
+		expect(dots(set(['Soft', 'Soft', 'Hard', 'Hard']))).toEqual(['Soft', 'Hard']);
+	});
+
+	it('has four dots as soon as an axle is uneven', () => {
+		expect(dots(set(['Hard', 'Medium', 'Wet', 'Hard']))).toEqual(['Hard', 'Medium', 'Wet', 'Hard']);
+		expect(dots(set(['Soft', 'Soft', 'Hard', 'Medium']))).toHaveLength(4);
+	});
+
+	it('splits the dots of tires changed in the lap', () => {
+		// all four soft to hard: one dot, split
+		expect(dots(set(['Hard', 'Hard', 'Hard', 'Hard'], ['Soft', 'Soft', 'Soft', 'Soft']))).toEqual([
+			'Soft|Hard'
+		]);
+		// soft front, hard rear; only the front changed to hard: two dots
+		expect(dots(set(['Hard', 'Hard', 'Hard', 'Hard'], ['Soft', 'Soft', 'Hard', 'Hard']))).toEqual([
+			'Soft|Hard',
+			'Hard'
+		]);
+		// four softs, one changed to hard: four dots, one split
+		expect(dots(set(['Hard', 'Soft', 'Soft', 'Soft'], ['Soft', 'Soft', 'Soft', 'Soft']))).toEqual([
+			'Soft|Hard',
+			'Soft',
+			'Soft',
+			'Soft'
+		]);
+	});
+
+	it("colours both halves in the game's colours", () => {
+		const [d] = compoundDots(
+			set(['Hard', 'Hard', 'Hard', 'Hard'], ['Soft', 'Soft', 'Soft', 'Soft']),
+			'lmu'
+		);
+		expect([d.before?.bg, d.after.bg]).toEqual(['bg-zinc-100', 'bg-red-500']);
+	});
+});
+
+describe('tire details after a change', () => {
+	it('shows before and after per tire', () => {
+		const c: LapConditions = {
+			...none,
+			tyreCompound: {
+				fl: 'Hard',
+				fr: 'Soft',
+				rl: 'Soft',
+				rr: 'Soft',
+				detail: null,
+				ageLaps: null,
+				before: { fl: 'Soft', fr: 'Soft', rl: 'Soft', rr: 'Soft' }
+			}
+		};
+		const [fl, fr] = wheelDetails(c);
+		expect(fl.compound).toBe('Soft → Hard');
+		expect(fr.compound).toBe('Soft');
 	});
 });

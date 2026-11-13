@@ -591,7 +591,13 @@ fn monza_grand_prix() {
         let c = sy_analysis::lap_conditions(sy_model::GameId::F1_25, &l.telemetry)
             .tyre_compound
             .unwrap();
-        (l.lap.number, c.name, c.changed_from, c.detail, c.age_laps)
+        (
+            l.lap.number,
+            c.fl,
+            c.before.map(|b| b.fl),
+            c.detail,
+            c.age_laps,
+        )
     };
     let s = |v: &str| Some(v.to_owned());
     assert_eq!(tyres(2, 0), (1, "Medium".into(), None, s("C4"), Some(0)));

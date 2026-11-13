@@ -163,7 +163,7 @@ fn oschersleben_race_matches_official_times() {
         &names,
     );
     assert_eq!(
-        c.tyre_compound.map(|t| t.name).as_deref(),
+        c.tyre_compound.map(|t| t.fl).as_deref(),
         Some("All purpose")
     );
     // In races iRacing counts every lap, but laps with an off-track moment

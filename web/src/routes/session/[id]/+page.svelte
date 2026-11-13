@@ -15,11 +15,11 @@
 		anyFlat,
 		cellText,
 		compoundColor,
-		compoundDetails,
-		formatTemp,
-		formatWear,
+		compoundDots,
 		fuelUsedText,
-		visibleColumns
+		tireSummary,
+		visibleColumns,
+		wheelDetails
 	} from '#lib/lap-conditions.ts';
 	import ReferencePicker, { type ReferenceTarget } from '#lib/components/ReferencePicker.svelte';
 	import ShareDialog, { type ShareTarget } from '#lib/components/ShareDialog.svelte';
@@ -76,16 +76,12 @@
 	}
 
 	const best = $derived(detail ? bestLap(detail) : undefined);
+	/** for the compound colours, which differ per game */
+	const game = $derived(detail?.summary.game ?? 'f1_25');
 	const visibleLaps = $derived(detail ? detail.laps.filter((l) => showAll || !l.incomplete) : []);
 	const hiddenCount = $derived(detail ? detail.laps.length - visibleLaps.length : 0);
 	/** Weather, fuel and tyre columns: only those the game provides */
 	const conditionColumns = $derived(visibleColumns(visibleLaps));
-	const WHEELS = [
-		['fl', 'Front left'],
-		['fr', 'Front right'],
-		['rl', 'Rear left'],
-		['rr', 'Rear right']
-	] as const;
 
 	/** The lap time chart needs at least two laps with a time. */
 	const showChart = $derived(visibleLaps.filter((l) => l.lapTimeMs !== null).length > 1);
@@ -270,41 +266,72 @@
 		<ExportDialog bind:open={exporting} scopes={exportScopes} />
 	{/if}
 
-	<!-- tyre cell: the average, all four wheels on hover -->
-	{#snippet tyres(c: LapConditions, key: 'tyreTemp' | 'tyreWear')}
-		<span class="group/tyres relative inline-block cursor-default">
-			{#if key === 'tyreWear' && anyFlat(c)}
-				<span class="mr-1 rounded bg-amber-950 px-1 text-xs text-amber-300">flat</span>
+	<!-- tires: compound, temperature and wear; all four on hover -->
+	{#snippet tires(c: LapConditions)}
+		{@const sum = tireSummary(c)}
+		{@const wheels = wheelDetails(c)}
+		<span class="group/tires relative inline-flex cursor-default items-center gap-3">
+			{#if sum.compound}
+				<span class="inline-flex items-center gap-1.5">
+					<!-- 1 dot (all the same), 2 (front, rear) or 4 (FL FR RL RR); split
+					     where changed in the lap: before | after -->
+					<span class="inline-flex gap-1" aria-hidden="true">
+						{#each compoundDots(c, game) as dot (dot.label)}
+							<span
+								class="inline-flex h-2.5 w-2.5 overflow-hidden rounded-full"
+								title="{dot.label}: {dot.before ? `${dot.before.name} → ` : ''}{dot.after.name}"
+							>
+								{#if dot.before}<span class="h-full w-1/2 {dot.before.bg}"></span>{/if}
+								<span class="h-full flex-1 {dot.after.bg}"></span>
+							</span>
+						{/each}
+					</span>{sum.compound}
+				</span>
 			{/if}
-			<span class="underline decoration-zinc-600 decoration-dotted underline-offset-4"
-				>{cellText(c, key)}</span
-			>
+			{#if sum.temp}<span class="tabular-nums">{sum.temp}</span>{/if}
+			{#if sum.wear}<span class="tabular-nums">{sum.wear}</span>{/if}
+			{#if anyFlat(c)}
+				<span class="rounded bg-amber-950 px-1 text-xs text-amber-300">flat</span>
+			{/if}
 			<span class="sr-only">
-				{#each WHEELS as [w, label] (w)}
-					{label}: {c.tyreTempC ? formatTemp(c.tyreTempC[w]) : ''}
-					{c.tyreWear ? `wear ${formatWear(c.tyreWear[w])}` : ''}
-					{c.tyreFlat?.[w] ? 'flat' : ''}.
+				{#each wheels as w (w.key)}
+					{w.label}: {[w.compound, w.temp, w.wear && `${w.wear} worn`, w.flat && 'flat']
+						.filter(Boolean)
+						.join(', ')}.
 				{/each}
+				{#if c.tyreCompound?.before}Tires changed in this lap.{/if}
 			</span>
 			<span
-				class="pointer-events-none absolute top-full right-0 z-20 mt-1 hidden w-max grid-cols-2 gap-1.5 rounded border border-zinc-700 bg-zinc-900 p-2 text-left text-xs shadow-lg group-hover/tyres:grid"
+				class="pointer-events-none absolute top-full left-0 z-20 mt-1 hidden w-max grid-cols-2 gap-1.5 rounded border border-zinc-700 bg-zinc-900 p-2 text-left text-xs shadow-lg group-hover/tires:grid"
 				aria-hidden="true"
 			>
-				{#each WHEELS as [w, label] (w)}
-					<span class="min-w-24 rounded bg-zinc-800/60 px-2 py-1">
-						<span class="block text-zinc-400">{label}</span>
-						{#if c.tyreTempC}
-							<span class="block text-zinc-100">{formatTemp(c.tyreTempC[w])}</span>
+				{#each wheels as w (w.key)}
+					<span class="min-w-36 rounded bg-zinc-800/60 px-2 py-1.5">
+						<span class="mb-1 block text-zinc-400">{w.label}</span>
+						{#if w.compound}
+							<span class="flex items-center gap-1.5 text-zinc-100">
+								<ConditionIcon
+									name="tires"
+									class="h-3.5 w-3.5 {compoundColor(w.compoundName, game).text}"
+								/>{w.compound}
+							</span>
 						{/if}
-						{#if c.tyreWear}
-							<span class="block text-zinc-300"
-								>{formatWear(c.tyreWear[w])} worn{#if c.tyreFlat?.[w]}<span
-										class="ml-1 text-amber-300">· flat</span
-									>{/if}</span
-							>
+						{#if w.temp}
+							<span class="flex items-center gap-1.5 text-zinc-100 tabular-nums">
+								<ConditionIcon name="tyreTemp" class="h-3.5 w-3.5 text-zinc-400" />{w.temp}
+							</span>
+						{/if}
+						{#if w.wear}
+							<span class="flex items-center gap-1.5 text-zinc-100 tabular-nums">
+								<ConditionIcon name="tyreWear" class="h-3.5 w-3.5 text-zinc-400" />{w.wear}
+								{#if w.flat}<span class="text-amber-300">flat</span>{/if}
+							</span>
 						{/if}
 					</span>
 				{/each}
+				{#if c.tyreCompound?.before}
+					<span class="col-span-2 px-1 text-zinc-400">Tires changed in this lap</span>
+				{/if}
 			</span>
 		</span>
 	{/snippet}
@@ -323,7 +350,7 @@
 				{#each conditionColumns as col (col.key)}
 					<th
 						class="pl-4 font-normal"
-						class:text-right={col.key !== 'weather' && col.key !== 'tyres'}
+						class:text-right={col.key !== 'weather' && col.key !== 'tires'}
 						title={col.title}
 					>
 						<span class="inline-flex align-middle"><ConditionIcon name={col.key} /></span>
@@ -362,27 +389,14 @@
 					</td>
 					{#each conditionColumns as col (col.key)}
 						{@const c = l.conditions}
-						{#if col.key === 'tyreTemp' || col.key === 'tyreWear'}
-							<td class="pl-4 text-right whitespace-nowrap tabular-nums">
+						{#if col.key === 'tires'}
+							<td class="pl-4 whitespace-nowrap">
 								{#if c && cellText(c, col.key)}
-									{@render tyres(c, col.key)}
+									{@render tires(c)}
 								{/if}
 							</td>
 						{:else if col.key === 'weather'}
 							<td class="max-w-48 pl-4 text-xs text-zinc-300">{cellText(c, col.key)}</td>
-						{:else if col.key === 'tyres'}
-							<td class="pl-4 text-sm whitespace-nowrap" title={compoundDetails(c)}>
-								{#if c?.tyreCompound}
-									<span
-										class="mr-1.5 inline-block h-2 w-2 rounded-full {compoundColor(
-											c.tyreCompound.name
-										)}"
-										aria-hidden="true"
-									></span>{cellText(c, col.key)}{#if c.tyreCompound.detail}<span
-											class="ml-1 text-xs text-zinc-500">{c.tyreCompound.detail}</span
-										>{/if}
-								{/if}
-							</td>
 						{:else}
 							<td
 								class="pl-4 text-right whitespace-nowrap tabular-nums"
