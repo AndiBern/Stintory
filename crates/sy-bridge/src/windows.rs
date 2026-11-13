@@ -112,3 +112,83 @@ impl Feed for IracingFeed {
         idle >= IDLE_END
     }
 }
+
+/// Whether a process with this executable name (e.g. `steam.exe`) runs in
+/// this Wine prefix / Windows session. Case-insensitive.
+#[allow(unsafe_code)] // Win32 process snapshot, see SAFETY comments
+pub fn process_running(name: &str) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+
+    // SAFETY: a snapshot handle we own and close; the entry is a plain
+    // struct with its size set, as the API requires.
+    unsafe {
+        let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return false;
+        };
+        let mut entry = PROCESSENTRY32W {
+            dwSize: size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        let mut found = false;
+        let mut ok = Process32FirstW(snapshot, &mut entry).is_ok();
+        while ok {
+            let len = entry
+                .szExeFile
+                .iter()
+                .position(|c| *c == 0)
+                .unwrap_or(entry.szExeFile.len());
+            if String::from_utf16_lossy(&entry.szExeFile[..len]).eq_ignore_ascii_case(name) {
+                found = true;
+                break;
+            }
+            ok = Process32NextW(snapshot, &mut entry).is_ok();
+        }
+        let _ = CloseHandle(snapshot);
+        found
+    }
+}
+
+/// Wine only: marks this process as a Wine "system" process, like Proton's
+/// `steam.exe` marks itself. Proton's `steam.exe` waits until every
+/// non-system process in the prefix has ended (the event Wine hands back
+/// for `ProcessWineMakeProcessSystem`), so as a normal process the bridge
+/// would keep it, and with it the game in Steam, running for ever
+/// (`crate::lifetime`). Returns the NTSTATUS on failure (e.g. on Windows,
+/// which doesn't know the class).
+#[allow(unsafe_code)] // NT call, see SAFETY comment
+pub fn make_process_system() -> Result<(), i32> {
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::System::Threading::GetCurrentProcess;
+
+    /// `ProcessWineMakeProcessSystem` (Wine-specific; Proton's steam.c uses
+    /// the same number)
+    const PROCESS_WINE_MAKE_PROCESS_SYSTEM: i32 = 1000;
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtSetInformationProcess(
+            process: HANDLE,
+            class: i32,
+            info: *mut core::ffi::c_void,
+            len: u32,
+        ) -> i32;
+    }
+
+    // Wine writes an event handle into the buffer (signalled when no
+    // non-system process is left); the bridge doesn't need it.
+    let mut event = HANDLE::default();
+    // SAFETY: the buffer is one HANDLE, as Wine expects for this class.
+    let status = unsafe {
+        NtSetInformationProcess(
+            GetCurrentProcess(),
+            PROCESS_WINE_MAKE_PROCESS_SYSTEM,
+            (&raw mut event).cast(),
+            size_of::<HANDLE>() as u32,
+        )
+    };
+    if status >= 0 { Ok(()) } else { Err(status) }
+}

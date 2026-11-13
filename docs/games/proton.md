@@ -60,22 +60,47 @@ Stintory, the launch option changes too (`--port`).
 
 ## How it starts and ends
 
-Proton's launcher (`proton` script, checked in Proton 9.0) supports
-`PROTON_REMOTE_DEBUG_CMD`, meant for a remote debugger: it splits the value
-like a shell (`shlex`), starts it **with the same Wine and the same
-prefix** as the game, just before the game, and kills it when the game
-exits. That is exactly what the bridge needs: it shares the game's
-wineserver, so the game's named mappings and events are visible to it, and
-Steam sees the game end when the game ends.
+Proton's launcher (`proton` script, the same in Proton 9.0, 10.0 and
+bleeding-edge) supports `PROTON_REMOTE_DEBUG_CMD`, meant for a remote
+debugger: it splits the value like a shell (`shlex`) and starts it **with
+the same Wine and the same prefix** as the game, just before the game. That
+is exactly what the bridge needs: it shares the game's wineserver, so the
+game's named mappings and events are visible to it.
 
-Steam runs launch options through a shell (to verify, see below), so a path with spaces is quoted
+Proton also kills that program when the game exits, but only after its
+helper `steam.exe` returned, and that never happened: on Bazzite (Nov 2026)
+Steam showed LMU as running until `sy-bridge.exe` was killed by hand. The
+reason (Proton 10.0 `steam_helper/steam.c`, Wine `server/process.c`):
+
+- `steam.exe` starts the game, marks itself as a Wine *system* process
+  (`ProcessWineMakeProcessSystem`) and waits on the event Wine hands back.
+  The wineserver sets it 3 s after the last *normal* process ended (that's
+  how games whose launcher exits early keep running in Steam).
+- The bridge is a normal process, and so is the `start.exe /exec` through
+  which Wine runs a program given by a Unix path; it waits for the bridge.
+  Proton's kill hits that `start.exe`, not the bridge.
+
+So `steam.exe` waited for the bridge, and the bridge for nothing. Now the
+bridge, when it sees it was started by Proton (`PROTON_REMOTE_DEBUG_CMD` in
+its environment), continues as a detached copy of itself, so `start.exe`
+ends at once; once the game runs it marks itself as a system process as
+well; and it ends a few seconds after `steam.exe` is gone
+(`crates/sy-bridge/src/lifetime.rs`). Reproduced and checked in Wine 11 with
+a stand-in for Proton's `steam.exe` (`examples/fake_steam.rs`): with the old
+bridge `steam.exe` never ended, now it ends 5 s after the game and the
+bridge 3 s later. Confirmed with the real game on Bazzite (Nov 2026):
+after quitting LMU, Steam shows it as stopped. A recording in progress
+then ends as with a closed connection: what arrived is kept.
+
+Steam runs launch options through a shell, so a path with spaces is quoted
 twice (`PROTON_REMOTE_DEBUG_CMD="'/home/a b/sy-bridge.exe'" %command%`);
 Stintory writes the option that way when needed. Paths with `'`, `"`, `$`,
 `` ` `` or `\` can't be used.
 
 Any other way of running `sy-bridge.exe` inside the running game's prefix
-**with the same Proton version** works too. Without `--port` it listens on
-`127.0.0.1:20790`.
+**with the same Proton version** records too, but may keep Steam showing
+the game as running until the bridge is stopped (only the launch option
+lets it detach). Without `--port` it listens on `127.0.0.1:20790`.
 
 ## What it sends
 
@@ -175,6 +200,4 @@ of the app finds the cross-built `sy-bridge.exe` in `target/` on its own;
   prefix (it found `LMU_Data` and the REST API on `127.0.0.1:6397`, and the
   data arrived at the full rate, but a recording can't tell events from
   the polling fallback).
-- That the bridge is killed when the game exits and Steam shows the game
-  as stopped.
 - The delay between the game and the app (not recorded anywhere).

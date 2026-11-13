@@ -18,10 +18,12 @@
 //! - [`server`]: the bridge's loop ([`server::Bridge`]) over [`server::Game`]s
 //! - `windows` (Windows only): the real games, LMU and iRacing
 //! - [`sim`]: a simulated LMU, for tests and trying it without the game
+//! - [`lifetime`]: ending with the game
 //! - [`client`]: the app's side ([`client::BridgeClient`],
 //!   [`client::BridgeSource`])
 
 pub mod client;
+pub mod lifetime;
 pub mod protocol;
 pub mod server;
 pub mod sim;

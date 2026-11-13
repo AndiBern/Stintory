@@ -17,6 +17,7 @@ sy-bridge: Stintory's Proton bridge (docs/games/proton.md)
 Runs in the game's Wine/Proton prefix, e.g. with the Steam launch option
     PROTON_REMOTE_DEBUG_CMD=/path/to/sy-bridge.exe %command%
 and sends the game's telemetry (player's car only) to Stintory on this PC.
+Ends with the game (when Proton's steam.exe, which runs the game, is gone).
 
 Options:
     --port <port>          TCP port on 127.0.0.1 (default 20790; set the
@@ -129,6 +130,10 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    #[cfg(windows)]
+    if args.simulate.is_none() && detach_from_proton() {
+        return ExitCode::SUCCESS;
+    }
     let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, args.port));
     let mut bridge = match Bridge::bind(addr, games) {
         Ok(b) => b,
@@ -143,6 +148,93 @@ fn main() -> ExitCode {
         version = env!("CARGO_PKG_VERSION"),
         "waiting for Stintory"
     );
+    #[cfg(windows)]
+    if args.simulate.is_none() {
+        exit_with_game(bridge.stop_handle());
+    }
     bridge.run();
     ExitCode::SUCCESS
+}
+
+/// Started by Proton (`PROTON_REMOTE_DEBUG_CMD`): Wine runs a program given
+/// by a Unix path through `start.exe /exec`, which waits for it and counts
+/// as a normal process, so Proton's `steam.exe` would wait for it for ever
+/// (`sy_bridge::lifetime`). So the bridge continues as a detached copy of
+/// itself and this process ends, and `start.exe` with it. Returns true when
+/// the copy runs and this process should end.
+#[cfg(windows)]
+fn detach_from_proton() -> bool {
+    use std::os::windows::process::CommandExt;
+
+    /// Set in the copy's environment
+    const DETACHED: &str = "STINTORY_BRIDGE_DETACHED";
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+
+    if std::env::var_os("PROTON_REMOTE_DEBUG_CMD").is_none() || std::env::var_os(DETACHED).is_some()
+    {
+        return false;
+    }
+    let exe = match std::env::current_exe() {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(error = %e, "can't find myself; staying attached to Proton");
+            return false;
+        }
+    };
+    match std::process::Command::new(exe)
+        .args(std::env::args_os().skip(1))
+        .env(DETACHED, "1")
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        .spawn()
+    {
+        Ok(child) => {
+            tracing::info!(pid = child.id(), "started by Proton; continuing detached");
+            true
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "can't detach; staying attached to Proton");
+            false
+        }
+    }
+}
+
+/// Ends the bridge when the game ended (`sy_bridge::lifetime`).
+#[cfg(windows)]
+fn exit_with_game(stop: std::sync::Arc<std::sync::atomic::AtomicBool>) {
+    use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    use sy_bridge::lifetime::{ExitWithGame, GAME_HELPER};
+
+    std::thread::Builder::new()
+        .name("exit-with-game".into())
+        .spawn(move || {
+            let mut watch = ExitWithGame::new();
+            let mut system = false;
+            loop {
+                std::thread::sleep(Duration::from_secs(1));
+                let helper = sy_bridge::windows::process_running(GAME_HELPER);
+                // once the game runs, stop counting as one of the
+                // processes Proton's steam.exe waits for
+                if helper && !system {
+                    system = true;
+                    match sy_bridge::windows::make_process_system() {
+                        Ok(()) => tracing::info!("the game started; the bridge ends with it"),
+                        Err(status) => tracing::warn!(
+                            status = format_args!("{status:#x}"),
+                            "can't become a Wine system process; Proton may wait for the bridge"
+                        ),
+                    }
+                }
+                if watch.check(helper) {
+                    tracing::info!("the game ended; ending the bridge");
+                    stop.store(true, Ordering::Relaxed);
+                    // the loop notices within a second; don't hang on it
+                    std::thread::sleep(Duration::from_secs(5));
+                    std::process::exit(0);
+                }
+            }
+        })
+        .expect("spawn the exit-with-game thread");
 }

@@ -25,6 +25,11 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["f
 
 [target.'cfg(windows)'.dependencies]
 sy-source-iracing.workspace = true
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 sy-capture.workspace = true
