@@ -18,7 +18,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 | Recorded data | **Player's own car only.** Other cars' telemetry and other drivers' personal data (names, IDs, ratings) are never stored (§5.2) |
 | Sharing | Users create **teams** and invite others. Sessions/laps can be shared with **individual users, teams and/or everyone on the server**. Per-user default plus per-session/lap override (§9.2) |
 | Export format | `.stintory` bundles (§8) |
-| Login | **Username + password**, **passkeys** (WebAuthn) and **TOTP** 2FA. OIDC later (§9.3) |
+| Login | **Username + password**, **passkeys** (WebAuthn) and **TOTP** 2FA (§9.3) |
 | Raw data | Raw game data is spooled to disk and **deleted once processed**. A debug setting keeps the raw files (§5.1) |
 | AI | No built-in AI service. The user's own assistant reads laps and the corner analysis over MCP: from the server (`/mcp`) or from the desktop app (`stintory mcp`) (§6.5) |
 
@@ -99,7 +99,7 @@ LICENSES/                  # REUSE-style full texts: AGPL-3.0-or-later, MIT, Apa
 | Local DB | SQLite via `rusqlite` (bundled) | Single file, no service |
 | Telemetry blobs | **Parquet** (`arrow`/`parquet` crates, zstd compression), one file per lap | Columnar + compressed; users can open their data in pandas/DuckDB/Excel-ish tools ("it's my data") |
 | Server | `axum` + `tokio-postgres`/`deadpool-postgres` + **PostgreSQL** (own embedded SQL migrations), blobs on local volume (S3-compatible optional) | Standard, easy Docker deploy. `sqlx` was dropped: its SQLite driver pins an older `libsqlite3-sys` than the client's `rusqlite`, and Cargo resolves that conflict even with the feature off |
-| Auth | `argon2` (password hashes), `webauthn-rs` (passkeys, pure Rust since 0.6), own RFC 6238 TOTP (tested against the RFC vectors), cookie sessions for the web UI, per-device API tokens for clients. Later `openidconnect` | Self-hosters often have no IdP. Passkeys + TOTP give strong security without one |
+| Auth | `argon2` (password hashes), `webauthn-rs` (passkeys, pure Rust since 0.6), own RFC 6238 TOTP (tested against the RFC vectors), cookie sessions for the web UI, per-device API tokens for clients | Self-hosters often have no IdP. Passkeys + TOTP give strong security without one |
 | Frontend | **Svelte 5** (runes) + TypeScript, **SvelteKit** with `adapter-static` (SPA, no SSR), Vite, **uPlot** for traces, Canvas for track map, shadcn-svelte/Bits UI for UI components, TanStack Table for lap tables. Tests: Vitest + Playwright | Little boilerplate, easy to learn, built-in reactivity/state. A static build runs unchanged in Tauri and served by axum. uPlot handles 100k+ points smoothly with cursor sync across charts |
 | Packaging | Tauri bundler: MSI/NSIS (Windows), AppImage/deb/rpm (Linux). Server: multi-stage Docker image | |
 | CI | Forgejo Actions on an Ubuntu runner (`.forgejo/workflows/ci.yml`): `cargo fmt`/`clippy`/`test`, frontend check/lint/tests/build, `reuse lint`, `cargo deny`, license-direction script. Windows builds and Windows-only tests run locally for now; CI also compile-checks the Windows-only crates against the Windows targets and cross-builds `sy-bridge.exe` with MinGW | License checks keep the license split (§12) enforced |
@@ -223,9 +223,8 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
 1. **Distance resampling**: resample each lap onto a fixed distance grid (e.g. every 1 m, or 0.5 m for short tracks) with linear interpolation (step for gear/booleans).
 2. **Time delta**: Δt(d) = t_A(d) − t_B(d). Also the delta's derivative to highlight where time is gained/lost.
 3. **Track map**: from `pos_x/y` (F1/LMU) or dead reckoning/GPS (iRacing). Store a smoothed outline per track (median of several clean laps) in `Track.outline`. Colour by delta/speed/throttle/brake.
-4. **Sectors**: game sectors. Plus user-definable micro-sectors (later).
+4. **Sectors**: game sectors.
 5. **Corner insights** (local, no AI service; `sy_analysis::corners`): corners come from the reference lap's curvature `g_lat / speed²` (smoothed, radius < 250 m, same-direction bends < 30 m apart merged, a bend inside the next corner's braking zone belongs to that corner). Per corner and lap: braking point, peak pressure and release, lift, lowest speed and gear, throttle pick-up, full throttle, exit speed, and the time lost, split into entry (to the apex) and exit. The lap is split into one segment per corner (approach → next approach, wrapping around the line), so the times lost add up to the gap between the laps. Checked on the iRacing, F1 and LMU recordings (e.g. Hungaroring 14, Suzuka 18, Snetterton 300 11 corners). Shown in the compare view (corner list sorted by time lost, corner numbers on the map) and part of `CompareData`. AI assistants read it through the server's MCP endpoint (`/mcp`, docs/SERVER.md): OAuth 2.1 (own authorization server, client ID metadata documents or dynamic registration, PKCE, resource-bound access tokens, rotating refresh tokens) or read-only device tokens; tools for tracks, sessions, best laps, corner comparison and telemetry excerpts. Without a server, the desktop app serves the same tools from the local data: `stintory mcp` speaks MCP over stdio for assistants on the same computer (Settings → AI assistants shows the command). The tools and the protocol live once in `sy-mcp` behind a small data trait.
-6. **Theoretical best**: sum of best sectors (game sectors or micro-sectors).
 
 Frontend gets resampled arrays (not raw) for comparison. These are computed on demand and cached in memory (LRU).
 
@@ -254,7 +253,7 @@ laps/<id>.parquet    telemetry (same file as in the local store, stored uncompre
 - Import dedups by session and lap id: what is already stored stays as it is. New sessions get `origin = imported` with the driver name from the file (a re-exported imported session keeps its original driver).
 - Imported sessions are never merged with own sessions by the "same session" rule (§5, `find_duplicate_session` only matches sessions of the same origin). Session keys contain the driver's game id, so two drivers in the same online session get different ids.
 - Privacy on export: the user picks the driver name (empty = anonymous, remembered for the next export). Setups are left out unless chosen. The game account name and id are removed from the session info.
-- Additional exports: **CSV** per lap (for spreadsheets; header `name [unit]`, empty = no value), later **MoTeC `.ld`** (for i2 users).
+- Additional exports: **CSV** per lap (for spreadsheets; header `name [unit]`, empty = no value).
 - `format_version` is checked; newer minor versions are readable, unknown fields are ignored. Entry sizes are limited on import (ZIP bombs).
 
 ## 9. Server
@@ -304,11 +303,10 @@ Sharing mode   on Session and Lap: inherit | custom
 - **Passkeys** (WebAuthn, `webauthn-rs`): usable for **passwordless login** (discoverable credentials) or as a second factor. A user can register several passkeys and remove them. Requires HTTPS and a stable origin: the RP ID = the server's domain from config (`localhost` works for testing).
 - A user must keep at least one usable login method. Admin can enforce 2FA (TOTP or passkey) for all users.
 - Account recovery: an admin can reset a user's password and 2FA. CLI command `sy-server admin reset-user <name>` for the very first admin.
-- **OIDC (later):** "Login with Authentik/Keycloak/…" via `openidconnect`, linking the external identity to a user.
 
 **Web UI sessions:** server-side sessions in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie, CSRF token on state-changing requests, session list with "log out other sessions".
 
-**Desktop client login: via the system browser.** The Tauri webview on Linux (WebKitGTK) has unreliable WebAuthn support, and we want every method, including OIDC later, to work the same way.
+**Desktop client login: via the system browser.** The Tauri webview on Linux (WebKitGTK) has unreliable WebAuthn support, and we want every method to work the same way.
 1. The client opens `https://server/auth/device?...` in the default browser, using loopback redirect + PKCE (the pattern OAuth uses for native apps, RFC 8252).
 2. The user logs in there with password/TOTP/passkey.
 3. The server redirects to `http://127.0.0.1:<port>/callback?code=…`, and the client exchanges the code for a **device token**.
@@ -378,7 +376,7 @@ Developing on Linux without the games running is a real constraint, so **record 
 - Golden tests: fixture → expected lap count, lap times (must match the game's official times within 1 ms), validity flags.
 - Frontend: component tests + Playwright smoke test against the server with seeded data.
 
-## 11. Status and roadmap
+## 11. Status
 
 The MVP is complete (version 0.2.0, November 2026): the core features of §2 work for iRacing, F1 25 and Le Mans Ultimate, on Windows and Linux. The milestones that got there (M0 skeleton … M7 Proton bridge) are in the git history. From here on, Stintory grows through new features and refinements of existing ones, tracked as issues.
 
@@ -394,8 +392,6 @@ The MVP is complete (version 0.2.0, November 2026): the core features of §2 wor
 **Known gaps**
 - Sharing changes while offline (outbox, §9.5): the desktop app needs a server connection for teams and sharing.
 - Proton bridge: the open points under *To verify with the real game* in docs/games/proton.md.
-
-**Ideas for later** (no fixed order): OIDC login (§9.3), micro-sectors and theoretical best (§6), MoTeC `.ld` export (§8), setup sharing, static track outlines (e.g. from LMU's REST track map, docs/games/lmu.md), live overlay, more games (ACC, AC EVO, AMS2, rF2, Forza …) by demand.
 
 ## 12. Licensing & clean-room parsers
 

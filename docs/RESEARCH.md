@@ -179,7 +179,7 @@ Other relevant tools:
 5. Reference laps (own best, others', "pros")
 6. Export (CSV at least)
 
-**What differentiates the paid ones:** AI/automated coaching (corner detection, braking-point/min-speed/throttle-pickup comparison per corner, natural-language tips), live voice coaching, setup marketplace, video sync. Stintory has corner insights, computed locally without an AI service ([ARCHITECTURE.md §6.5](ARCHITECTURE.md#6-analysis-sy-analysis)); the others are candidates for later.
+**What differentiates the paid ones:** AI/automated coaching (corner detection, braking-point/min-speed/throttle-pickup comparison per corner, natural-language tips), live voice coaching, setup marketplace, video sync. Stintory has corner insights, computed locally without an AI service ([ARCHITECTURE.md §6.5](ARCHITECTURE.md#6-analysis-sy-analysis)).
 
 ---
 

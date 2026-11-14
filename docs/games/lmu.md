@@ -144,8 +144,7 @@ saved in the pits (Monza, Nov 2026):
   closed loop (5 m apart, 5761 m at Monza), type 1 the pit lane, the other
   types are short segments at the pit boxes. The shared memory's `mPos`
   is in the same coordinates (Monza: median 1.8 m from the map's line).
-  A possible source for track outlines later (docs/ARCHITECTURE.md §6.3); not
-  used yet.
+  Not used yet.
 
 **Not every `GET` is harmless**: `/rest/options/resetVRView` resets the VR
 view, `/rest/multiplayer/join` joins a server, `/rest/watch/play/{id}`

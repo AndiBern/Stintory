@@ -4,7 +4,7 @@ Record, review and compare your sim racing lap times. **Your data stays yours.**
 
 Most lap analysis tools send your telemetry to the vendor's servers so you can compare yourself with everyone else. Stintory sends nothing to any company: it stores your laps on your computer, and if you want to share them with friends or a team, you do that through your own server.
 
-> **Status:** the first version with all core features is done (v0.2.0). Stintory is now growing through new features and refinements of the existing ones. See [docs/ARCHITECTURE.md §11](docs/ARCHITECTURE.md#11-status-and-roadmap) for what works, the known gaps and ideas for later.
+> **Status:** the first version with all core features is done (v0.2.0). Stintory is now growing through new features and refinements of the existing ones. See [docs/ARCHITECTURE.md §11](docs/ARCHITECTURE.md#11-status) for what works and the known gaps.
 
 ## Features
 
@@ -27,7 +27,7 @@ All three games are checked with real recordings. The desktop app runs on Window
 ## Documentation
 
 - Running a server: [docs/SERVER.md](docs/SERVER.md)
-- Architecture, design rules, status and roadmap: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Architecture, design rules and status: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - Per-game behaviour, verified against real recordings: [docs/games/](docs/games/)
 - Game telemetry interfaces (incl. data not used yet), competitors and sources: [docs/RESEARCH.md](docs/RESEARCH.md)
 - Building from source and contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
