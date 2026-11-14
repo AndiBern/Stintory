@@ -10,6 +10,7 @@
 #[cfg(target_os = "linux")]
 mod appimage;
 mod commands;
+mod mcp;
 mod recording;
 mod state;
 mod sync;
@@ -23,7 +24,13 @@ use tracing_subscriber::EnvFilter;
 use crate::state::AppState;
 
 /// Environment variable to override the data directory (useful for development).
-const DATA_DIR_ENV: &str = "STINTORY_DATA_DIR";
+pub(crate) const DATA_DIR_ENV: &str = "STINTORY_DATA_DIR";
+
+/// Runs the MCP server for AI assistants on stdin/stdout (`stintory mcp`,
+/// see [`mcp`]); returns the exit code.
+pub fn run_mcp() -> i32 {
+    mcp::run()
+}
 
 /// Starts the desktop app.
 pub fn run() {

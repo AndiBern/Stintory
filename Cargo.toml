@@ -24,6 +24,7 @@ sy-source-iracing = { path = "crates/sy-source-iracing", version = "0.1.0" }
 sy-server = { path = "crates/sy-server", version = "0.1.0" }
 sy-sync = { path = "crates/sy-sync", version = "0.1.0" }
 sy-bridge = { path = "crates/sy-bridge", version = "0.1.0" }
+sy-mcp = { path = "crates/sy-mcp", version = "0.1.0" }
 
 # external
 arrow-array = "60"

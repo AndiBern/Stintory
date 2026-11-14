@@ -576,6 +576,10 @@ pub struct ImportProgress {
 pub struct Settings {
     /// Where the data is stored
     pub data_dir: String,
+    /// How an AI assistant on this computer starts the app's MCP server
+    /// (desktop app)
+    #[serde(default)]
+    pub mcp_command: Option<McpCommand>,
     /// Debug: keep raw recordings after processing
     pub keep_raw_recordings: bool,
     /// Size of all raw recordings on disk, bytes
@@ -657,6 +661,18 @@ impl Default for LmuCaptureSettings {
     fn default() -> Self {
         Self { enabled: true }
     }
+}
+
+/// A program and its arguments that start the desktop app's MCP server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpCommand {
+    /// Path of the program
+    pub command: String,
+    /// Arguments (`mcp`)
+    pub args: Vec<String>,
+    /// Environment the program needs (e.g. a non-default data directory)
+    pub env: BTreeMap<String, String>,
 }
 
 /// Settings for recording F1 25 (UDP telemetry).

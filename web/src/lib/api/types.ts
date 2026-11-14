@@ -263,8 +263,17 @@ export interface ImportProgress {
 	laps: number;
 }
 
+/** How an AI assistant on this computer starts the app's MCP server. */
+export interface McpCommand {
+	command: string;
+	args: string[];
+	env: Record<string, string>;
+}
+
 export interface Settings {
 	dataDir: string;
+	/** Desktop app: how to start its MCP server for AI assistants */
+	mcpCommand?: McpCommand | null;
 	keepRawRecordings: boolean;
 	rawStorageBytes: number;
 	failedRecordings: number;

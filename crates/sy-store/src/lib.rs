@@ -36,7 +36,7 @@ pub use settings::{
     SYNC_CURSOR, SYNC_SERVER_URL, SYNC_TOKEN_FALLBACK,
 };
 pub use spools::{RAW_DIR, SpoolEntry, SpoolState};
-pub use store::{SAME_LAP_START_TOLERANCE_S, SAME_SESSION_START_TOLERANCE, Store};
+pub use store::{DB_FILE, SAME_LAP_START_TOLERANCE_S, SAME_SESSION_START_TOLERANCE, Store};
 pub use sync::PendingPush;
 
 use sy_model::{BlobHash, LapId, SessionId};

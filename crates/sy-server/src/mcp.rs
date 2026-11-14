@@ -19,64 +19,108 @@
 //! (see [`crate::oauth`]) or a device token, normally a read-only one created
 //! for this on the Account page.
 
-mod tools;
-
 use axum::Json;
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use base64::Engine;
 use serde_json::{Value, json};
+use sy_mcp::{
+    Failure, HEADER_MISMATCH, INVALID_PARAMS, INVALID_REQUEST, LEGACY_DEFAULT, LEGACY_VERSIONS,
+    META_CAPABILITIES, META_VERSION, METHOD_NOT_FOUND, MODERN_VERSIONS, PARSE_ERROR,
+    UNSUPPORTED_VERSION,
+};
+use sy_model::LapId;
+use sy_model::api::{
+    CompareData, CompareRequest, ReferenceLap, ReferenceScope, SessionDetail, SessionSummary,
+};
+use sy_model::remote::SharedTrack;
+use uuid::Uuid;
 
-use crate::auth::{ClientIp, Session, bearer_token, check_restrictions};
+use crate::auth::{Auth, ClientIp, Session, bearer_token, check_restrictions};
+use crate::error::ApiError;
 use crate::oauth;
 use crate::ratelimit::PER_ADDRESS;
+use crate::sharing::ReferenceQuery;
 use crate::state::SharedState;
-
-/// Protocol versions with per-request metadata, newest first.
-const MODERN_VERSIONS: &[&str] = &["2026-07-28"];
-/// Protocol versions with an `initialize` handshake, newest first.
-const LEGACY_VERSIONS: &[&str] = &["2025-11-25", "2025-06-18", "2025-03-26"];
-/// Assumed for legacy requests without `MCP-Protocol-Version` (spec).
-const LEGACY_DEFAULT: &str = "2025-03-26";
 
 /// Tool calls allowed per user within [`crate::ratelimit::WINDOW`].
 const CALLS_PER_WINDOW: u32 = 600;
 
-const META_VERSION: &str = "io.modelcontextprotocol/protocolVersion";
-const META_CAPABILITIES: &str = "io.modelcontextprotocol/clientCapabilities";
-const META_SERVER_INFO: &str = "io.modelcontextprotocol/serverInfo";
+/// The tools' data: the same handlers as the web UI, so access is checked
+/// the same way (the user's own data and laps others shared with them).
+struct ServerData<'a> {
+    state: &'a SharedState,
+    session: &'a Session,
+}
 
-// JSON-RPC and MCP error codes
-const PARSE_ERROR: i64 = -32700;
-const INVALID_REQUEST: i64 = -32600;
-const METHOD_NOT_FOUND: i64 = -32601;
-const INVALID_PARAMS: i64 = -32602;
-const HEADER_MISMATCH: i64 = -32020;
-const UNSUPPORTED_VERSION: i64 = -32022;
+/// An API error as a message for the model (details of server errors stay
+/// in the log).
+fn api_error(e: ApiError) -> String {
+    if e.status().is_server_error() {
+        tracing::error!(error = %e.message(), "MCP tool failed");
+        "internal error".into()
+    } else {
+        e.message().to_owned()
+    }
+}
 
-/// Guidance for the model, sent with the server's capabilities.
-const INSTRUCTIONS: &str = "Stintory holds the user's sim racing telemetry (iRacing, F1, Le Mans \
-Ultimate). Use it to find where the user loses time and how to drive faster.
+impl ServerData<'_> {
+    fn auth(&self) -> Auth {
+        Auth(self.session.clone())
+    }
+}
 
-Typical flow: list_tracks or list_sessions -> get_session (lap times, validity, conditions) -> \
-best_laps for a track and car (the user's own laps and laps others shared with them) -> \
-compare_laps for a lap against a faster reference -> lap_telemetry for a closer look at one \
-corner.
+impl sy_mcp::Data for ServerData<'_> {
+    async fn sessions(&self) -> Result<Vec<SessionSummary>, String> {
+        crate::data::list_sessions(State(self.state.clone()), self.auth())
+            .await
+            .map(|Json(s)| s)
+            .map_err(api_error)
+    }
 
-compare_laps splits the lap into corners. Each corner's segment runs from before braking to the \
-next corner and includes the straight after it, so the segment times add up to the lap time and \
-timeLostS (positive = slower than the reference) tells where the gap comes from; entryLostS is \
-the part up to the apex, exitLostS the part after it. Corners are numbered by Stintory in \
-driving order, not by the track's official turn numbers. Distances are metres from the \
-start/finish line, speeds km/h, pedals percent, times seconds.
+    async fn session(&self, id: Uuid) -> Result<SessionDetail, String> {
+        crate::data::get_session(State(self.state.clone()), self.auth(), Path(id))
+            .await
+            .map(|Json(d)| d)
+            .map_err(api_error)
+    }
 
-Prefer valid laps as references. Ground advice in the numbers (braking point, apex speed, \
-throttle pick-up, exit speed) and name the corners with the biggest gains first.";
+    async fn shared_tracks(&self) -> Result<Vec<SharedTrack>, String> {
+        crate::sharing::shared_tracks(State(self.state.clone()), self.auth())
+            .await
+            .map(|Json(t)| t)
+            .map_err(api_error)
+    }
 
-fn server_info() -> Value {
-    json!({ "name": "stintory", "title": "Stintory", "version": env!("CARGO_PKG_VERSION") })
+    async fn reference_laps(
+        &self,
+        track_key: &str,
+        car_key: &str,
+        scope: ReferenceScope,
+    ) -> Result<Vec<ReferenceLap>, String> {
+        let query = ReferenceQuery {
+            track: track_key.to_owned(),
+            car: car_key.to_owned(),
+            scope,
+        };
+        crate::sharing::reference_laps(State(self.state.clone()), self.auth(), Query(query))
+            .await
+            .map(|Json(l)| l)
+            .map_err(api_error)
+    }
+
+    async fn compare(&self, lap_ids: Vec<Uuid>, step_m: f32) -> Result<CompareData, String> {
+        let request = CompareRequest {
+            lap_ids: lap_ids.into_iter().map(LapId::from_uuid).collect(),
+            step_m: Some(step_m),
+        };
+        crate::data::compare(State(self.state.clone()), self.auth(), Json(request))
+            .await
+            .map(|Json(d)| d)
+            .map_err(api_error)
+    }
 }
 
 /// `GET`/`DELETE /mcp`: no standalone streams and no sessions.
@@ -100,15 +144,7 @@ fn rpc_error_data(
     message: &str,
     data: Option<Value>,
 ) -> Response {
-    let mut error = json!({ "code": code, "message": message });
-    if let Some(data) = data {
-        error["data"] = data;
-    }
-    let mut body = json!({ "jsonrpc": "2.0", "error": error });
-    if let Some(id) = id {
-        body["id"] = id.clone();
-    }
-    (status, Json(body)).into_response()
+    (status, Json(sy_mcp::error_message(id, code, message, data))).into_response()
 }
 
 /// 401 with the challenge that leads OAuth clients to the authorization
@@ -277,16 +313,7 @@ async fn authenticate(
 
 /// Legacy handshake: agrees on a protocol version and describes the server.
 fn legacy_initialize(id: &Value, params: &Value) -> Response {
-    let requested = params.get("protocolVersion").and_then(Value::as_str);
-    let version = requested
-        .filter(|v| LEGACY_VERSIONS.contains(v))
-        .unwrap_or(LEGACY_VERSIONS[0]);
-    let result = json!({
-        "protocolVersion": version,
-        "capabilities": { "tools": {} },
-        "serverInfo": server_info(),
-        "instructions": INSTRUCTIONS,
-    });
+    let result = sy_mcp::initialize_result(params);
     Json(json!({ "jsonrpc": "2.0", "id": id, "result": result })).into_response()
 }
 
@@ -301,11 +328,7 @@ async fn modern(
     version: &str,
 ) -> Response {
     if !MODERN_VERSIONS.contains(&version) {
-        let supported: Vec<&str> = MODERN_VERSIONS
-            .iter()
-            .chain(LEGACY_VERSIONS)
-            .copied()
-            .collect();
+        let supported = sy_mcp::supported_versions();
         return rpc_error_data(
             StatusCode::BAD_REQUEST,
             Some(id),
@@ -347,25 +370,12 @@ async fn modern(
         }
     }
 
-    let result = match method {
-        "server/discover" => {
-            let supported: Vec<&str> = MODERN_VERSIONS
-                .iter()
-                .chain(LEGACY_VERSIONS)
-                .copied()
-                .collect();
-            Ok(json!({
-                "supportedVersions": supported,
-                "capabilities": { "tools": {} },
-                "instructions": INSTRUCTIONS,
-            }))
-        }
-        _ => dispatch(state, session, method, params).await,
-    };
-    match result {
-        Ok(mut result) => {
-            result["resultType"] = json!("complete");
-            result["_meta"] = json!({ META_SERVER_INFO: server_info() });
+    if let Some(limited) = rate_limited(state, session, method) {
+        return limited;
+    }
+    match sy_mcp::dispatch(&ServerData { state, session }, method, params, true).await {
+        Ok(result) => {
+            let result = sy_mcp::modern_result(result);
             Json(json!({ "jsonrpc": "2.0", "id": id, "result": result })).into_response()
         }
         Err(Failure::NotFound) => rpc_error(
@@ -377,11 +387,6 @@ async fn modern(
         Err(Failure::InvalidParams(m)) => {
             rpc_error(StatusCode::BAD_REQUEST, Some(id), INVALID_PARAMS, &m)
         }
-        Err(Failure::RateLimited) => (
-            StatusCode::TOO_MANY_REQUESTS,
-            "too many tool calls, try again later",
-        )
-            .into_response(),
     }
 }
 
@@ -411,74 +416,44 @@ async fn legacy(
             &format!("unsupported protocol version {version}"),
         );
     }
-    let response = match dispatch(state, session, method, params).await {
-        Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
-        Err(Failure::NotFound) => {
-            return rpc_error(
-                StatusCode::OK,
-                Some(id),
-                METHOD_NOT_FOUND,
-                &format!("Method not found: {method}"),
-            );
-        }
-        Err(Failure::InvalidParams(m)) => {
-            return rpc_error(StatusCode::OK, Some(id), INVALID_PARAMS, &m);
-        }
-        Err(Failure::RateLimited) => {
-            return (
-                StatusCode::TOO_MANY_REQUESTS,
-                "too many tool calls, try again later",
-            )
-                .into_response();
-        }
-    };
+    if let Some(limited) = rate_limited(state, session, method) {
+        return limited;
+    }
+    let response =
+        match sy_mcp::dispatch(&ServerData { state, session }, method, params, false).await {
+            Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
+            Err(Failure::NotFound) => {
+                return rpc_error(
+                    StatusCode::OK,
+                    Some(id),
+                    METHOD_NOT_FOUND,
+                    &format!("Method not found: {method}"),
+                );
+            }
+            Err(Failure::InvalidParams(m)) => {
+                return rpc_error(StatusCode::OK, Some(id), INVALID_PARAMS, &m);
+            }
+        };
     Json(response).into_response()
 }
 
-/// Why a request failed (protocol errors; a failing tool is a result).
-enum Failure {
-    NotFound,
-    InvalidParams(String),
-    RateLimited,
-}
-
-/// The methods both eras share.
-async fn dispatch(
-    state: &SharedState,
-    session: &Session,
-    method: &str,
-    params: &Value,
-) -> Result<Value, Failure> {
-    match method {
-        "ping" => Ok(json!({})),
-        "tools/list" => Ok(json!({ "tools": tools::definitions() })),
-        "tools/call" => {
-            let key = format!("mcp-calls:{}", session.user.id);
-            if !state.limiter.allowed(&key, CALLS_PER_WINDOW) {
-                return Err(Failure::RateLimited);
-            }
-            state.limiter.fail(&key);
-            let Some(name) = params.get("name").and_then(Value::as_str) else {
-                return Err(Failure::InvalidParams("missing tool name".into()));
-            };
-            let args = params
-                .get("arguments")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            let outcome = tools::call(state, session, name, &args)
-                .await
-                .ok_or_else(|| Failure::InvalidParams(format!("Unknown tool: {name}")))?;
-            Ok(match outcome {
-                Ok(text) => {
-                    json!({ "content": [{ "type": "text", "text": text }], "isError": false })
-                }
-                Err(message) => {
-                    json!({ "content": [{ "type": "text", "text": message }], "isError": true })
-                }
-            })
-        }
-        _ => Err(Failure::NotFound),
+/// Tool calls count against the user's limit; None while within it.
+fn rate_limited(state: &SharedState, session: &Session, method: &str) -> Option<Response> {
+    if method != "tools/call" {
+        return None;
     }
+    let key = format!("mcp-calls:{}", session.user.id);
+    if !state.limiter.allowed(&key, CALLS_PER_WINDOW) {
+        return Some(
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "too many tool calls, try again later",
+            )
+                .into_response(),
+        );
+    }
+    state.limiter.fail(&key);
+    None
 }
 
 #[cfg(test)]

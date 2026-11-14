@@ -5,6 +5,7 @@
 	import { api, type Settings } from '#lib/api/index.ts';
 	import F1Capture from '#lib/components/F1Capture.svelte';
 	import LmuCapture from '#lib/components/LmuCapture.svelte';
+	import McpSetup from '#lib/components/McpSetup.svelte';
 	import ProtonBridge from '#lib/components/ProtonBridge.svelte';
 	import ServerSync from '#lib/components/ServerSync.svelte';
 	import { formatBytes } from '#lib/format.ts';
@@ -67,6 +68,10 @@
 			</dl>
 		{/if}
 	</section>
+
+	{#if settings?.mcpCommand}
+		<McpSetup mcp={settings.mcpCommand} />
+	{/if}
 
 	<section class="mb-6 max-w-2xl rounded border border-zinc-800 p-4">
 		<h2 class="mb-1 font-medium">Advanced / Debug</h2>

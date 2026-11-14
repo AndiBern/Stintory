@@ -1,25 +1,20 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! The MCP tools. They call the same handlers as the web UI, so access is
-//! checked the same way: the user's own data and laps others shared with
-//! them. Answers are compact JSON for a language model: rounded numbers,
-//! speeds in km/h, pedals in percent, empty fields left out.
+//! The MCP tools, on top of a [`Data`] source (the server's handlers or the
+//! desktop app's local store). Answers are compact JSON for a language
+//! model: rounded numbers, speeds in km/h, pedals in percent, empty fields
+//! left out.
 
 use std::collections::BTreeMap;
 
-use axum::Json;
-use axum::extract::{Path, Query, State};
 use serde_json::{Map, Value, json};
-use sy_model::api::{CompareData, CompareRequest, CornerLapStats, ReferenceScope, SessionSummary};
+use sy_model::SessionType;
+use sy_model::api::{CompareData, CornerLapStats, ReferenceScope, SessionSummary};
 use sy_model::channel::names;
-use sy_model::{LapId, SessionType};
 use uuid::Uuid;
 
-use crate::auth::{Auth, Session};
-use crate::error::ApiError;
-use crate::sharing::ReferenceQuery;
-use crate::state::SharedState;
+use crate::Data;
 
 /// Most grid points `lap_telemetry` returns per channel.
 const MAX_POINTS: usize = 600;
@@ -141,13 +136,8 @@ pub fn definitions() -> Vec<Value> {
 
 /// Runs a tool: Some(Ok(text)), Some(Err(message)) when the tool fails (for
 /// the model to correct its call), None for an unknown tool.
-pub async fn call(
-    state: &SharedState,
-    session: &Session,
-    name: &str,
-    args: &Value,
-) -> Option<Result<String, String>> {
-    let ctx = Ctx { state, session };
+pub async fn call<D: Data>(data: &D, name: &str, args: &Value) -> Option<Result<String, String>> {
+    let ctx = Ctx { data };
     let result = match name {
         "list_tracks" => ctx.list_tracks().await,
         "list_sessions" => ctx.list_sessions(args).await,
@@ -160,23 +150,11 @@ pub async fn call(
     Some(result.map(|v| serde_json::to_string(&compact(v)).unwrap_or_default()))
 }
 
-struct Ctx<'a> {
-    state: &'a SharedState,
-    session: &'a Session,
+struct Ctx<'a, D> {
+    data: &'a D,
 }
 
 type ToolResult = Result<Value, String>;
-
-/// An API error as a message for the model (details of server errors stay
-/// in the log).
-fn api_error(e: ApiError) -> String {
-    if e.status().is_server_error() {
-        tracing::error!(error = %e.message(), "MCP tool failed");
-        "internal error".into()
-    } else {
-        e.message().to_owned()
-    }
-}
 
 fn arg_str<'v>(args: &'v Value, key: &str) -> Option<&'v str> {
     args.get(key)
@@ -301,27 +279,13 @@ fn stats_json(s: &CornerLapStats) -> Value {
     })
 }
 
-impl Ctx<'_> {
-    fn auth(&self) -> Auth {
-        Auth(self.session.clone())
-    }
-
+impl<D: Data> Ctx<'_, D> {
     async fn sessions(&self) -> Result<Vec<SessionSummary>, String> {
-        crate::data::list_sessions(State(self.state.clone()), self.auth())
-            .await
-            .map(|Json(s)| s)
-            .map_err(api_error)
+        self.data.sessions().await
     }
 
     async fn compare(&self, lap_ids: Vec<Uuid>, step_m: f32) -> Result<CompareData, String> {
-        let request = CompareRequest {
-            lap_ids: lap_ids.into_iter().map(LapId::from_uuid).collect(),
-            step_m: Some(step_m),
-        };
-        crate::data::compare(State(self.state.clone()), self.auth(), Json(request))
-            .await
-            .map(|Json(d)| d)
-            .map_err(api_error)
+        self.data.compare(lap_ids, step_m).await
     }
 
     async fn list_tracks(&self) -> ToolResult {
@@ -351,10 +315,7 @@ impl Ctx<'_> {
                 *l = date;
             }
         }
-        let shared = crate::sharing::shared_tracks(State(self.state.clone()), self.auth())
-            .await
-            .map(|Json(t)| t)
-            .map_err(api_error)?;
+        let shared = self.data.shared_tracks().await?;
         let mut shared_only = Vec::new();
         for t in shared {
             let key = (t.track_key.clone(), t.car_key.clone());
@@ -411,10 +372,7 @@ impl Ctx<'_> {
 
     async fn get_session(&self, args: &Value) -> ToolResult {
         let id = arg_uuid(args, "session_id")?;
-        let Json(detail) =
-            crate::data::get_session(State(self.state.clone()), self.auth(), Path(id))
-                .await
-                .map_err(api_error)?;
+        let detail = self.data.session(id).await?;
         let laps: Vec<Value> = detail
             .laps
             .iter()
@@ -467,15 +425,11 @@ impl Ctx<'_> {
             "shared" => ReferenceScope::Shared,
             other => return Err(format!("unknown scope {other:?}: use all, mine or shared")),
         };
-        let query = ReferenceQuery {
-            track: required_str(args, "track_key")?.to_owned(),
-            car: required_str(args, "car_key")?.to_owned(),
-            scope,
-        };
-        let Json(laps) =
-            crate::sharing::reference_laps(State(self.state.clone()), self.auth(), Query(query))
-                .await
-                .map_err(api_error)?;
+        let (track, car) = (
+            required_str(args, "track_key")?,
+            required_str(args, "car_key")?,
+        );
+        let laps = self.data.reference_laps(track, car, scope).await?;
         let limit = arg_limit(args, 10, 50);
         Ok(json!({
             "laps": laps.iter().take(limit).map(|l| json!({
