@@ -104,4 +104,7 @@ jobs:
         with:
           tool: cargo-deny
       - run: cargo deny check licenses bans sources
+      # known vulnerabilities (RustSec); a new advisory fails CI even without
+      # a change here: update the crate or add a reasoned ignore in deny.toml
+      - run: cargo deny check advisories
       - run: node scripts/check-license-direction.mjs
