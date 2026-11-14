@@ -5596,6 +5596,8 @@ dependencies = [
  "http-body-util",
  "qrcode",
  "rand",
+ "reqwest",
+ "rustls",
  "serde",
  "serde_json",
  "sha1 0.10.7",

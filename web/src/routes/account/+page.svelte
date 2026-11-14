@@ -566,8 +566,10 @@
 			<h2 class="mb-1 font-medium">AI assistants</h2>
 			<p class="mb-3 text-sm text-zinc-400">
 				Let an AI assistant read your sessions, laps and the corner analysis to tell you where you
-				lose time. It connects over MCP (Model Context Protocol) with a token that can only read: it
-				can't change, delete or share anything.
+				lose time. It connects over MCP (Model Context Protocol) at
+				<code class="text-zinc-300">{mcpUrl}</code>: add that address in the assistant and allow it
+				in the browser (OAuth), or create a token below for assistants without OAuth. Either way it
+				can only read: it can't change, delete or share anything.
 			</p>
 			{#if assistants.length > 0}
 				<table class="mb-3 w-full text-left text-sm">

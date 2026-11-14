@@ -15,8 +15,9 @@
 //!   session ids are handed out, so every request stands on its own.
 //!
 //! Every answer is one JSON object (no SSE streams); `GET` and `DELETE` get
-//! 405. Authentication: `Authorization: Bearer` with a device token, normally
-//! a read-only one created for this on the Account page.
+//! 405. Authentication: `Authorization: Bearer` with an OAuth access token
+//! (see [`crate::oauth`]) or a device token, normally a read-only one created
+//! for this on the Account page.
 
 mod tools;
 
@@ -29,6 +30,7 @@ use base64::Engine;
 use serde_json::{Value, json};
 
 use crate::auth::{ClientIp, Session, bearer_token, check_restrictions};
+use crate::oauth;
 use crate::ratelimit::PER_ADDRESS;
 use crate::state::SharedState;
 
@@ -109,13 +111,24 @@ fn rpc_error_data(
     (status, Json(body)).into_response()
 }
 
-fn unauthorized(message: &str) -> Response {
+/// 401 with the challenge that leads OAuth clients to the authorization
+/// server (RFC 9728 §5.1).
+fn unauthorized(state: &SharedState, message: &str, invalid_token: bool) -> Response {
+    let error = if invalid_token {
+        r#"error="invalid_token", "#
+    } else {
+        ""
+    };
+    let challenge = format!(
+        r#"Bearer {error}resource_metadata="{}", scope="{}""#,
+        oauth::resource_metadata_url(state),
+        oauth::SCOPE
+    );
+    let value =
+        HeaderValue::from_str(&challenge).unwrap_or_else(|_| HeaderValue::from_static("Bearer"));
     (
         StatusCode::UNAUTHORIZED,
-        [(
-            header::WWW_AUTHENTICATE,
-            HeaderValue::from_static(r#"Bearer realm="Stintory""#),
-        )],
+        [(header::WWW_AUTHENTICATE, value)],
         Json(json!({ "error": message })),
     )
         .into_response()
@@ -224,7 +237,9 @@ async fn authenticate(
 ) -> Result<Session, Box<Response>> {
     let Some(token) = bearer_token(headers) else {
         return Err(Box::new(unauthorized(
-            "a token is required: create one on the Account page (AI assistants)",
+            state,
+            "authorization required: connect with OAuth or create a token on the Account page",
+            false,
         )));
     };
     let key = format!("mcp-auth:{}", ip.0.as_deref().unwrap_or("?"));
@@ -233,13 +248,26 @@ async fn authenticate(
             (StatusCode::TOO_MANY_REQUESTS, "too many failed attempts").into_response(),
         ));
     }
-    let session = match crate::devices::authenticate(state, token, ip).await {
-        Ok(s) => s,
-        Err(e) if e.status() == StatusCode::UNAUTHORIZED => {
-            state.limiter.fail(&key);
-            return Err(Box::new(unauthorized("unknown or revoked token")));
+    let rejected = || {
+        state.limiter.fail(&key);
+        Box::new(unauthorized(
+            state,
+            "unknown, expired or revoked token",
+            true,
+        ))
+    };
+    let session = if token.starts_with(oauth::ACCESS_PREFIX) {
+        match oauth::authenticate_access(state, token, ip).await {
+            Ok(Some(s)) => s,
+            Ok(None) => return Err(rejected()),
+            Err(e) => return Err(Box::new(e.into_response())),
         }
-        Err(e) => return Err(Box::new(e.into_response())),
+    } else {
+        match crate::devices::authenticate(state, token, ip).await {
+            Ok(s) => s,
+            Err(e) if e.status() == StatusCode::UNAUTHORIZED => return Err(rejected()),
+            Err(e) => return Err(Box::new(e.into_response())),
+        }
     };
     check_restrictions(state, &session)
         .await

@@ -63,6 +63,11 @@ impl Drop for TestServer {
 }
 
 async fn server() -> Option<TestServer> {
+    server_with(|_| {}).await
+}
+
+/// A test server with a changed configuration.
+async fn server_with(configure: impl FnOnce(&mut Config)) -> Option<TestServer> {
     let Ok(url) = std::env::var("STINTORY_TEST_DATABASE_URL") else {
         eprintln!("STINTORY_TEST_DATABASE_URL not set, skipped");
         return None;
@@ -80,6 +85,7 @@ async fn server() -> Option<TestServer> {
     let mut config = Config::for_tests(url.clone(), dir.path().to_path_buf());
     config.admin_username = Some(ADMIN.into());
     config.admin_password = Some(ADMIN_PW.into());
+    configure(&mut config);
     let state = sy_server::init(config, Some(&schema)).await.unwrap();
     Some(TestServer {
         app: sy_server::app(state.clone()),
@@ -2400,4 +2406,424 @@ async fn mcp_endpoint_for_ai_assistants() {
         mcp(&s, Some(&token), &[], ping).await.0,
         StatusCode::UNAUTHORIZED
     );
+}
+
+// ----- OAuth for MCP clients -------------------------------------------------
+
+async fn raw(s: &TestServer, req: Request<Body>) -> (StatusCode, Value, axum::http::HeaderMap) {
+    let res = s.app.clone().oneshot(req).await.unwrap();
+    let (status, headers) = (res.status(), res.headers().clone());
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        headers,
+    )
+}
+
+/// `POST /oauth/token` with a form body.
+async fn token_request(s: &TestServer, form: &[(&str, &str)]) -> (StatusCode, Value) {
+    let body = form
+        .iter()
+        .map(|(k, v)| format!("{k}={}", url_enc(v)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let req = Request::builder()
+        .method("POST")
+        .uri("/oauth/token")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(body))
+        .unwrap();
+    let (st, body, headers) = raw(s, req).await;
+    if st == StatusCode::OK {
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store");
+    }
+    (st, body)
+}
+
+fn url_enc(s: &str) -> String {
+    s.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// A query parameter of a redirect URL.
+fn redirect_param(url: &str, name: &str) -> Option<String> {
+    let query = url.split_once('?')?.1;
+    query.split('&').find_map(|kv| {
+        let (k, v) = kv.split_once('=')?;
+        (k == name).then(|| {
+            let mut out = Vec::new();
+            let b = v.as_bytes();
+            let mut i = 0;
+            while i < b.len() {
+                if b[i] == b'%' {
+                    out.push(
+                        u8::from_str_radix(std::str::from_utf8(&b[i + 1..i + 3]).unwrap(), 16)
+                            .unwrap(),
+                    );
+                    i += 3;
+                } else {
+                    out.push(b[i]);
+                    i += 1;
+                }
+            }
+            String::from_utf8(out).unwrap()
+        })
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn oauth_for_mcp_clients() {
+    let Some(s) = server().await else { return };
+    let base = "http://localhost:8080";
+    let get = |path: &str| Request::builder().uri(path).body(Body::empty()).unwrap();
+
+    // discovery: 401 → protected resource metadata → authorization server
+    let ping = json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" });
+    let (st, _, headers) = mcp(&s, None, &[], ping.clone()).await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
+    let challenge = headers[header::WWW_AUTHENTICATE]
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(
+        challenge.contains(&format!(
+            r#"resource_metadata="{base}/.well-known/oauth-protected-resource/mcp""#
+        )),
+        "{challenge}"
+    );
+    assert!(challenge.contains(r#"scope="laps:read""#));
+    let (st, prm, _) = raw(&s, get("/.well-known/oauth-protected-resource/mcp")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(prm["resource"], format!("{base}/mcp"));
+    assert_eq!(prm["authorization_servers"], json!([base]));
+    assert_eq!(
+        raw(&s, get("/.well-known/oauth-protected-resource"))
+            .await
+            .1,
+        prm
+    );
+    let (_, asm, _) = raw(&s, get("/.well-known/oauth-authorization-server")).await;
+    assert_eq!(asm["issuer"], base);
+    assert_eq!(asm["code_challenge_methods_supported"], json!(["S256"]));
+    assert_eq!(asm["client_id_metadata_document_supported"], true);
+    assert_eq!(asm["authorization_response_iss_parameter_supported"], true);
+    assert_eq!(asm["token_endpoint"], format!("{base}/oauth/token"));
+
+    // dynamic registration (public clients, https or loopback redirects)
+    let register = |body: Value| {
+        Request::builder()
+            .method("POST")
+            .uri("/oauth/register")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+    let (st, client, _) = raw(
+        &s,
+        register(json!({
+        "client_name": "Test Assistant", "redirect_uris": ["http://127.0.0.1:9999/callback"],
+        "token_endpoint_auth_method": "none" })),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{client}");
+    assert_eq!(client["token_endpoint_auth_method"], "none");
+    let client_id = client["client_id"].as_str().unwrap().to_owned();
+    let (st, err, _) = raw(
+        &s,
+        register(json!({ "redirect_uris": ["http://evil.example/cb"] })),
+    )
+    .await;
+    assert_eq!(
+        (st, err["error"].clone()),
+        (StatusCode::BAD_REQUEST, json!("invalid_redirect_uri"))
+    );
+
+    // the user logs in and looks at the request (loopback: another port is fine)
+    let mut b = Browser::new(&s);
+    b.login(ADMIN, ADMIN_PW).await;
+    push_sample(&mut b).await;
+    let (verifier, challenge) = pkce();
+    let redirect = "http://127.0.0.1:5555/callback";
+    let query = |extra: &str| {
+        format!(
+            "?response_type=code&client_id={}&redirect_uri={}&code_challenge={challenge}\
+             &code_challenge_method=S256&state=xyz&scope=laps%3Aread&resource={}{extra}",
+            url_enc(&client_id),
+            url_enc(redirect),
+            url_enc(&format!("{base}/mcp"))
+        )
+    };
+    let (st, info) = b.get(&format!("/oauth/authorize{}", query(""))).await;
+    assert_eq!(st, StatusCode::OK, "{info}");
+    assert_eq!(info["clientName"], "Test Assistant");
+    assert_eq!(info["redirectHost"], "127.0.0.1");
+    assert_eq!(info["localRedirect"], true);
+    assert_eq!(info["clientHost"], Value::Null, "registered, not verified");
+    // an unregistered redirect is shown, never followed
+    let bad = format!(
+        "/oauth/authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={challenge}&code_challenge_method=S256",
+        url_enc(&client_id),
+        url_enc("https://evil.example/cb")
+    );
+    assert_eq!(b.get(&bad).await.0, StatusCode::BAD_REQUEST);
+    // other problems go back to the client, with iss
+    let no_pkce = format!(
+        "/oauth/authorize?response_type=code&client_id={}&redirect_uri={}&state=s1",
+        url_enc(&client_id),
+        url_enc(redirect)
+    );
+    let (_, info) = b.get(&no_pkce).await;
+    let to = info["redirectTo"].as_str().unwrap();
+    assert_eq!(
+        redirect_param(to, "error").as_deref(),
+        Some("invalid_request")
+    );
+    assert_eq!(redirect_param(to, "state").as_deref(), Some("s1"));
+    assert_eq!(redirect_param(to, "iss").as_deref(), Some(base));
+
+    let params = json!({
+        "response_type": "code", "client_id": client_id, "redirect_uri": redirect,
+        "code_challenge": challenge, "code_challenge_method": "S256", "state": "xyz",
+        "resource": format!("{base}/mcp"),
+    });
+    // denied
+    let (_, denied) = b
+        .post(
+            "/oauth/approve",
+            json!({ "params": params, "allow": false }),
+        )
+        .await;
+    let to = denied["redirectTo"].as_str().unwrap();
+    assert_eq!(
+        redirect_param(to, "error").as_deref(),
+        Some("access_denied")
+    );
+    assert!(redirect_param(to, "code").is_none());
+    // allowed
+    let (st, approved) = b
+        .post("/oauth/approve", json!({ "params": params, "allow": true }))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{approved}");
+    let to = approved["redirectTo"].as_str().unwrap();
+    assert!(to.starts_with(redirect), "{to}");
+    assert_eq!(redirect_param(to, "state").as_deref(), Some("xyz"));
+    assert_eq!(redirect_param(to, "iss").as_deref(), Some(base));
+    let code = redirect_param(to, "code").unwrap();
+
+    // the code: a wrong verifier uses it up; a new approval, then the right one (once)
+    let exchange = |code: &str, verifier: &str| {
+        vec![
+            ("grant_type", "authorization_code".to_owned()),
+            ("code", code.to_owned()),
+            ("client_id", client_id.clone()),
+            ("redirect_uri", redirect.to_owned()),
+            ("code_verifier", verifier.to_owned()),
+            ("resource", format!("{base}/mcp")),
+        ]
+    };
+    let send = |v: Vec<(&'static str, String)>| {
+        let s = &s;
+        async move {
+            let pairs: Vec<(&str, &str)> = v.iter().map(|(k, v)| (*k, v.as_str())).collect();
+            token_request(s, &pairs).await
+        }
+    };
+    let (wrong_verifier, _) = pkce();
+    let (st, err) = send(exchange(&code, &wrong_verifier)).await;
+    assert_eq!(
+        (st, err["error"].clone()),
+        (StatusCode::BAD_REQUEST, json!("invalid_grant"))
+    );
+    let (_, approved) = b
+        .post("/oauth/approve", json!({ "params": params, "allow": true }))
+        .await;
+    let code = redirect_param(approved["redirectTo"].as_str().unwrap(), "code").unwrap();
+    let exchange = exchange(&code, &verifier);
+    let (st, tokens) = send(exchange.clone()).await;
+    assert_eq!(st, StatusCode::OK, "{tokens}");
+    assert_eq!(tokens["token_type"], "Bearer");
+    assert_eq!(tokens["expires_in"], 3600);
+    let access = tokens["access_token"].as_str().unwrap().to_owned();
+    let refresh = tokens["refresh_token"].as_str().unwrap().to_owned();
+    assert!(access.starts_with("syo_") && refresh.starts_with("syr_"));
+    assert_eq!(
+        send(exchange).await.1["error"],
+        "invalid_grant",
+        "single use"
+    );
+
+    // the access token reads through MCP, and nothing else
+    let list = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+        "params": { "name": "list_sessions", "arguments": {} } });
+    let (st, body, _) = mcp(&s, Some(&access), &[], list.clone()).await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    assert_eq!(tool_json(&body["result"])["total"], 1);
+    assert_eq!(
+        Browser::device(&s, &access).get("/sessions").await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        mcp(&s, Some(&refresh), &[], ping.clone()).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+
+    // refresh rotates: the old refresh token stops working
+    let (st, renewed) = token_request(
+        &s,
+        &[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", &refresh),
+            ("client_id", &client_id),
+        ],
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{renewed}");
+    let access2 = renewed["access_token"].as_str().unwrap().to_owned();
+    let refresh2 = renewed["refresh_token"].as_str().unwrap().to_owned();
+    assert_ne!(refresh2, refresh);
+    let (st, err) = token_request(
+        &s,
+        &[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", &refresh),
+            ("client_id", &client_id),
+        ],
+    )
+    .await;
+    assert_eq!(
+        (st, err["error"].clone()),
+        (StatusCode::BAD_REQUEST, json!("invalid_grant"))
+    );
+    assert_eq!(
+        mcp(&s, Some(&access2), &[], ping.clone()).await.0,
+        StatusCode::OK
+    );
+
+    // the connection is on the Account page; removing it ends the access
+    let (_, devices) = b.get("/me/devices").await;
+    let grant = devices
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["name"] == "Test Assistant")
+        .unwrap()
+        .clone();
+    assert_eq!(grant["scope"], "read");
+    let id = grant["id"].as_str().unwrap();
+    assert_eq!(
+        b.call("DELETE", &format!("/me/devices/{id}"), json!({}))
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        mcp(&s, Some(&access2), &[], ping).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    let (_, err) = token_request(
+        &s,
+        &[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", &refresh2),
+            ("client_id", &client_id),
+        ],
+    )
+    .await;
+    assert_eq!(err["error"], "invalid_grant");
+
+    // a client known from its metadata document (cached, so no fetch here)
+    let doc_id = "https://assistant.example/oauth/client.json";
+    s.state
+        .conn()
+        .await
+        .unwrap()
+        .execute(
+            "INSERT INTO oauth_clients (client_id, client_name, redirect_uris, source, fetched_at)
+             VALUES ($1, 'Example Assistant', $2, 'metadata_document', now())",
+            &[&doc_id, &json!(["https://assistant.example/callback"])],
+        )
+        .await
+        .unwrap();
+    let doc_query = format!(
+        "/oauth/authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={challenge}&code_challenge_method=S256",
+        url_enc(doc_id),
+        url_enc("https://assistant.example/callback")
+    );
+    let (st, info) = b.get(&doc_query).await;
+    assert_eq!(st, StatusCode::OK, "{info}");
+    assert_eq!(info["clientHost"], "assistant.example");
+    assert_eq!(info["localRedirect"], false);
+    // tokens only for this server's MCP endpoint
+    let (_, info) = b
+        .get(&format!(
+            "{doc_query}&resource={}",
+            url_enc("https://other.example/mcp")
+        ))
+        .await;
+    let to = info["redirectTo"].as_str().unwrap();
+    assert_eq!(
+        redirect_param(to, "error").as_deref(),
+        Some("invalid_target")
+    );
+}
+
+/// A server without internet access: clients register themselves instead
+/// of naming a metadata document.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn oauth_without_client_metadata_documents() {
+    let Some(s) = server_with(|c| c.oauth_client_metadata = false).await else {
+        return;
+    };
+    let req = Request::builder()
+        .uri("/.well-known/oauth-authorization-server")
+        .body(Body::empty())
+        .unwrap();
+    let (_, asm, _) = raw(&s, req).await;
+    assert_eq!(asm["client_id_metadata_document_supported"], false);
+    assert!(asm["registration_endpoint"].is_string());
+
+    let mut b = Browser::new(&s);
+    b.login(ADMIN, ADMIN_PW).await;
+    let (_, challenge) = pkce();
+    let authorize = |client: &str, redirect: &str| {
+        format!(
+            "/oauth/authorize?response_type=code&client_id={}&redirect_uri={}&code_challenge={challenge}&code_challenge_method=S256",
+            url_enc(client),
+            url_enc(redirect)
+        )
+    };
+    // not fetched: the message says what to do
+    let doc = "https://claude.ai/oauth/claude-code-client-metadata";
+    let (st, body) = b
+        .get(&authorize(doc, "http://localhost:4000/callback"))
+        .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"].as_str().unwrap().contains("registers itself"),
+        "{body}"
+    );
+    // a document fetched earlier still works
+    s.state
+        .conn()
+        .await
+        .unwrap()
+        .execute(
+            "INSERT INTO oauth_clients (client_id, client_name, redirect_uris, source, fetched_at)
+             VALUES ($1, 'Old', $2, 'metadata_document', now() - interval '30 days')",
+            &[&doc, &json!(["http://localhost/callback"])],
+        )
+        .await
+        .unwrap();
+    let (st, info) = b
+        .get(&authorize(doc, "http://localhost:4000/callback"))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{info}");
+    assert_eq!(info["clientName"], "Old");
 }

@@ -446,6 +446,21 @@ export interface SyncStatus {
 }
 
 /** A desktop app connected to the user's account (server). */
+/** An OAuth authorization request as the consent page shows it. */
+export interface OAuthAuthorizeInfo {
+	/** The client's own name (unverified) */
+	clientName: string;
+	clientId: string;
+	/** Host of the client's metadata document (verified), if it has one */
+	clientHost: string | null;
+	/** Where the browser goes back to */
+	redirectHost: string;
+	/** The redirect goes to a program on this computer */
+	localRedirect: boolean;
+	/** Set when the request is invalid in a way the client is told about */
+	redirectTo: string | null;
+}
+
 /** What a device token may do: the desktop app (sync) or an AI assistant (read, MCP only). */
 export type TokenScope = 'sync' | 'read';
 

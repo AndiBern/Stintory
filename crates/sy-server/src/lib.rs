@@ -17,6 +17,7 @@ pub mod db;
 pub mod devices;
 pub mod error;
 pub mod mcp;
+pub mod oauth;
 pub mod passkeys;
 pub mod ratelimit;
 pub mod sharing;
@@ -172,6 +173,8 @@ fn api(state: &SharedState) -> Router<SharedState> {
             get(devices::my_devices).post(devices::create),
         )
         .route("/me/devices/{id}", delete(devices::revoke))
+        .route("/oauth/authorize", get(oauth::authorize_info))
+        .route("/oauth/approve", post(oauth::approve))
         // sync
         .route("/sync/blobs/missing", post(sync::missing_blobs))
         .route(
@@ -251,7 +254,22 @@ pub fn app(state: SharedState) -> Router {
             post(mcp::post)
                 .get(mcp::not_allowed)
                 .delete(mcp::not_allowed),
-        );
+        )
+        // OAuth for MCP clients (the consent page /oauth/authorize is the web UI's)
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(oauth::protected_resource),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/mcp",
+            get(oauth::protected_resource),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(oauth::authorization_server),
+        )
+        .route("/oauth/register", post(oauth::register))
+        .route("/oauth/token", post(oauth::token));
     let web = &state.config.web_dir;
     if web.join("index.html").is_file() {
         // single-page app: unknown paths get index.html

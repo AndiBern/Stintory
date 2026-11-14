@@ -50,7 +50,7 @@ pub async fn authenticate(state: &SharedState, token: &str, ip: &ClientIp) -> Ap
             &format!(
                 "SELECT d.id, d.last_used_at, d.scope, {USER_COLUMNS}
                  FROM device_tokens d JOIN users u ON u.id = d.user_id
-                 WHERE d.token_hash = $1 AND NOT u.disabled"
+                 WHERE d.token_hash = $1 AND d.oauth_client IS NULL AND NOT u.disabled"
             ),
             &[&hash],
         )
@@ -181,7 +181,7 @@ pub struct ApproveResponse {
     pub redirect_to: String,
 }
 
-fn url_encode(s: &str) -> String {
+pub(crate) fn url_encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {

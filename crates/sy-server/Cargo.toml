@@ -26,6 +26,8 @@ hmac = "0.12"
 http-body-util = "0.1"
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 rand = "0.10"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 sy-analysis.workspace = true
 sy-model.workspace = true
 sy-store.workspace = true
