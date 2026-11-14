@@ -14,7 +14,7 @@ use deadpool_postgres::GenericClient;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::auth::{AccountAuth, ClientIp, Me, me as me_view};
+use crate::auth::{AccountAuth, ClientIp, Me, User, me as me_view};
 use crate::crypto;
 use crate::error::{ApiError, ApiResult};
 use crate::state::{ServerSettings, SharedState, audit};
@@ -64,18 +64,38 @@ pub async fn update_me(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn check_password(state: &SharedState, user: Uuid, password: &str) -> ApiResult<()> {
+/// Confirms the account password of a logged-in user. Wrong attempts count
+/// like failed logins of the account, so a stolen session can't be used to
+/// guess the password.
+pub(crate) async fn check_password(
+    state: &SharedState,
+    user: &User,
+    password: &str,
+) -> ApiResult<()> {
+    let key = format!("user:{}", user.username);
+    if !state.limiter.allowed(&key, crate::ratelimit::PER_ACCOUNT) {
+        return Err(ApiError::too_many_requests());
+    }
     let hash: String = state
         .conn()
         .await?
-        .query_one("SELECT password_hash FROM users WHERE id = $1", &[&user])
+        .query_one("SELECT password_hash FROM users WHERE id = $1", &[&user.id])
         .await?
         .get(0);
     if crypto::verify_password(password.to_owned(), Some(hash)).await? {
         Ok(())
     } else {
+        state.limiter.fail(&key);
         Err(ApiError::forbidden("wrong password").with_code("wrong_password"))
     }
+}
+
+/// Disconnects all desktop apps and AI assistants of a user (device tokens
+/// and OAuth grants; their access tokens go with them). Returns how many.
+pub(crate) async fn disconnect_devices(db: &impl GenericClient, user: Uuid) -> ApiResult<u64> {
+    Ok(db
+        .execute("DELETE FROM device_tokens WHERE user_id = $1", &[&user])
+        .await?)
 }
 
 /// `POST /me/password`
@@ -86,9 +106,13 @@ pub struct ChangePassword {
     pub current_password: String,
     /// New password
     pub new_password: String,
+    /// Also disconnect all desktop apps and AI assistants
+    #[serde(default)]
+    pub disconnect_devices: bool,
 }
 
-/// Sets a new password and ends all other sessions.
+/// Sets a new password and ends all other sessions; on request also
+/// disconnects all devices.
 pub async fn change_password(
     State(state): State<SharedState>,
     AccountAuth(session): AccountAuth,
@@ -96,16 +120,7 @@ pub async fn change_password(
     Json(req): Json<ChangePassword>,
 ) -> ApiResult<StatusCode> {
     let user = &session.user;
-    if !state.limiter.allowed(
-        &format!("user:{}", user.username),
-        crate::ratelimit::PER_ACCOUNT,
-    ) {
-        return Err(ApiError::too_many_requests());
-    }
-    if let Err(e) = check_password(&state, user.id, &req.current_password).await {
-        state.limiter.fail(&format!("user:{}", user.username));
-        return Err(e);
-    }
+    check_password(&state, user, &req.current_password).await?;
     crypto::check_password_policy(&req.new_password)?;
     if req.new_password == req.current_password {
         return Err(ApiError::bad_request(
@@ -126,13 +141,18 @@ pub async fn change_password(
         &[&user.id, &session.token_hash],
     )
     .await?;
+    let devices = if req.disconnect_devices {
+        disconnect_devices(&tx, user.id).await?
+    } else {
+        0
+    };
     tx.commit().await?;
     audit(
         &db,
         Some(user.id),
         "password_changed",
         ip.0.as_deref(),
-        serde_json::json!({}),
+        serde_json::json!({ "devicesDisconnected": devices }),
     )
     .await;
     Ok(StatusCode::NO_CONTENT)
@@ -294,7 +314,7 @@ pub async fn totp_disable(
     Json(req): Json<PasswordConfirm>,
 ) -> ApiResult<StatusCode> {
     let user = &session.user;
-    check_password(&state, user.id, &req.password).await?;
+    check_password(&state, user, &req.password).await?;
     let db = state.conn().await?;
     if ServerSettings::load(&db).await?.enforce_2fa && !user.has_passkey {
         return Err(ApiError::forbidden(
@@ -329,7 +349,7 @@ pub async fn regenerate_recovery_codes(
     Json(req): Json<PasswordConfirm>,
 ) -> ApiResult<Json<RecoveryCodes>> {
     let user = &session.user;
-    check_password(&state, user.id, &req.password).await?;
+    check_password(&state, user, &req.password).await?;
     if !user.totp_enabled {
         return Err(ApiError::bad_request(
             "set up two-factor authentication first",

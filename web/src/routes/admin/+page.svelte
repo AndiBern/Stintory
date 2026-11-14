@@ -165,7 +165,7 @@
 									update(
 										u,
 										{ resetPassword: true },
-										`Set a new temporary password for @${u.username}? They are logged out.`
+										`Set a new temporary password for @${u.username}? They are logged out, and their desktop apps and AI assistants (MCP) are disconnected.`
 									)}>Reset password</button
 							>
 							{#if u.totpEnabled || u.hasPasskey}
@@ -176,7 +176,7 @@
 										update(
 											u,
 											{ resetTwoFactor: true },
-											`Remove two-factor authentication (TOTP and passkeys) of @${u.username}?`
+											`Remove two-factor authentication (TOTP and passkeys) of @${u.username}? They are logged out, and their desktop apps and AI assistants (MCP) are disconnected.`
 										)}>Reset 2FA</button
 								>
 							{/if}

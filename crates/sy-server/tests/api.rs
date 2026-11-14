@@ -2827,3 +2827,177 @@ async fn oauth_without_client_metadata_documents() {
     assert_eq!(st, StatusCode::OK, "{info}");
     assert_eq!(info["clientName"], "Old");
 }
+
+/// A device token for `b`'s user, created on the account page.
+async fn device_token(b: &mut Browser<'_>) -> String {
+    let (st, body) = b.post("/me/devices", json!({ "name": "pc" })).await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    body["token"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn password_changes_and_resets_disconnect_devices() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut u, id) = user(&s, &mut admin, "racer").await;
+    let connected = |token: &str| {
+        let token = token.to_owned();
+        let s = &s;
+        async move { Browser::device(s, &token).get("/devices/current").await.0 == StatusCode::OK }
+    };
+
+    // a routine change keeps the devices
+    let token = device_token(&mut u).await;
+    let (st, _) = u
+        .post(
+            "/me/password",
+            json!({ "currentPassword": "a long password 1", "newPassword": "a long password 2" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert!(connected(&token).await);
+
+    // on request it disconnects them
+    let (st, _) = u
+        .post(
+            "/me/password",
+            json!({
+                "currentPassword": "a long password 2",
+                "newPassword": "a long password 3",
+                "disconnectDevices": true
+            }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert!(!connected(&token).await);
+    assert_eq!(u.get("/me/devices").await.1, json!([]));
+    assert!(u.get("/me").await.0 == StatusCode::OK, "own session stays");
+
+    // an admin reset always does
+    let token = device_token(&mut u).await;
+    let (st, _) = admin
+        .call(
+            "PATCH",
+            &format!("/admin/users/{id}"),
+            json!({ "resetPassword": true }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(!connected(&token).await);
+}
+
+#[tokio::test]
+async fn password_confirmations_are_rate_limited() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut u, _) = user(&s, &mut admin, "racer").await;
+    for _ in 0..sy_server::ratelimit::PER_ACCOUNT {
+        let (st, body) = u
+            .call(
+                "DELETE",
+                "/me/totp",
+                json!({ "password": "wrong password!" }),
+            )
+            .await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{body}");
+    }
+    // further guesses are refused, even the right password
+    let (st, _) = u
+        .call(
+            "DELETE",
+            "/me/totp",
+            json!({ "password": "a long password 1" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+    let (st, _) = u
+        .post(
+            "/me/passkeys/register/start",
+            json!({ "password": "a long password 1" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn blob_uploads_are_limited_and_unused_files_removed() {
+    let Some(s) = server_with(|c| {
+        c.max_blob_mb = 1;
+        c.max_upload_mb = 1;
+    })
+    .await
+    else {
+        return;
+    };
+    let mut b = Browser::new(&s);
+    b.login(ADMIN, ADMIN_PW).await;
+
+    // larger than STINTORY_MAX_BLOB_MB / STINTORY_MAX_UPLOAD_MB
+    let big = vec![7u8; 2 << 20];
+    let req = b
+        .request("PUT", &format!("/sync/blobs/{}", BlobHash::of(&big)))
+        .body(Body::from(big.clone()))
+        .unwrap();
+    assert_eq!(b.send(req).await.0, StatusCode::PAYLOAD_TOO_LARGE);
+    let req = b.request("POST", "/import").body(Body::from(big)).unwrap();
+    assert_eq!(b.send(req).await.0, StatusCode::PAYLOAD_TOO_LARGE);
+
+    // both files uploaded, only one lap pushed; plus a file without a row
+    let (session, laps) = sample();
+    for (lap, bytes) in &laps {
+        let req = b
+            .request("PUT", &format!("/sync/blobs/{}", lap.blob_hash))
+            .body(Body::from(bytes.clone()))
+            .unwrap();
+        assert_eq!(b.send(req).await.0, StatusCode::NO_CONTENT);
+    }
+    let (st, body) = b
+        .post(
+            "/sync/push",
+            json!({ "sessions": [session], "laps": [laps[0].0] }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    let stray = s.state.blobs.put(b"left over by a failed import").unwrap();
+    let (used, unused) = (&laps[0].0.blob_hash, &laps[1].0.blob_hash);
+
+    // young files stay: their laps may still come
+    let hour = std::time::Duration::from_secs(3600);
+    assert_eq!(
+        sy_server::sync::remove_orphan_blobs(&s.state, hour)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(s.state.blobs.contains(unused) && s.state.blobs.contains(&stray));
+
+    // old ones go, the used one stays
+    assert_eq!(
+        sy_server::sync::remove_orphan_blobs(&s.state, std::time::Duration::ZERO)
+            .await
+            .unwrap(),
+        2
+    );
+    assert!(s.state.blobs.contains(used));
+    assert!(!s.state.blobs.contains(unused) && !s.state.blobs.contains(&stray));
+    let (_, body) = b
+        .post(
+            "/sync/blobs/missing",
+            json!({ "hashes": [used.to_string(), unused.to_string()] }),
+        )
+        .await;
+    assert_eq!(body["missing"], json!([unused.to_string()]));
+
+    // a cleanup while files are being stored skips its run
+    let writing = s.state.blob_writes.read().await;
+    s.state.blobs.put(b"another stray").unwrap();
+    assert_eq!(
+        sy_server::sync::remove_orphan_blobs(&s.state, std::time::Duration::ZERO)
+            .await
+            .unwrap(),
+        0
+    );
+    drop(writing);
+}

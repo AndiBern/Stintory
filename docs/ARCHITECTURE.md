@@ -302,7 +302,7 @@ Sharing mode   on Session and Lap: inherit | custom
 - **TOTP** (RFC 6238, 30 s, 6 digits) as a second factor. Setup with QR code + confirm code. 10 single-use **recovery codes** (stored hashed). Secrets are encrypted at rest with a server key from the environment.
 - **Passkeys** (WebAuthn, `webauthn-rs`): usable for **passwordless login** (discoverable credentials) or as a second factor. A user can register several passkeys and remove them. Requires HTTPS and a stable origin: the RP ID = the server's domain from config (`localhost` works for testing).
 - A user must keep at least one usable login method. Admin can enforce 2FA (TOTP or passkey) for all users.
-- Account recovery: an admin can reset a user's password and 2FA. CLI command `sy-server admin reset-user <name>` for the very first admin.
+- Account recovery: an admin can reset a user's password and 2FA. CLI command `sy-server admin reset-user <name>` for the very first admin. A reset ends all sessions and disconnects all devices and AI assistants (device tokens, OAuth grants); a user changing their own password can choose to do the same.
 
 **Web UI sessions:** server-side sessions in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie, CSRF token on state-changing requests, session list with "log out other sessions".
 
@@ -357,7 +357,7 @@ GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, adm
 - Teams and sharing live on the server. The desktop app's frontend uses the same API as the browser; the Tauri backend passes the requests on with the device token (only the teams and sharing paths). So they need a connection for now.
 - Later: sharing changes made offline go into the outbox and apply on the next sync. The picker offers users/teams from the last cached list.
 - Mutable fields (sharing, notes, tags): last-write-wins on `updated_at`.
-- Deleting: tombstones synced both ways. Deleting on the server removes the blob when no other reference exists.
+- Deleting: tombstones synced both ways. Deleting on the server removes the blob when no other reference exists. An hourly cleanup removes blobs no lap refers to once they are 24 h old (uploads whose push never came, failed imports).
 
 ### 9.6 Deployment
 - `docker-compose.yml`: `stintory-server` + `postgres`. Volume for blobs. Env vars for public base URL (= WebAuthn origin/RP ID), secret key (TOTP encryption, cookies), admin bootstrap, registration mode (closed / invite-only / open).

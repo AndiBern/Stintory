@@ -70,6 +70,8 @@ pub async fn init(config: Config, search_path: Option<&str>) -> ApiResult<Shared
         secrets,
         limiter: Default::default(),
         webauthn,
+        decode_slots: tokio::sync::Semaphore::new(state::DECODE_SLOTS),
+        blob_writes: Default::default(),
     });
     bootstrap_admin(&state).await?;
     Ok(state)
@@ -110,9 +112,10 @@ async fn bootstrap_admin(state: &SharedState) -> ApiResult<()> {
 }
 
 /// The JSON API (`/api/v1`).
-fn api(state: &SharedState) -> Router<SharedState> {
-    let upload_limit =
-        usize::try_from(state.config.max_upload_mb * 1024 * 1024).unwrap_or(usize::MAX);
+fn api() -> Router<SharedState> {
+    // Uploads (`/sync/blobs/{hash}`, `/import`) check their size limits
+    // themselves (`sync::spool_body`): `DefaultBodyLimit` doesn't apply to
+    // handlers that take the raw body.
     Router::new()
         .route("/info", get(data::info))
         // auth
@@ -179,9 +182,7 @@ fn api(state: &SharedState) -> Router<SharedState> {
         .route("/sync/blobs/missing", post(sync::missing_blobs))
         .route(
             "/sync/blobs/{hash}",
-            get(sync::get_blob)
-                .put(sync::put_blob)
-                .layer(DefaultBodyLimit::max(upload_limit)),
+            get(sync::get_blob).put(sync::put_blob),
         )
         .route(
             "/sync/push",
@@ -237,17 +238,14 @@ fn api(state: &SharedState) -> Router<SharedState> {
         .route("/shared/check", post(sharing::check_foreign))
         .route("/shared/tracks", get(sharing::shared_tracks))
         .route("/reference-laps", get(sharing::reference_laps))
-        .route(
-            "/import",
-            post(data::import).layer(DefaultBodyLimit::max(upload_limit)),
-        )
+        .route("/import", post(data::import))
         .fallback(|| async { ApiError::not_found("API endpoint") })
 }
 
 /// The complete application.
 pub fn app(state: SharedState) -> Router {
     let mut router = Router::new()
-        .nest("/api/v1", api(&state))
+        .nest("/api/v1", api())
         // AI assistants (Model Context Protocol)
         .route(
             "/mcp",

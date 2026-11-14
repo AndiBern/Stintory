@@ -50,9 +50,10 @@ All settings are environment variables (or command-line flags, see
 | `STINTORY_SECRET_KEY` | – | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts two-factor secrets: **keep it**, changing it disables everyone's 2FA |
 | `STINTORY_DATA_DIR` | `/data` (image) | Telemetry files |
 | `STINTORY_LISTEN` | `0.0.0.0:8080` | Listen address |
-| `STINTORY_TRUST_PROXY` | `false` (`true` in compose) | Take the client address from `X-Forwarded-For`. Only enable behind a proxy that sets it |
+| `STINTORY_TRUST_PROXY` | `false` (`true` in compose) | Take the client address from `X-Forwarded-For` (its last entry, the one your proxy adds). Only enable behind a proxy that sets it |
 | `STINTORY_OAUTH_CLIENT_METADATA` | `true` | Fetch the client metadata documents of AI assistants that connect with OAuth (needs internet access). Set `false` on a server without internet: the assistants then register themselves (see AI assistants) |
-| `STINTORY_MAX_UPLOAD_MB` | `512` | Largest `.stintory` upload |
+| `STINTORY_MAX_UPLOAD_MB` | `512` | Largest `.stintory` upload. An import may unpack to at most 4× this much telemetry |
+| `STINTORY_MAX_BLOB_MB` | `64` | Largest telemetry file of one lap that the desktop app syncs (a lap is usually a few MB) |
 | `STINTORY_DB_WAIT_SECONDS` | `300` | How long to wait at startup for the database. Every failed attempt is logged with the reason (wrong password, unknown host …) |
 | `STINTORY_ADMIN_USERNAME`, `STINTORY_ADMIN_PASSWORD` | – | First admin, created if there are no users |
 | `RUST_LOG` | `info` | Log level |
@@ -82,9 +83,15 @@ everyone, and whether users may share with everyone on the server.
   docker compose -f docker/compose.yml exec server sy-server admin reset-user <name> --admin
   ```
 
-  It prints a temporary password, removes 2FA (TOTP and passkeys) and ends
-  all sessions.
+  It prints a temporary password, removes 2FA (TOTP and passkeys), ends
+  all sessions and disconnects all desktop apps and AI assistants. A reset
+  on the Admin page (password or 2FA) does the same.
+- Changing your own password logs out your other browser sessions. If someone
+  else may have had access to your account, tick *Also disconnect all desktop
+  apps and AI assistants* and connect them again afterwards.
 - Failed logins are limited per account (10 per 15 minutes) and per address.
+  Wrong passwords when confirming an action on the Account page count
+  against the same per-account limit.
   Logins, failures, 2FA changes and admin actions are in the security log on
   the Admin page.
 
@@ -218,7 +225,9 @@ lap).
 ## Backups
 
 Back up both volumes: the database (`pg_dump`) and the data directory with
-the telemetry files.
+the telemetry files. The server removes telemetry files that no lap uses
+once they are a day old (uploads whose laps never arrived, failed imports),
+so restore the database and the data directory from the same time.
 
 ```sh
 docker compose -f docker/compose.yml exec postgres pg_dump -U stintory stintory > stintory.sql

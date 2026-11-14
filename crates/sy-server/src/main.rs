@@ -39,7 +39,8 @@ enum AdminCommand {
         #[arg(long)]
         admin: bool,
     },
-    /// Set a new temporary password, remove 2FA and end all sessions
+    /// Set a new temporary password, remove 2FA, end all sessions and
+    /// disconnect all desktop apps and AI assistants
     ResetUser {
         /// Login name
         username: String,
@@ -74,6 +75,7 @@ async fn main() -> std::process::ExitCode {
 async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let listen = config.listen;
     let state = sy_server::init(config, None).await?;
+    tokio::spawn(sy_server::sync::clean_up_periodically(state.clone()));
     let app = sy_server::app(state);
     let listener = tokio::net::TcpListener::bind(listen).await?;
     tracing::info!(address = %listen, "sy-server listening");
@@ -134,7 +136,10 @@ async fn run_admin(config: Config, cmd: AdminCommand) -> Result<(), Box<dyn std:
                 serde_json::json!({ "admin": admin }),
             )
             .await;
-            println!("reset {username}: two-factor authentication removed, sessions ended.");
+            println!(
+                "reset {username}: two-factor authentication removed, sessions ended, \
+                 desktop apps and AI assistants (MCP) disconnected."
+            );
             println!("temporary password (must be changed at first login):");
             println!("{}", password.unwrap_or_default());
         }

@@ -95,11 +95,16 @@ pub async fn delete_sessions(
     Ok((deleted, hashes))
 }
 
-/// Removes telemetry files no lap references anymore (after commit).
+/// Removes telemetry files no lap references anymore (after commit). While
+/// files are being stored, it leaves them to the periodic cleanup
+/// ([`remove_orphan_blobs`]) instead of waiting.
 pub async fn remove_unused_blobs(state: &SharedState, hashes: Vec<String>) -> ApiResult<()> {
     if hashes.is_empty() {
         return Ok(());
     }
+    let Ok(_exclusive) = state.blob_writes.try_write() else {
+        return Ok(());
+    };
     let orphans: Vec<String> = state
         .conn()
         .await?
@@ -119,6 +124,80 @@ pub async fn remove_unused_blobs(state: &SharedState, hashes: Vec<String>) -> Ap
         }
     }
     Ok(())
+}
+
+/// Unused telemetry files are removed once they are this old (a sync
+/// uploads files before the laps that refer to them; this leaves it time).
+pub const ORPHAN_MIN_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+/// How often [`clean_up_periodically`] runs.
+const CLEANUP_EVERY: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// Removes telemetry files no lap refers to and that are older than
+/// `min_age`: uploads whose laps never came, files of failed imports, and
+/// files left over after deletions. Returns how many files were removed.
+/// Skips the run (0) while files are being stored.
+pub async fn remove_orphan_blobs(
+    state: &SharedState,
+    min_age: std::time::Duration,
+) -> ApiResult<usize> {
+    let Ok(_exclusive) = state.blob_writes.try_write() else {
+        return Ok(0);
+    };
+    let db = state.conn().await?;
+    // known files without laps
+    let mut remove: std::collections::HashSet<String> = db
+        .query(
+            "DELETE FROM blobs b WHERE b.created_at < now() - make_interval(secs => $1)
+               AND NOT EXISTS (SELECT 1 FROM laps l WHERE l.blob_hash = b.hash)
+             RETURNING b.hash",
+            &[&min_age.as_secs_f64()],
+        )
+        .await?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    // files the database doesn't know (anymore)
+    let blobs = state.blobs.clone();
+    let on_disk = tokio::task::spawn_blocking(move || blobs.list()).await??;
+    let cutoff = std::time::SystemTime::now() - min_age;
+    let old: Vec<String> = on_disk
+        .into_iter()
+        .filter(|(hash, modified)| *modified < cutoff && !remove.contains(hash.as_str()))
+        .map(|(hash, _)| hash.as_str().to_owned())
+        .collect();
+    for chunk in old.chunks(1000) {
+        let known: std::collections::HashSet<String> = db
+            .query("SELECT hash FROM blobs WHERE hash = ANY($1)", &[&chunk])
+            .await?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        remove.extend(chunk.iter().filter(|h| !known.contains(*h)).cloned());
+    }
+    let count = remove.len();
+    let blobs = state.blobs.clone();
+    tokio::task::spawn_blocking(move || {
+        remove
+            .iter()
+            .filter_map(|h| h.parse::<BlobHash>().ok())
+            .try_for_each(|h| blobs.remove(&h))
+    })
+    .await??;
+    Ok(count)
+}
+
+/// Runs [`remove_orphan_blobs`] every hour (spawned by `sy-server serve`).
+pub async fn clean_up_periodically(state: SharedState) {
+    let mut every = tokio::time::interval(CLEANUP_EVERY);
+    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        every.tick().await;
+        match remove_orphan_blobs(&state, ORPHAN_MIN_AGE).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(files = n, "removed unused telemetry files"),
+            Err(e) => tracing::warn!(error = %e, "cleaning up telemetry files failed"),
+        }
+    }
 }
 
 // ----- push ---------------------------------------------------------------
@@ -154,6 +233,59 @@ pub async fn missing_blobs(
     }))
 }
 
+/// Writes a request body of at most `limit` bytes to a temporary file;
+/// returns the file and the body's SHA-256 (hex). The file is deleted when
+/// dropped.
+///
+/// The limit is checked here because axum's `DefaultBodyLimit` doesn't
+/// apply to a raw [`Body`] extractor.
+pub(crate) async fn spool_body(
+    state: &SharedState,
+    body: Body,
+    limit: usize,
+) -> ApiResult<(tempfile::NamedTempFile, String)> {
+    use sha2::Digest;
+    use std::io::Write;
+    let tmp_dir = state.config.data_dir.join("tmp");
+    std::fs::create_dir_all(&tmp_dir)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(&tmp_dir)?;
+    let mut sha256 = sha2::Sha256::new();
+    let mut body = http_body_util::Limited::new(body, limit);
+    while let Some(frame) = body.frame().await {
+        let frame = frame.map_err(|e| {
+            if e.is::<http_body_util::LengthLimitError>() {
+                ApiError::new(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    format!(
+                        "the upload is larger than {} MiB",
+                        limit.div_ceil(1024 * 1024)
+                    ),
+                )
+            } else {
+                ApiError::bad_request(format!("upload failed: {e}"))
+            }
+        })?;
+        if let Some(data) = frame.data_ref() {
+            sha256.update(data);
+            tmp.write_all(data)?;
+        }
+    }
+    tmp.flush()?;
+    Ok((tmp, hex::encode(sha256.finalize())))
+}
+
+/// Waits for one of the [`crate::state::DECODE_SLOTS`]; hold it while a
+/// telemetry file is in memory.
+pub(crate) async fn decode_slot(
+    state: &SharedState,
+) -> ApiResult<tokio::sync::SemaphorePermit<'_>> {
+    state
+        .decode_slots
+        .acquire()
+        .await
+        .map_err(|_| ApiError::internal("decode slots closed"))
+}
+
 /// `PUT /sync/blobs/{hash}`: uploads one telemetry file (Parquet).
 pub async fn put_blob(
     State(state): State<SharedState>,
@@ -164,21 +296,20 @@ pub async fn put_blob(
     let expected: BlobHash = hash
         .parse()
         .map_err(|_| ApiError::bad_request("invalid hash"))?;
-    let bytes = body
-        .collect()
-        .await
-        .map_err(|e| ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, format!("upload failed: {e}")))?
-        .to_bytes();
-    if BlobHash::of(&bytes) != expected {
+    // to disk first: slow or many parallel uploads don't hold memory
+    let (tmp, sha256) = spool_body(&state, body, state.config.blob_limit()).await?;
+    if sha256 != expected.as_str() {
         return Err(ApiError::bad_request("content does not match the hash"));
     }
+    let _slot = decode_slot(&state).await?;
+    let _writes = state.blob_writes.read().await;
     let state2 = state.clone();
-    let size = bytes.len();
-    tokio::task::spawn_blocking(move || -> ApiResult<()> {
+    let size = tokio::task::spawn_blocking(move || -> ApiResult<usize> {
+        let bytes = axum::body::Bytes::from(std::fs::read(tmp.path())?);
         LapTelemetry::from_parquet(bytes.clone())
             .map_err(|e| ApiError::bad_request(format!("not a telemetry file: {e}")))?;
         state2.blobs.put(&bytes)?;
-        Ok(())
+        Ok(bytes.len())
     })
     .await??;
     state
@@ -207,6 +338,8 @@ pub async fn push(
         ));
     }
     let owner = session.user.id;
+    // laps refer to uploaded files: keep the cleanup from removing them now
+    let writes = state.blob_writes.read().await;
     let mut db = state.conn().await?;
     let tx = db.transaction().await?;
     lock_user(&tx, owner, true).await?;
@@ -230,6 +363,7 @@ pub async fn push(
         }
     }
     tx.commit().await?;
+    drop(writes);
     remove_unused_blobs(&state, hashes).await?;
     Ok(Json(result))
 }

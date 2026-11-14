@@ -69,6 +69,10 @@ pub struct Config {
     #[arg(long, env = "STINTORY_MAX_UPLOAD_MB", default_value_t = 512)]
     pub max_upload_mb: u64,
 
+    /// Largest accepted telemetry file of one lap (desktop sync), MiB
+    #[arg(long, env = "STINTORY_MAX_BLOB_MB", default_value_t = 64)]
+    pub max_blob_mb: u64,
+
     /// Username of the first admin, created at startup if there are no users
     #[arg(long, env = "STINTORY_ADMIN_USERNAME")]
     pub admin_username: Option<String>,
@@ -76,6 +80,10 @@ pub struct Config {
     /// Password of the first admin (only used when it is created)
     #[arg(long, env = "STINTORY_ADMIN_PASSWORD", hide_env_values = true)]
     pub admin_password: Option<String>,
+}
+
+fn mib(n: u64) -> usize {
+    usize::try_from(n.saturating_mul(1024 * 1024)).unwrap_or(usize::MAX)
 }
 
 /// Invalid configuration.
@@ -111,6 +119,23 @@ impl Config {
         }
     }
 
+    /// Largest accepted upload (.stintory import), bytes.
+    pub fn upload_limit(&self) -> usize {
+        mib(self.max_upload_mb)
+    }
+
+    /// Largest accepted telemetry file (sync), bytes.
+    pub fn blob_limit(&self) -> usize {
+        mib(self.max_blob_mb)
+    }
+
+    /// Largest total of telemetry one import may unpack, bytes: a multiple
+    /// of the upload limit (telemetry compresses little, so a real export
+    /// stays far below; a ZIP bomb doesn't).
+    pub fn import_unpacked_limit(&self) -> u64 {
+        (self.upload_limit() as u64).saturating_mul(4)
+    }
+
     /// Checks values that clap can't.
     pub fn validate(&self) -> Result<(), ConfigError> {
         self.secret_key_bytes()?;
@@ -135,6 +160,7 @@ impl Config {
             trust_proxy: false,
             oauth_client_metadata: true,
             max_upload_mb: 64,
+            max_blob_mb: 64,
             db_wait_seconds: 0,
             admin_username: None,
             admin_password: None,

@@ -188,11 +188,13 @@ impl FromRequestParts<SharedState> for ClientIp {
         if state.config.trust_proxy
             && let Some(forwarded) = parts
                 .headers
-                .get("x-forwarded-for")
+                .get_all("x-forwarded-for")
+                .iter()
+                .next_back()
                 .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.split(',').next())
+                .and_then(forwarded_client)
         {
-            return Ok(Self(Some(forwarded.trim().to_owned())));
+            return Ok(Self(Some(forwarded.to_owned())));
         }
         Ok(Self(
             parts
@@ -201,6 +203,17 @@ impl FromRequestParts<SharedState> for ClientIp {
                 .map(|c| c.0.ip().to_string()),
         ))
     }
+}
+
+/// The client address in an `X-Forwarded-For` value: the last entry, the one
+/// our reverse proxy added. Earlier entries come from the client itself and
+/// can be anything (proxies like nginx append to what the client sent).
+fn forwarded_client(header: &str) -> Option<&str> {
+    header
+        .rsplit(',')
+        .next()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
 }
 
 impl ClientIp {
@@ -823,5 +836,21 @@ mod tests {
         assert!(normalize_username("a b c").is_err());
         assert!(normalize_username("äbc").is_err());
         assert!(normalize_username(&"a".repeat(33)).is_err());
+    }
+
+    #[test]
+    fn forwarded_for_takes_the_proxys_entry() {
+        assert_eq!(forwarded_client("203.0.113.7"), Some("203.0.113.7"));
+        // a client-sent value in front is ignored
+        assert_eq!(
+            forwarded_client("1.2.3.4, 203.0.113.7"),
+            Some("203.0.113.7")
+        );
+        assert_eq!(
+            forwarded_client("1.2.3.4,203.0.113.7 "),
+            Some("203.0.113.7")
+        );
+        assert_eq!(forwarded_client(""), None);
+        assert_eq!(forwarded_client("1.2.3.4, "), None);
     }
 }
