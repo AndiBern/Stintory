@@ -253,6 +253,8 @@ fn is_public(ip: IpAddr) -> bool {
                 || o[0] >= 240
                 || (o[0] == 100 && (64..128).contains(&o[1]))
                 || (o[0] == 192 && o[1] == 0 && o[2] == 0)
+                // 6to4 relay anycast
+                || (o[0] == 192 && o[1] == 88 && o[2] == 99)
                 || (o[0] == 198 && (18..20).contains(&o[1])))
         }
         IpAddr::V6(v) => {
@@ -260,12 +262,24 @@ fn is_public(ip: IpAddr) -> bool {
                 return is_public(IpAddr::V4(v4));
             }
             let s = v.segments();
+            // transition ranges that carry an IPv4 address (which could be
+            // a private one) are refused as a whole
             !(v.is_loopback()
                 || v.is_unspecified()
                 || v.is_multicast()
+                // IPv4-compatible (deprecated), ::/96
+                || s[..6] == [0; 6]
+                // discard-only
+                || (s[0] == 0x0100 && s[1..4] == [0; 3])
+                // unique local, link-local, site-local (deprecated)
                 || (s[0] & 0xfe00) == 0xfc00
                 || (s[0] & 0xffc0) == 0xfe80
+                || (s[0] & 0xffc0) == 0xfec0
+                // Teredo, documentation, 6to4
+                || (s[0] == 0x2001 && s[1] == 0x0000)
                 || (s[0] == 0x2001 && s[1] == 0x0db8)
+                || s[0] == 0x2002
+                // NAT64, well-known and local-use
                 || (s[0] == 0x0064 && s[1] == 0xff9b))
         }
     }
@@ -296,6 +310,9 @@ fn http() -> &'static reqwest::Client {
         let _ = rustls::crypto::ring::default_provider().install_default();
         reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
+            // a proxy from the environment would resolve the host itself,
+            // past the public-address check of PublicOnly
+            .no_proxy()
             .timeout(Duration::from_secs(5))
             .connect_timeout(Duration::from_secs(3))
             .dns_resolver(std::sync::Arc::new(PublicOnly))
@@ -1102,7 +1119,14 @@ mod tests {
 
     #[test]
     fn only_public_addresses() {
-        for ip in ["8.8.8.8", "1.1.1.1", "2606:4700::1111"] {
+        // 2001:4860:: is Google (not Teredo, which is 2001:0::/32)
+        for ip in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "2606:4700::1111",
+            "2001:4860:4860::8888",
+            "2a00:1450:4001::1",
+        ] {
             assert!(is_public(ip.parse().unwrap()), "{ip}");
         }
         for ip in [
@@ -1119,6 +1143,16 @@ mod tests {
             "::ffff:10.0.0.1",
             "198.18.0.1",
             "224.0.0.1",
+            "192.88.99.1",
+            "::10.0.0.1",
+            "::7f00:1",
+            "100::1",
+            "fec0::1",
+            "2001:0:4136:e378:8000:63bf:3fff:fdd2",
+            "2002:a00:1::1",
+            "2002:7f00:1::1",
+            "64:ff9b::a00:1",
+            "64:ff9b:1::a00:1",
         ] {
             assert!(!is_public(ip.parse().unwrap()), "{ip}");
         }
