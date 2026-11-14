@@ -45,7 +45,7 @@ All settings are environment variables (or command-line flags, see
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `STINTORY_DATABASE_URL` | – | Postgres connection URL |
+| `STINTORY_DATABASE_URL` | – | Postgres connection URL. The connection is not encrypted (no TLS; a URL with `sslmode=require` fails), so keep Postgres on the same host or a private network, as compose does |
 | `STINTORY_PUBLIC_URL` | `http://localhost:8080` | URL users open; must match what the browser shows (login requests from other origins are rejected) |
 | `STINTORY_SECRET_KEY` | – | 32 random bytes, base64 (`openssl rand -base64 32`). Encrypts two-factor secrets: **keep it**, changing it disables everyone's 2FA |
 | `STINTORY_DATA_DIR` | `/data` (image) | Telemetry files |
@@ -91,7 +91,10 @@ everyone, and whether users may share with everyone on the server.
   apps and AI assistants* and connect them again afterwards.
 - Failed logins are limited per account (10 per 15 minutes) and per address.
   Wrong passwords when confirming an action on the Account page count
-  against the same per-account limit.
+  against the same per-account limit. The flip side: anyone who knows a
+  username can block that account's password login for 15 minutes with 10
+  wrong attempts. Logging in with a passkey still works then, and the
+  attempts are in the security log (`login_rate_limited`).
   Logins, failures, 2FA changes and admin actions are in the security log on
   the Admin page.
 

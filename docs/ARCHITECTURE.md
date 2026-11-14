@@ -362,6 +362,7 @@ GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, adm
 ### 9.6 Deployment
 - `docker-compose.yml`: `stintory-server` + `postgres`. Volume for blobs. Env vars for public base URL (= WebAuthn origin/RP ID), secret key (TOTP encryption, cookies), admin bootstrap, registration mode (closed / invite-only / open).
 - TLS via the user's reverse proxy (Caddy/Traefik/nginx). Documented, not built in. It is required for passkeys and secure cookies.
+- The server connects to Postgres without TLS: Postgres runs next to it (compose network or the same host).
 - Note in docs: the server admin can technically read all data on their server. That is fine for self-hosting, but we state it.
 
 ## 10. Testing & development strategy
@@ -392,6 +393,8 @@ The MVP is complete (version 0.2.0, November 2026): the core features of §2 wor
 **Known gaps**
 - Sharing changes while offline (outbox, §9.5): the desktop app needs a server connection for teams and sharing.
 - Proton bridge: the open points under *To verify with the real game* in docs/games/proton.md.
+- Server web UI: its Content Security Policy allows inline scripts (`script-src 'self' 'unsafe-inline'`), which the static SvelteKit build's bootstrap script needs. No way to inject script is known; the policy is just not a second line of defense against one.
+- Server database connection: no TLS (§9.6, docs/SERVER.md).
 
 ## 12. Licensing & clean-room parsers
 
