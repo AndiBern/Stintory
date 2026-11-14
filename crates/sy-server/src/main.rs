@@ -75,7 +75,7 @@ async fn main() -> std::process::ExitCode {
 async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let listen = config.listen;
     let state = sy_server::init(config, None).await?;
-    tokio::spawn(sy_server::sync::clean_up_periodically(state.clone()));
+    tokio::spawn(sy_server::cleanup::run_periodically(state.clone()));
     let app = sy_server::app(state);
     let listener = tokio::net::TcpListener::bind(listen).await?;
     tracing::info!(address = %listen, "sy-server listening");

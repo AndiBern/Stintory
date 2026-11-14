@@ -129,8 +129,6 @@ pub async fn remove_unused_blobs(state: &SharedState, hashes: Vec<String>) -> Ap
 /// Unused telemetry files are removed once they are this old (a sync
 /// uploads files before the laps that refer to them; this leaves it time).
 pub const ORPHAN_MIN_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
-/// How often [`clean_up_periodically`] runs.
-const CLEANUP_EVERY: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Removes telemetry files no lap refers to and that are older than
 /// `min_age`: uploads whose laps never came, files of failed imports, and
@@ -184,20 +182,6 @@ pub async fn remove_orphan_blobs(
     })
     .await??;
     Ok(count)
-}
-
-/// Runs [`remove_orphan_blobs`] every hour (spawned by `sy-server serve`).
-pub async fn clean_up_periodically(state: SharedState) {
-    let mut every = tokio::time::interval(CLEANUP_EVERY);
-    every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        every.tick().await;
-        match remove_orphan_blobs(&state, ORPHAN_MIN_AGE).await {
-            Ok(0) => {}
-            Ok(n) => tracing::info!(files = n, "removed unused telemetry files"),
-            Err(e) => tracing::warn!(error = %e, "cleaning up telemetry files failed"),
-        }
-    }
 }
 
 // ----- push ---------------------------------------------------------------

@@ -3001,3 +3001,34 @@ async fn blob_uploads_are_limited_and_unused_files_removed() {
     );
     drop(writing);
 }
+
+#[tokio::test]
+async fn expired_rows_are_removed() {
+    let Some(s) = server().await else { return };
+    let mut old = Browser::new(&s);
+    old.login(ADMIN, ADMIN_PW).await;
+    let mut current = Browser::new(&s);
+    current.login(ADMIN, ADMIN_PW).await;
+    let db = s.state.conn().await.unwrap();
+    // the first session expired, the second is valid
+    db.execute(
+        "UPDATE web_sessions SET expires_at = now() - interval '1 minute'
+         WHERE created_at = (SELECT min(created_at) FROM web_sessions)",
+        &[],
+    )
+    .await
+    .unwrap();
+    let count = |sql: &'static str| {
+        let db = &db;
+        async move { db.query_one(sql, &[]).await.unwrap().get::<_, i64>(0) }
+    };
+    assert_eq!(count("SELECT count(*) FROM web_sessions").await, 2);
+    assert!(
+        sy_server::cleanup::remove_expired(&db).await.unwrap() >= 1,
+        "the expired session"
+    );
+    assert_eq!(count("SELECT count(*) FROM web_sessions").await, 1);
+    assert_eq!(current.get("/me").await.0, StatusCode::OK);
+    assert_eq!(old.get("/me").await.0, StatusCode::UNAUTHORIZED);
+    sy_server::cleanup::run_once(&s.state).await;
+}

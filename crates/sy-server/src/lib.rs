@@ -10,6 +10,7 @@
 pub mod account;
 pub mod admin;
 pub mod auth;
+pub mod cleanup;
 pub mod config;
 pub mod crypto;
 pub mod data;
