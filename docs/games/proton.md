@@ -35,7 +35,7 @@ game ─shared memory─► sy-bridge.exe (in the prefix) ─127.0.0.1:20790─�
 
 ## Setting it up
 
-1. In Stintory on Linux open *Settings → Proton bridge*. It shows a Steam
+1. In Stintory on Linux open *Settings → Games → Proton bridge*. It shows a Steam
    launch option like
 
    ```text
@@ -51,8 +51,8 @@ game ─shared memory─► sy-bridge.exe (in the prefix) ─127.0.0.1:20790─�
    (docs/games/lmu.md).
 
 Start the game as usual. Stintory can be started before or after it; the
-bridge waits for it. *Settings → Proton bridge* and *Settings → Le Mans
-Ultimate* show the connection and what the game is doing; the sidebar
+bridge waits for it. *Settings → Games* (*Proton bridge* and *Le Mans
+Ultimate*) show the connection and what the game is doing; the sidebar
 shows the recording.
 
 Only one game at a time can use the bridge port. If you change the port in

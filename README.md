@@ -12,7 +12,7 @@ Most lap analysis tools send your telemetry to the vendor's servers so you can c
 - **Session and lap browser**, lap view with traces over distance, and **lap comparison** with a time delta, a track map with a synced cursor and **corner insights**: where you lose time, corner by corner (braking point, minimum speed, throttle pick-up, exit speed).
 - **Export and import** sessions and laps as `.stintory` files (and CSV), to move them to another computer or compare with laps from other people.
 - **Self-hosted server** (Docker) with accounts (password, TOTP, passkeys) and a web UI. It syncs your sessions between your computers and lets you share sessions and laps with other users, teams, or everyone on the server. Compare your laps with the ones others share with you, in the browser or the desktop app.
-- **AI assistants** (Claude and other MCP clients) can read your laps and the corner analysis to tell you where you lose time: from the desktop app on your computer (*Settings → AI assistants*) or from your server ([docs/SERVER.md](docs/SERVER.md)). Stintory has no AI service of its own.
+- **AI assistants** (Claude and other MCP clients) can read your laps and the corner analysis to tell you where you lose time: from the desktop app on your computer (*Settings → AI*) or from your server ([docs/SERVER.md](docs/SERVER.md)). Stintory has no AI service of its own.
 
 ## Game support
 

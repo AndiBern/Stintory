@@ -96,8 +96,9 @@
 {#if !sharingAvailable()}
 	<p class="max-w-xl text-zinc-400">
 		Sharing works through a Stintory server. Connect this app to a server under
-		<a class="underline" href={resolve('/settings')}>Settings</a> to share laps and to see what others
-		share with you.
+		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved path + query -->
+		<a class="underline" href={`${resolve('/settings')}?tab=sync`}>Settings</a> to share laps and to see
+		what others share with you.
 	</p>
 {:else}
 	<SharingTabs />

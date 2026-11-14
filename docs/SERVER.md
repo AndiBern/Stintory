@@ -100,7 +100,7 @@ everyone, and whether users may share with everyone on the server.
 
 ## Connecting the desktop app
 
-In the app: **Settings → Server sync**, enter the server address and click
+In the app: **Settings → Sync**, enter the server address and click
 *Connect in browser…*. Your browser opens the server; log in there and click
 *Allow*. The app then syncs automatically: shortly after each recorded lap,
 after imports and deletions, and every few minutes.

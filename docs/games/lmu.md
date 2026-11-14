@@ -23,7 +23,7 @@ asserted at compile time.
 > (`crates/sy-capture/tests/lmu_recordings.rs`, skipped without the
 > files); synthetic tests (`sy_source_lmu::sim`) cover the same cases.
 > Recordings go into `telemetry_examples/LMU/` (raw `.syraw` files,
-> *Settings → Keep raw recordings*); what is still open is under *To
+> *Settings → Advanced → Keep raw recordings*); what is still open is under *To
 > verify*.
 
 ## Setting up the game
@@ -32,7 +32,7 @@ In LMU: *Settings → Gameplay → Enable Plugins* **On**, then restart the
 game. No plugin needs to be installed: the setting alone makes the game
 publish its shared memory `LMU_Data`. Without it, Stintory sees the game
 running (its REST API answers on port 6397) but gets no data, and says so
-in the sidebar and under *Settings → Le Mans Ultimate*.
+in the sidebar and under *Settings → Games → Le Mans Ultimate*.
 
 Recording runs on Windows, and on Linux when the game runs in Proton:
 there the Proton bridge (`sy-bridge.exe`, started with the game by a Steam

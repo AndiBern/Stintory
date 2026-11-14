@@ -59,7 +59,8 @@
 {#if !sharingAvailable()}
 	<p class="max-w-xl text-zinc-400">
 		Teams live on a Stintory server. Connect this app to a server under
-		<a class="underline" href={resolve('/settings')}>Settings</a> to create or join teams.
+		<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- resolved path + query -->
+		<a class="underline" href={`${resolve('/settings')}?tab=sync`}>Settings</a> to create or join teams.
 	</p>
 {:else}
 	{#if error}
