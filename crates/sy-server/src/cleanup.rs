@@ -16,9 +16,10 @@ use crate::state::SharedState;
 const EVERY: Duration = Duration::from_secs(3600);
 
 /// Deletes expired rows: browser sessions, unfinished logins and passkey
-/// ceremonies, unused device-login and OAuth codes, OAuth access tokens and
-/// OAuth grants whose refresh token expired. None of them can be used
-/// anymore; most are otherwise only removed when a new one is created.
+/// ceremonies, unused device-login and OAuth codes, OAuth access tokens,
+/// OAuth grants whose refresh token expired, and remembered rotated-out
+/// refresh tokens past any refresh token's lifetime. None of them can be
+/// used anymore; most are otherwise only removed when a new one is created.
 /// Returns the number of deleted rows.
 pub async fn remove_expired(db: &impl GenericClient) -> ApiResult<u64> {
     let mut deleted = 0;
@@ -34,6 +35,14 @@ pub async fn remove_expired(db: &impl GenericClient) -> ApiResult<u64> {
     ] {
         deleted += db.execute(sql, &[]).await?;
     }
+    // rotated-out refresh tokens older than any refresh token can live
+    deleted += db
+        .execute(
+            "DELETE FROM oauth_used_refresh_tokens
+             WHERE used_at < now() - make_interval(days => $1)",
+            &[&crate::oauth::REFRESH_DAYS],
+        )
+        .await?;
     Ok(deleted)
 }
 

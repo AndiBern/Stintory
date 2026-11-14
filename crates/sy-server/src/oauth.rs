@@ -53,7 +53,11 @@ const REFRESH_PREFIX: &str = "syr_";
 /// Lifetime of access tokens.
 const ACCESS_SECONDS: i32 = 3600;
 /// Lifetime of refresh tokens (renewed with every refresh).
-const REFRESH_DAYS: i32 = 90;
+pub(crate) const REFRESH_DAYS: i32 = 90;
+/// A rotated-out refresh token used again within this is only refused, not
+/// taken as stolen: a client that retries a refresh whose answer got lost,
+/// or refreshes twice in parallel.
+const REUSE_GRACE_SECONDS: i32 = 60;
 /// An approval must be exchanged within this.
 const CODE_SECONDS: i32 = 300;
 /// Client ID metadata documents are fetched again after this.
@@ -861,7 +865,7 @@ pub async fn token(
     }
     let result = match f.get("grant_type").map(String::as_str) {
         Some("authorization_code") => exchange_code(&state, &ip, &f).await,
-        Some("refresh_token") => refresh(&state, &f).await,
+        Some("refresh_token") => refresh(&state, &ip, &f).await,
         _ => Err((
             "unsupported_grant_type",
             "use authorization_code or refresh_token",
@@ -973,7 +977,7 @@ async fn exchange_code(
     .await)
 }
 
-async fn refresh(state: &SharedState, f: &HashMap<String, String>) -> TokenResult {
+async fn refresh(state: &SharedState, ip: &ClientIp, f: &HashMap<String, String>) -> TokenResult {
     let get = |k: &str| f.get(k).map(String::as_str).filter(|v| !v.is_empty());
     let (Some(refresh), Some(client_id)) = (get("refresh_token"), get("client_id")) else {
         return Err((
@@ -987,13 +991,65 @@ async fn refresh(state: &SharedState, f: &HashMap<String, String>) -> TokenResul
             "this server only issues tokens for its MCP endpoint",
         ));
     };
+    let next = format!("{REFRESH_PREFIX}{}", crypto::new_token());
+    let rotation = rotate(
+        state,
+        ip,
+        &crypto::token_hash(refresh),
+        client_id,
+        &crypto::token_hash(&next),
+    )
+    .await;
+    let device = match rotation {
+        Ok(Rotation::Rotated(device)) => device,
+        Ok(Rotation::Unknown) => {
+            return Err((
+                "invalid_grant",
+                "the refresh token is invalid, used or expired",
+            ));
+        }
+        Ok(Rotation::Reused) => {
+            return Err((
+                "invalid_grant",
+                "the refresh token was used before, so it may have been copied: \
+                 the connection was ended, please connect again",
+            ));
+        }
+        Err(e) => return Ok(Err(e)),
+    };
     let db = match state.conn().await {
         Ok(db) => db,
         Err(e) => return Ok(Err(e)),
     };
-    let next = format!("{REFRESH_PREFIX}{}", crypto::new_token());
-    // rotate: the old refresh token stops working
-    let row = match db
+    Ok(new_access_token(&db, device, &resource)
+        .await
+        .map(|access| token_response(&access, &next)))
+}
+
+/// What a refresh token turned out to be.
+enum Rotation {
+    /// Valid: replaced by the next one (grant id)
+    Rotated(Uuid),
+    /// Unknown, expired, or a just-rotated one coming again (a retry)
+    Unknown,
+    /// Rotated out a while ago and used again: the grant was ended
+    Reused,
+}
+
+/// Replaces the refresh token `old` by `next`; the old one is remembered,
+/// and if it comes back later, the grant is ended (refresh token reuse
+/// detection, OAuth 2.1): the legitimate client and whoever copied the
+/// token then both have to connect again, and the user sees it.
+async fn rotate(
+    state: &SharedState,
+    ip: &ClientIp,
+    old: &[u8],
+    client_id: &str,
+    next: &[u8],
+) -> ApiResult<Rotation> {
+    let mut db = state.conn().await?;
+    let tx = db.transaction().await?;
+    let rotated = tx
         .query_opt(
             "UPDATE device_tokens d SET token_hash = $3,
                  refresh_expires_at = now() + make_interval(days => $4)
@@ -1001,28 +1057,46 @@ async fn refresh(state: &SharedState, f: &HashMap<String, String>) -> TokenResul
              WHERE d.token_hash = $1 AND d.oauth_client = $2 AND d.refresh_expires_at > now()
                AND u.id = d.user_id AND NOT u.disabled
              RETURNING d.id",
-            &[
-                &crypto::token_hash(refresh),
-                &client_id,
-                &crypto::token_hash(&next),
-                &REFRESH_DAYS,
-            ],
+            &[&old, &client_id, &next, &REFRESH_DAYS],
         )
-        .await
-    {
-        Ok(r) => r,
-        Err(e) => return Ok(Err(e.into())),
+        .await?;
+    if let Some(row) = rotated {
+        let device: Uuid = row.get(0);
+        tx.execute(
+            "INSERT INTO oauth_used_refresh_tokens (token_hash, device_id) VALUES ($1, $2)
+             ON CONFLICT DO NOTHING",
+            &[&old, &device],
+        )
+        .await?;
+        tx.commit().await?;
+        return Ok(Rotation::Rotated(device));
+    }
+    let Some(used) = tx
+        .query_opt(
+            "SELECT d.id, d.user_id, d.name, d.oauth_client
+             FROM oauth_used_refresh_tokens r JOIN device_tokens d ON d.id = r.device_id
+             WHERE r.token_hash = $1
+               AND r.used_at < now() - make_interval(secs => $2)",
+            &[&old, &f64::from(REUSE_GRACE_SECONDS)],
+        )
+        .await?
+    else {
+        return Ok(Rotation::Unknown);
     };
-    let Some(row) = row else {
-        return Err((
-            "invalid_grant",
-            "the refresh token is invalid, used or expired",
-        ));
-    };
-    let device: Uuid = row.get(0);
-    Ok(new_access_token(&db, device, &resource)
-        .await
-        .map(|access| token_response(&access, &next)))
+    let (device, user, name, client): (Uuid, Uuid, String, Option<String>) =
+        (used.get(0), used.get(1), used.get(2), used.get(3));
+    tx.execute("DELETE FROM device_tokens WHERE id = $1", &[&device])
+        .await?;
+    tx.commit().await?;
+    audit(
+        &db,
+        Some(user),
+        "oauth_refresh_reused",
+        ip.as_deref(),
+        json!({ "device": device, "name": name, "client": client }),
+    )
+    .await;
+    Ok(Rotation::Reused)
 }
 
 /// The user of an OAuth access token for the MCP endpoint (read-only); None

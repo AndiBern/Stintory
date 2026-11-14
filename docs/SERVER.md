@@ -209,7 +209,10 @@ lap).
   addresses in private networks are refused) or register dynamically.
   Authorization code with PKCE (S256), access tokens valid for an hour and
   only for `/mcp`, refresh tokens renewed on every use (90 days without
-  use end the connection).
+  use end the connection). A replaced refresh token that is used again
+  (more than a minute later) was probably copied: the connection ends, it
+  shows up as `oauth_refresh_reused` in the security log, and the
+  assistant has to connect again.
 - Fetching client metadata documents needs internet access. On a server
   without it set `STINTORY_OAUTH_CLIENT_METADATA=false`: assistants then
   register themselves. If an assistant already tried with its metadata

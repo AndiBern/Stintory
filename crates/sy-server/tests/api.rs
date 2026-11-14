@@ -2724,7 +2724,7 @@ async fn oauth_for_mcp_clients() {
         StatusCode::NO_CONTENT
     );
     assert_eq!(
-        mcp(&s, Some(&access2), &[], ping).await.0,
+        mcp(&s, Some(&access2), &[], ping.clone()).await.0,
         StatusCode::UNAUTHORIZED
     );
     let (_, err) = token_request(
@@ -2737,6 +2737,80 @@ async fn oauth_for_mcp_clients() {
     )
     .await;
     assert_eq!(err["error"], "invalid_grant");
+
+    // a rotated-out refresh token that comes back later was copied: the
+    // grant ends (above, right after the rotation, it was only refused)
+    let (_, approved) = b
+        .post("/oauth/approve", json!({ "params": params, "allow": true }))
+        .await;
+    let code = redirect_param(approved["redirectTo"].as_str().unwrap(), "code").unwrap();
+    let (st, tokens) = send(vec![
+        ("grant_type", "authorization_code".to_owned()),
+        ("code", code),
+        ("client_id", client_id.clone()),
+        ("redirect_uri", redirect.to_owned()),
+        ("code_verifier", verifier.clone()),
+        ("resource", format!("{base}/mcp")),
+    ])
+    .await;
+    assert_eq!(st, StatusCode::OK, "{tokens}");
+    let first = tokens["refresh_token"].as_str().unwrap().to_owned();
+    let refreshed = |token: String| {
+        let (s, client_id) = (&s, client_id.clone());
+        async move {
+            token_request(
+                s,
+                &[
+                    ("grant_type", "refresh_token"),
+                    ("refresh_token", &token),
+                    ("client_id", &client_id),
+                ],
+            )
+            .await
+        }
+    };
+    let (st, renewed) = refreshed(first.clone()).await;
+    assert_eq!(st, StatusCode::OK, "{renewed}");
+    let (access3, second) = (
+        renewed["access_token"].as_str().unwrap().to_owned(),
+        renewed["refresh_token"].as_str().unwrap().to_owned(),
+    );
+    s.state
+        .conn()
+        .await
+        .unwrap()
+        .execute(
+            "UPDATE oauth_used_refresh_tokens SET used_at = now() - interval '2 minutes'",
+            &[],
+        )
+        .await
+        .unwrap();
+    let (st, err) = refreshed(first).await;
+    assert_eq!(
+        (st, err["error"].clone()),
+        (StatusCode::BAD_REQUEST, json!("invalid_grant"))
+    );
+    assert_eq!(
+        mcp(&s, Some(&access3), &[], ping.clone()).await.0,
+        StatusCode::UNAUTHORIZED,
+        "the grant's access token stops working"
+    );
+    assert_eq!(refreshed(second).await.1["error"], "invalid_grant");
+    let (_, devices) = b.get("/me/devices").await;
+    assert!(
+        !devices
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["name"] == "Test Assistant")
+    );
+    let (_, log) = b.get("/admin/audit").await;
+    assert!(
+        log.as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["event"] == "oauth_refresh_reused")
+    );
 
     // a client known from its metadata document (cached, so no fetch here)
     let doc_id = "https://assistant.example/oauth/client.json";
