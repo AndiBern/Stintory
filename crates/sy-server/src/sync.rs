@@ -186,10 +186,13 @@ pub async fn remove_orphan_blobs(
 
 // ----- push ---------------------------------------------------------------
 
-/// Which of the given telemetry files the server lacks.
+/// Which of the given telemetry files the user has to upload: those they
+/// haven't uploaded (or imported) themselves, even if another user did. So
+/// the answer doesn't tell whether the server has a file, and a lap can
+/// only refer to a file its owner has.
 pub async fn missing_blobs(
     State(state): State<SharedState>,
-    _: Auth,
+    Auth(session): Auth,
     Json(req): Json<BlobHashes>,
 ) -> ApiResult<Json<MissingBlobs>> {
     if req.hashes.len() > 10_000 {
@@ -201,8 +204,8 @@ pub async fn missing_blobs(
         .conn()
         .await?
         .query(
-            "SELECT hash FROM blobs WHERE hash = ANY($1)",
-            &[&req.hashes],
+            "SELECT hash FROM blob_uploads WHERE user_id = $1 AND hash = ANY($2)",
+            &[&session.user.id, &req.hashes],
         )
         .await?
         .iter()
@@ -273,7 +276,7 @@ pub(crate) async fn decode_slot(
 /// `PUT /sync/blobs/{hash}`: uploads one telemetry file (Parquet).
 pub async fn put_blob(
     State(state): State<SharedState>,
-    _: Auth,
+    Auth(session): Auth,
     Path(hash): Path<String>,
     body: Body,
 ) -> ApiResult<StatusCode> {
@@ -288,23 +291,41 @@ pub async fn put_blob(
     let _slot = decode_slot(&state).await?;
     let _writes = state.blob_writes.read().await;
     let state2 = state.clone();
-    let size = tokio::task::spawn_blocking(move || -> ApiResult<usize> {
-        let bytes = axum::body::Bytes::from(std::fs::read(tmp.path())?);
-        LapTelemetry::from_parquet(bytes.clone())
-            .map_err(|e| ApiError::bad_request(format!("not a telemetry file: {e}")))?;
-        state2.blobs.put(&bytes)?;
-        Ok(bytes.len())
+    let hash = expected.clone();
+    let size = tokio::task::spawn_blocking(move || -> ApiResult<u64> {
+        // a stored file was checked when it was stored (same hash, same bytes)
+        if !state2.blobs.contains(&hash) {
+            let bytes = axum::body::Bytes::from(std::fs::read(tmp.path())?);
+            LapTelemetry::from_parquet(bytes.clone())
+                .map_err(|e| ApiError::bad_request(format!("not a telemetry file: {e}")))?;
+            state2.blobs.put(&bytes)?;
+        }
+        Ok(tmp.as_file().metadata()?.len())
     })
     .await??;
-    state
-        .conn()
-        .await?
-        .execute(
-            "INSERT INTO blobs (hash, size) VALUES ($1, $2) ON CONFLICT (hash) DO NOTHING",
-            &[&expected.as_str(), &(size as i64)],
-        )
-        .await?;
+    record_upload(&state.conn().await?, session.user.id, &expected, size).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Records a stored telemetry file and that `user` has it (uploaded or
+/// imported), so their laps may refer to it.
+pub(crate) async fn record_upload(
+    db: &impl GenericClient,
+    user: Uuid,
+    hash: &BlobHash,
+    size: u64,
+) -> ApiResult<()> {
+    db.execute(
+        "INSERT INTO blobs (hash, size) VALUES ($1, $2) ON CONFLICT (hash) DO NOTHING",
+        &[&hash.as_str(), &(size as i64)],
+    )
+    .await?;
+    db.execute(
+        "INSERT INTO blob_uploads (user_id, hash) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        &[&user, &hash.as_str()],
+    )
+    .await?;
+    Ok(())
 }
 
 /// Most objects per push request.
@@ -394,10 +415,11 @@ async fn upsert_session(db: &impl GenericClient, owner: Uuid, s: &Session) -> Ap
 }
 
 async fn upsert_lap(db: &impl GenericClient, owner: Uuid, lap: &Lap) -> ApiResult<bool> {
+    // the owner must have uploaded the file: knowing its hash isn't enough
     let known_blob = db
         .query_opt(
-            "SELECT 1 FROM blobs WHERE hash = $1",
-            &[&lap.blob_hash.as_str()],
+            "SELECT 1 FROM blob_uploads WHERE user_id = $1 AND hash = $2",
+            &[&owner, &lap.blob_hash.as_str()],
         )
         .await?
         .is_some();

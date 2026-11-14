@@ -303,11 +303,7 @@ pub async fn insert_lap(
     lap: &Lap,
     blob_size: u64,
 ) -> ApiResult<bool> {
-    db.execute(
-        "INSERT INTO blobs (hash, size) VALUES ($1, $2) ON CONFLICT (hash) DO NOTHING",
-        &[&lap.blob_hash.as_str(), &(blob_size as i64)],
-    )
-    .await?;
+    crate::sync::record_upload(db, owner, &lap.blob_hash, blob_size).await?;
     let n = db
         .execute(
             "INSERT INTO laps (owner_id, id, session_id, number, lap_time_ms, sector_times_ms,

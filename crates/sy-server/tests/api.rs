@@ -3032,3 +3032,57 @@ async fn expired_rows_are_removed() {
     assert_eq!(old.get("/me").await.0, StatusCode::UNAUTHORIZED);
     sy_server::cleanup::run_once(&s.state).await;
 }
+
+#[tokio::test]
+async fn laps_only_refer_to_telemetry_their_owner_has() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut a, _) = user(&s, &mut admin, "alice").await;
+    let (mut b, _) = user(&s, &mut admin, "bob").await;
+    push_sample(&mut a).await;
+
+    // bob knows the hashes (e.g. from a lap alice shared once), not the files
+    let (session, laps) = sample();
+    let hashes: Vec<String> = laps.iter().map(|(l, _)| l.blob_hash.to_string()).collect();
+    let (_, body) = b
+        .post("/sync/blobs/missing", json!({ "hashes": hashes }))
+        .await;
+    assert_eq!(
+        body["missing"],
+        json!(hashes),
+        "missing for bob, although the server has them"
+    );
+    let all_laps: Vec<&Lap> = laps.iter().map(|(l, _)| l).collect();
+    let (st, _) = b
+        .post(
+            "/sync/push",
+            json!({ "sessions": [session], "laps": all_laps }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        b.get(&format!("/sync/blobs/{}", hashes[0])).await.0,
+        StatusCode::NOT_FOUND
+    );
+
+    // with the files he may
+    for (lap, bytes) in &laps {
+        let req = b
+            .request("PUT", &format!("/sync/blobs/{}", lap.blob_hash))
+            .body(Body::from(bytes.clone()))
+            .unwrap();
+        assert_eq!(b.send(req).await.0, StatusCode::NO_CONTENT);
+    }
+    let (_, body) = b
+        .post("/sync/blobs/missing", json!({ "hashes": hashes }))
+        .await;
+    assert_eq!(body["missing"], json!([]));
+    let (st, body) = b
+        .post(
+            "/sync/push",
+            json!({ "sessions": [session], "laps": all_laps }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+}
