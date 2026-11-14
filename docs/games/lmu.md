@@ -76,7 +76,7 @@ shared memory has any number of readers.
 
 ## What is recorded
 
-- Only the player's car (docs/PLAN.md §5.2). Spooled records: the player's
+- Only the player's car (docs/ARCHITECTURE.md §5.2). Spooled records: the player's
   `TelemInfoV01`, `ScoringInfoV01` and the player's `VehicleScoringInfoV01`
   (with the results-stream and vehicle pointers, the server's address,
   port and name, the player name and the Steam id zeroed), and the car
@@ -144,7 +144,7 @@ saved in the pits (Monza, Nov 2026):
   closed loop (5 m apart, 5761 m at Monza), type 1 the pit lane, the other
   types are short segments at the pit boxes. The shared memory's `mPos`
   is in the same coordinates (Monza: median 1.8 m from the map's line).
-  A possible source for track outlines later (docs/PLAN.md §6.3); not
+  A possible source for track outlines later (docs/ARCHITECTURE.md §6.3); not
   used yet.
 
 **Not every `GET` is harmless**: `/rest/options/resetVRView` resets the VR

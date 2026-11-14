@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Local side of the sync with a server (docs/PLAN.md §9.5): what needs to
+//! Local side of the sync with a server (docs/ARCHITECTURE.md §9.5): what needs to
 //! be pushed, and applying what was pulled.
 //!
 //! A session or lap needs a push when its `updated_at` differs from the

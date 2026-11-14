@@ -309,7 +309,7 @@ impl IracingDecoder {
                 }
             };
         use ValueKind::{Bool, F32, F64, I32};
-        // canonical channels (docs/PLAN.md §4.2)
+        // canonical channels (docs/ARCHITECTURE.md §4.2)
         var(names::SPEED, "Speed", Unit::MeterPerSecond, F32, 1.0, 0.0);
         var(names::THROTTLE, "Throttle", Unit::Ratio, F32, 1.0, 0.0);
         var(names::BRAKE, "Brake", Unit::Ratio, F32, 1.0, 0.0);

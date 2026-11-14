@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Login, browser sessions and request authentication (docs/PLAN.md §9.3).
+//! Login, browser sessions and request authentication (docs/ARCHITECTURE.md §9.3).
 //!
 //! # Flow
 //!

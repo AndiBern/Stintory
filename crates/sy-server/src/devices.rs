@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Desktop clients: device tokens and the browser-based device login
-//! (docs/PLAN.md §9.3).
+//! (docs/ARCHITECTURE.md §9.3).
 //!
 //! # Device login (RFC 8252: loopback redirect + PKCE)
 //!

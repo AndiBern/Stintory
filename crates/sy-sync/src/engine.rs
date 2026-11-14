@@ -177,7 +177,7 @@ async fn pull(
 }
 
 /// Deletes kept laps of other users that aren't shared with the user
-/// anymore (docs/PLAN.md §9.2).
+/// anymore (docs/ARCHITECTURE.md §9.2).
 async fn revoke(
     client: &Client,
     store: &SharedStore,

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Bookkeeping of raw spool files (docs/PLAN.md §5.1).
+//! Bookkeeping of raw spool files (docs/ARCHITECTURE.md §5.1).
 //!
 //! The files themselves are written by `sy-capture`. The store records each
 //! file's state so that unprocessed files can be replayed after a crash and

@@ -1,7 +1,7 @@
 -- SPDX-FileCopyrightText: 2026 The Stintory Contributors
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 
--- Accounts and authentication (docs/PLAN.md §9.3)
+-- Accounts and authentication (docs/ARCHITECTURE.md §9.3)
 
 CREATE TABLE users (
     id                    uuid PRIMARY KEY,

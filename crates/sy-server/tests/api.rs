@@ -1128,7 +1128,7 @@ async fn passkeys_as_second_factor_and_passwordless() {
     assert_eq!(nobody.login(ADMIN, ADMIN_PW).await.1["status"], "ok");
 }
 
-// ----- teams and sharing (docs/PLAN.md §9.2) ---------------------------------
+// ----- teams and sharing (docs/ARCHITECTURE.md §9.2) -------------------------
 
 /// Creates an account and logs it in (with its own password set).
 async fn user<'a>(s: &'a TestServer, admin: &mut Browser<'_>, name: &str) -> (Browser<'a>, String) {
@@ -1528,7 +1528,7 @@ async fn teams_roles_and_invitations() {
     }
 }
 
-/// The access-control matrix of docs/PLAN.md §10: owner / direct grant /
+/// The access-control matrix of docs/ARCHITECTURE.md §10: owner / direct grant /
 /// team member / ex-member / everyone (setting on and off) / stranger ×
 /// inherit/custom at session and lap level.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

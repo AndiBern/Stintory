@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Corner insights (docs/PLAN.md §6.5): finds the corners of a track on the
+//! Corner insights (docs/ARCHITECTURE.md §6.5): finds the corners of a track on the
 //! reference lap and measures how each lap drives them: braking point, lowest
 //! speed, throttle pick-up, exit speed and the time won or lost.
 //!

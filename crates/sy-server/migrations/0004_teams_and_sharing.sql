@@ -1,7 +1,7 @@
 -- SPDX-FileCopyrightText: 2026 The Stintory Contributors
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 
--- Teams and sharing (docs/PLAN.md §9.2)
+-- Teams and sharing (docs/ARCHITECTURE.md §9.2)
 
 CREATE TABLE teams (
     id          uuid PRIMARY KEY,

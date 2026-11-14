@@ -6,7 +6,7 @@
 //! Written from scratch from the official iRacing SDK 1.20
 //! (`irsdk_defines.h`, reference readers `irsdk_utils.cpp` and
 //! `irsdk_diskclient.cpp`) and verified against recorded `.ibt` files.
-//! No code from other telemetry tools is used (docs/PLAN.md §12.2).
+//! No code from other telemetry tools is used (docs/ARCHITECTURE.md §12.2).
 //!
 //! - [`format`]: the binary format shared by live data and `.ibt` files
 //! - [`ibt`]: reading `.ibt` files ([`IbtSource`])

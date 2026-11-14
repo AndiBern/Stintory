@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Export to and import from `.stintory` files (docs/PLAN.md §8).
+//! Export to and import from `.stintory` files (docs/ARCHITECTURE.md §8).
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;

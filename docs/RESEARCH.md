@@ -1,6 +1,12 @@
 # Stintory – Research Findings
 
-Status: research done 2026-11-10. Facts marked **(verify)** come from community sources only, or could not be confirmed. They need checking against a real game install during implementation.
+Research done 2026-11-10, before the implementation started; trimmed 2026-11-14. This file is kept for three things:
+
+1. The record of the public, non-code facts and sources the parsers rely on ([ARCHITECTURE.md §12.2](ARCHITECTURE.md#122-parsers-from-scratch-clean-room)).
+2. An overview of what each game's interface offers, including data Stintory doesn't use yet. It's a starting point for new features.
+3. The competitor overview.
+
+What Stintory actually does, checked with the real games, is in [games/](games/). Where the two disagree, games/ is right. Facts still marked **(verify)** come from community sources only and haven't been confirmed.
 
 ---
 
@@ -12,11 +18,11 @@ Status: research done 2026-11-10. Facts marked **(verify)** come from community 
 |---|---|---|---|
 | Mechanism | Windows shared memory (`Local\IRSDKMemMapFileName`) + data-ready event; `.ibt` files on disk | UDP packets to a configurable IP/port (default `20777`) | Built-in Windows shared memory `LMU_Data` + local REST API on `127.0.0.1:6397` |
 | Official docs | iRacing SDK (`irsdk_defines.h`, sample code) | EA "F1 25 UDP Specification" (C++ header, v9.0 for 2026 Season Pack) | `SharedMemoryInterface.hpp` shipped in the game folder `Support\SharedMemoryInterface` |
-| Rate | 60 Hz live; 60 Hz in `.ibt` (some `_ST` channels at 360 Hz) | Configurable: 10/20/30/40/50/60 Hz | Telemetry ~100 Hz, scoring 5 Hz **(verify)** |
+| Rate | 60 Hz live; 60 Hz in `.ibt` (some `_ST` channels at 360 Hz) | Configurable: 10/20/30/40/50/60 Hz | Telemetry 100 Hz (50 Hz in the garage), scoring 5 Hz (checked, games/lmu.md) |
 | Setup needed by user | None for live; `.ibt` needs telemetry recording armed (Alt+L or the in-sim option) | In-game: UDP Telemetry On, IP/port, send rate, UDP format 2025/2026 | In-game: Settings → Gameplay → **Enable Plugins = ON**, then restart. No DLL needed anymore |
 | Other cars | Limited `CarIdx*` arrays (lap %, position, gear, RPM, steer, lap times) | Full motion/telemetry for all 22/24 cars (subject to other players' "Your Telemetry" setting online) | Full telemetry + scoring for up to 104 vehicles |
 | Runs on consoles | – | Yes (PS5/Xbox can send UDP to the PC client) | – |
-| Linux/Proton | Doesn't run (per user) | UDP works through Proton (network) | Shared memory not visible to native Linux processes without a bridge |
+| Linux/Proton | iRacing doesn't support Proton; `.ibt` import works everywhere | UDP works through Proton (network) | Through Stintory's `sy-bridge.exe` (games/proton.md) |
 
 ---
 
@@ -31,7 +37,7 @@ Status: research done 2026-11-10. Facts marked **(verify)** come from community 
 
 **Disk telemetry (`.ibt`)**
 - Same header/var-table format, followed by all samples. Written from entering to leaving the car into `Documents/iRacing/telemetry/<car>/`.
-- Contains channels that are not available live. GPS `Lat`/`Lon`/`Alt` are commonly reported as disk-only **(verify with a sample file)**. The reverse is also true: some live channels are missing from `.ibt`.
+- Contains channels that are not available live. GPS `Lat`/`Lon`/`Alt` are disk-only (confirmed, games/iracing.md). The reverse is also true: some live channels are missing from `.ibt`.
 - `.ibt` import is pure file parsing, so it also **works on Linux**. Users can import files they copied over, or files from other people.
 
 **Most relevant channels** (≈200 in total)
@@ -52,9 +58,9 @@ Status: research done 2026-11-10. Facts marked **(verify)** come from community 
 
 **Points to note for implementation**
 - iRacing has **no "lap invalid" flag**. Validity has to be derived from incident-count changes, off-track surface (`PlayerTrackSurface`), and pit-road usage.
-- Track map from live data: there is no world position live. Either integrate velocity + yaw (dead reckoning, closes the loop over a lap) or use `Lat/Lon` from `.ibt`. Track outlines can be cached per track after the first lap.
+- Track map from live data: there is no world position live. Stintory integrates velocity + heading (dead reckoning, games/iracing.md) and uses `Lat/Lon` from `.ibt`. Track outlines could be cached per track after the first lap.
 - Track/car identity: `TrackID` + `TrackConfigName`, `CarID` / `CarPath` from the session YAML. These are stable across users, which is good for cross-user comparison.
-- Implementation source: the **official iRacing SDK** (`irsdk_defines.h` + docs). Existing community libraries (`pyirsdk`, `iracing`/`pitwall`/`kerb` crates, `teamjorge/ibt`, SVappsLAB SDK) are listed only to show the landscape. Per PLAN §12.2 we neither use nor port them.
+- Implementation source: the **official iRacing SDK** (`irsdk_defines.h` + docs). Existing community libraries (`pyirsdk`, `iracing`/`pitwall`/`kerb` crates, `teamjorge/ibt`, SVappsLAB SDK) are listed only to show the landscape. Per ARCHITECTURE §12.2 we neither use nor port them.
 
 ---
 
@@ -103,8 +109,8 @@ uint8  playerCarIndex, secondaryPlayerCarIndex
 - Track/car identity: `trackId` enum (appendix), `formula`, `teamId`. Fine for cross-user comparison within F1 25.
 - Positions: world X/Y/Z in metres, so track maps come for free.
 - UDP works over the network, so it works through Proton on Linux, and from consoles to a PC client.
-- Unofficial frequencies (from previous specs, **verify**): Motion/Lap/Telemetry/Status/MotionEx at the chosen rate, Session 2/s, Participants every 5 s, Damage 10/s, Session History & Tyre Sets 20/s cycling through cars, Time Trial & Lap Positions 1/s.
-- Implementation source: the **official EA specs** "Data Output from F1 25" (v3, May 2025) and "Data Output from F1 25: 2026 Season Pack" (v1.2, Sep 2026), PDFs from the EA forum (© EA; read, not copied; kept outside the repository). Before we had them, a copy of the header in `github.com/P403n1x87/f1-packets` `data/spec.h` served as read-only reference. Community parsers (`f1-game-library-models-25`, `f1-game-packet-parser`, `open-f1-parser`) are not used (PLAN §12.2).
+- Send rates per packet: from the official spec, in games/f1.md.
+- Implementation source: the **official EA specs** "Data Output from F1 25" (v3, May 2025) and "Data Output from F1 25: 2026 Season Pack" (v1.2, Sep 2026), PDFs from the EA forum (© EA; read, not copied; kept outside the repository). Before we had them, a copy of the header in `github.com/P403n1x87/f1-packets` `data/spec.h` served as read-only reference. Community parsers (`f1-game-library-models-25`, `f1-game-packet-parser`, `open-f1-parser`) are not used (ARCHITECTURE §12.2).
 
 ---
 
@@ -133,24 +139,23 @@ LMU runs on the rFactor 2 engine. Historically all tools used the third-party **
 - **Lap distance** lives only in `VehicleScoring.mLapDist` (5 Hz). For high-rate distance you interpolate between scoring updates using `mElapsedTime` + speed, or compute arc length from `mPos` against a reference line. This is a common pitfall.
 - **REST API** `http://127.0.0.1:6397` (OpenAPI at `/swagger-schema.json`, ~178 paths). Useful GETs: `/rest/sessions`, `/rest/watch/standings`, `/rest/strategy/usage` (Virtual Energy per driver), `/rest/garage/getPlayerGarageData` (setup values), `/rest/garage/UIScreen/RepairAndRefuel`, `/rest/garage/UIScreen/TireManagement`. Use GET only, and stay well away from the 100+ mutating endpoints. Poll at 1–5 Hz, off the hot path.
 - Results XML files are written to `UserData\Log\Results` (path also exposed in `paths`). Useful for session summaries.
-- Linux/Proton: Wine doesn't expose Windows named mappings to native processes. **`simshmbridge`** (Spacefreak18) has an `lmushm`/`lmubridge.exe` pair for exactly this. **(verify against the current LMU_Data size)**
-- Implementation source: the **official `SharedMemoryInterface.hpp`/`InternalsPlugin.hpp`** from the LMU install and LMU's own `/swagger-schema.json`. Third-party projects (TinyPedal/pyLMUSharedMemory, lmu-pitwall, race-engineer) were used only as sources of facts for this research (e.g. map name, required setting). We take no code from them (PLAN §12.2).
+- Linux/Proton: Wine doesn't expose Windows named mappings to native processes, so a helper has to run inside the game's prefix (§2).
+- Implementation source: the **official `SharedMemoryInterface.hpp`/`InternalsPlugin.hpp`** from the LMU install and LMU's own `/swagger-schema.json`. Third-party projects (TinyPedal/pyLMUSharedMemory, lmu-pitwall, race-engineer) were used only as sources of facts for this research (e.g. map name, required setting). We take no code from them (ARCHITECTURE §12.2).
 
 ---
 
 ## 2. Linux & Proton
 
-- The user's games (iRacing, F1 25, LMU) **don't currently run on their Linux setup**. Capture is **Windows-only** for them, and Linux is for viewing synced/imported data. Other games may run via Proton later.
-- **UDP-based games** (F1, also AMS2/PC2, ACC broadcast, Forza, GT7, …) work natively from Proton, because the network is shared.
-- **Shared-memory games under Proton**: a small Windows helper `.exe` must run *inside the same Wine prefix*. It reads the Windows mapping and forwards it to the native Linux client. Existing approaches:
-  - `simshmbridge`: a Linux program creates a `/dev/shm` file, and a bridge `.exe` in the prefix creates the Windows mapping backed by that file before the game starts (AC/ACC, AMS2/PC2, LMU, rF2).
-  - `winecarte`: mirrors Win32 named mappings into `/dev/shm`.
-  - `Datalink`: changes the Proton launch command to start a bridge, which then launches the game.
-- **Our plan:** our own tiny `sy-bridge.exe`, built from the same Rust capture code and cross-compiled. It reads the mapping inside the prefix and streams frames over **localhost TCP** to the native client. That needs no `/dev/shm` tricks or start-order constraints, and it works for every shared-memory game we add. Steam launch option: `PROTON_REMOTE_DEBUG_CMD=/path/sy-bridge.exe %command%`: Proton's launcher (checked in the `proton` script of Proton 9.0) starts that program with the game's Wine and prefix just before the game and kills it when the game exits. Implemented in M7, see docs/games/proton.md.
+What Stintory built is in [games/proton.md](games/proton.md). For adding games:
+
+- **UDP-based games** (F1, also AMS2/PC2, ACC broadcast, Forza, GT7, …) work from Proton as they are, because the network is shared.
+- **Shared-memory games** need a helper `.exe` inside the game's Wine prefix that reads the Windows mapping and forwards it. Stintory's `sy-bridge.exe` does this over localhost TCP and can be extended to more games. Other approaches looked at: `simshmbridge` (Linux `/dev/shm` file backing a mapping created in the prefix; AC/ACC, AMS2/PC2, LMU, rF2), `winecarte` (mirrors Win32 named mappings into `/dev/shm`) and `Datalink` (changes the Proton launch command to start a bridge that then launches the game).
 
 ---
 
 ## 3. Competitors – what they do and collect
+
+As of November 2026. Prices and supported games change often; check before relying on them.
 
 | | Garage61 | Track Titan | Trophi.ai | Coach Dave Delta |
 |---|---|---|---|---|
@@ -174,7 +179,7 @@ Other relevant tools:
 5. Reference laps (own best, others', "pros")
 6. Export (CSV at least)
 
-**What differentiates the paid ones:** AI/automated coaching (corner detection, braking-point/min-speed/throttle-pickup comparison per corner, natural-language tips), live voice coaching, setup marketplace, video sync. These are good later goals. Corner-based insights in particular are doable locally with no AI service.
+**What differentiates the paid ones:** AI/automated coaching (corner detection, braking-point/min-speed/throttle-pickup comparison per corner, natural-language tips), live voice coaching, setup marketplace, video sync. Stintory has corner insights, computed locally without an AI service ([ARCHITECTURE.md §6.5](ARCHITECTURE.md#6-analysis-sy-analysis)); the others are candidates for later.
 
 ---
 

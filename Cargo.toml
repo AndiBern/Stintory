@@ -10,7 +10,7 @@ version = "0.2.0"
 edition = "2024"
 rust-version = "1.99"
 authors = ["The Stintory Contributors"]
-# Each crate sets its own `license` (see docs/PLAN.md §12.1).
+# Each crate sets its own `license` (see docs/ARCHITECTURE.md §12.1).
 
 [workspace.dependencies]
 # internal

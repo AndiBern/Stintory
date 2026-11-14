@@ -15,7 +15,7 @@
 //! 4. otherwise wait on the event (signalled every tick, 60 Hz).
 //!
 //! Other cars' `CarIdx*` array entries are zeroed before a row leaves this
-//! module (docs/PLAN.md §5.2), and the session info is reduced to the player.
+//! module (docs/ARCHITECTURE.md §5.2), and the session info is reduced to the player.
 
 #![allow(unsafe_code)] // FFI and reading shared memory; see SAFETY comments
 

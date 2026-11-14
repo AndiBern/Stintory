@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Stintory's Proton bridge (docs/PLAN.md §3, docs/games/proton.md).
+//! Stintory's Proton bridge (docs/ARCHITECTURE.md §3, docs/games/proton.md).
 //!
 //! Wine doesn't expose a Windows program's named shared memory to native
 //! Linux processes. `sy-bridge.exe` runs inside the game's Wine/Proton

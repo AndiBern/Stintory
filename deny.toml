@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 # cargo-deny configuration: https://embarkstudios.github.io/cargo-deny/
-# License policy: docs/PLAN.md §12.1. The "permissive crates must not depend
+# License policy: docs/ARCHITECTURE.md §12.1. The "permissive crates must not depend
 # on AGPL crates" rule is checked by scripts/check-license-direction.mjs.
 
 [graph]

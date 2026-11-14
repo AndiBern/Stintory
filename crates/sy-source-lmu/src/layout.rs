@@ -7,7 +7,7 @@
 //! from `<LMU>\Support\SharedMemoryInterface` (© 2025 Studio 397 BV and
 //! Motorsport Games Inc., version shipped with LMU in March 2026). The
 //! headers are not in the repository; these definitions are our own, written
-//! from them (docs/PLAN.md §12.2).
+//! from them (docs/ARCHITECTURE.md §12.2).
 //!
 //! The structs below are never built or read directly: they only let the
 //! compiler compute offsets and sizes (`offset_of!`, `size_of`) exactly the

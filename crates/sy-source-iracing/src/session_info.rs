@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Player-only session info (docs/PLAN.md §5.2).
+//! Player-only session info (docs/ARCHITECTURE.md §5.2).
 //!
 //! iRacing's session info YAML contains every driver in the session (names,
 //! ids, ratings, results). [`SessionInfo::from_yaml`] builds a new structure

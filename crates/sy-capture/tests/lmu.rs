@@ -163,7 +163,7 @@ fn practice_laps_times_and_validity() {
 
     assert!(l[5].lap.flags.incomplete);
 
-    // the channels the milestone is about
+    // the channels a LMU lap must have, incl. VE and TC/ABS
     let tel = &l[1].telemetry;
     for name in [
         names::SPEED,

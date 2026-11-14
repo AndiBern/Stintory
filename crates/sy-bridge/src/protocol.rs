@@ -27,7 +27,7 @@
 //!    the player drives, and [`Control::Stopped`] when that recording ended.
 //!
 //! Records are exactly what the game's `RawSource` returns on Windows:
-//! already filtered to the player's car (docs/PLAN.md §5.2). The client
+//! already filtered to the player's car (docs/ARCHITECTURE.md §5.2). The client
 //! spools and decodes them as if it had read the game itself.
 
 use std::io::{self, Read, Write};

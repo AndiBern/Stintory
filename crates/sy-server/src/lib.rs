@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! The Stintory server (docs/PLAN.md §9): accounts, the web UI, sync, teams
+//! The Stintory server (docs/ARCHITECTURE.md §9): accounts, the web UI, sync, teams
 //! and sharing.
 //!
 //! Routes: the JSON API under `/api/v1`, everything else is the web UI

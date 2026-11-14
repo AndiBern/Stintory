@@ -3,7 +3,7 @@
 
 //! The lap recorder: turns [`SourceEvent`]s into sessions and laps.
 //!
-//! Rules (docs/PLAN.md §5):
+//! Rules (docs/ARCHITECTURE.md §5):
 //! - A lap ends when the game's lap number increases. The official lap time
 //!   from the game wins over our measured time; we wait a few seconds of
 //!   session time for it after the lap ended.

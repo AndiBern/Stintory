@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Sync with a Stintory server (docs/PLAN.md §9.3, §9.5).
+//! Sync with a Stintory server (docs/ARCHITECTURE.md §9.3, §9.5).
 //!
 //! - Connecting opens the server's device login in the system browser
 //!   ([`sy_sync::DeviceLogin`]). The device token goes into the OS keychain

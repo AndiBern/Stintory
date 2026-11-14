@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Laps to compare with for a track and car (docs/PLAN.md §7.4, §7.5):
+//! Laps to compare with for a track and car (docs/ARCHITECTURE.md §7.4, §7.5):
 //! own recordings, imported laps and the kept copies of laps others shared.
 
 use rusqlite::params;

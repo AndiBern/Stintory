@@ -5,7 +5,7 @@
 	import { accountApi } from '#lib/api/index.ts';
 	import { auth, errorText } from '#lib/app-state.svelte.ts';
 
-	// The desktop app opened this page (docs/PLAN.md §9.3): it waits on
+	// The desktop app opened this page (docs/ARCHITECTURE.md §9.3): it waits on
 	// redirect_uri (a loopback address) for the result.
 	const params = page.url.searchParams;
 	const redirectUri = params.get('redirect_uri') ?? '';

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Background work: crash recovery at startup and the live recording
-//! supervisors (docs/PLAN.md §5): iRacing and Le Mans Ultimate (Windows,
+//! supervisors (docs/ARCHITECTURE.md §5): iRacing and Le Mans Ultimate (Windows,
 //! shared memory; on Linux through the Proton bridge) and F1 25 (every
 //! platform, UDP).
 
