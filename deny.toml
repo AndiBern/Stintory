@@ -59,6 +59,10 @@ crate = "sy-server"
 allow = ["AGPL-3.0-or-later"]
 crate = "sy-sync"
 
+[[licenses.exceptions]]
+allow = ["AGPL-3.0-or-later"]
+crate = "sy-bridge"
+
 [bans]
 multiple-versions = "allow"
 wildcards = "deny"
