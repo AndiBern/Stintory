@@ -346,6 +346,115 @@ pub struct CompareData {
     pub units: BTreeMap<String, String>,
     /// The laps, reference first
     pub laps: Vec<LapTrace>,
+    /// Corners found on the reference lap and how each lap drives them;
+    /// None if the reference has no lateral acceleration
+    #[serde(default)]
+    pub corners: Option<CornerReport>,
+}
+
+/// Direction of a corner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TurnDirection {
+    /// Left-hand corner
+    Left,
+    /// Right-hand corner
+    Right,
+}
+
+/// A corner, found on the reference lap. Distances are metres from the
+/// start/finish line.
+///
+/// The lap is split into one segment per corner: from the approach of the
+/// corner (before the earliest braking, lift or turn-in of the compared
+/// laps) to the approach of the next one. The straight after a corner
+/// belongs to it, since its exit decides the speed there. The last corner's segment wraps around the start/finish
+/// line and also covers the start of the lap up to the first segment. So
+/// the segment times add up to the lap time.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Corner {
+    /// Number, from 1 in driving order (counted by Stintory, not the
+    /// track's official turn numbers)
+    pub number: u32,
+    /// Left or right
+    pub direction: TurnDirection,
+    /// Where the corner starts (turn-in)
+    pub start_m: f32,
+    /// Where the reference lap is slowest in the corner
+    pub apex_m: f32,
+    /// Where the corner ends (the car runs straight again)
+    pub end_m: f32,
+    /// Start of the corner's segment
+    pub segment_start_m: f32,
+    /// End of the corner's segment (start of the next one); smaller than
+    /// `segment_start_m` for the last corner, whose segment wraps around
+    pub segment_end_m: f32,
+    /// Tightest radius of the reference lap's line, metres
+    pub min_radius_m: f32,
+}
+
+/// How one lap drives one corner. Distances are metres from the start/finish
+/// line, speeds m/s, pedals 0–1. `None` where the lap has no data there or
+/// the event doesn't happen (no braking in a flat-out corner).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CornerLapStats {
+    /// Time spent in the corner's segment, seconds
+    pub time_s: Option<f32>,
+    /// Time lost to the reference in the segment, seconds (positive =
+    /// slower; 0 for the reference itself)
+    pub time_lost_s: Option<f32>,
+    /// Part of `time_lost_s` from the segment start to the corner's apex
+    /// (braking and turning in)
+    pub entry_lost_s: Option<f32>,
+    /// Part of `time_lost_s` from the apex to the segment end (exit and the
+    /// following straight)
+    pub exit_lost_s: Option<f32>,
+    /// Highest speed before the corner
+    pub top_speed_mps: Option<f32>,
+    /// Where the throttle is lifted before the corner (below 90 %)
+    pub lift_m: Option<f32>,
+    /// Where braking starts
+    pub brake_m: Option<f32>,
+    /// Highest brake pressure
+    pub brake_max: Option<f32>,
+    /// Where the brake is fully released (end of trail braking)
+    pub brake_release_m: Option<f32>,
+    /// Lowest speed in the corner
+    pub min_speed_mps: Option<f32>,
+    /// Where the lowest speed is
+    pub min_speed_m: Option<f32>,
+    /// Gear at the lowest speed
+    pub min_speed_gear: Option<i32>,
+    /// Where the driver gets back on the throttle for good
+    pub throttle_m: Option<f32>,
+    /// Where the throttle reaches full (95 %)
+    pub full_throttle_m: Option<f32>,
+    /// Speed where the corner ends
+    pub exit_speed_mps: Option<f32>,
+    /// True if the throttle stays above 90 % through the corner
+    pub flat_out: bool,
+}
+
+/// Corners of a track and how each lap drives them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CornerReport {
+    /// The corners, in driving order
+    pub corners: Vec<Corner>,
+    /// The laps, reference first, in the order they were given
+    pub laps: Vec<LapCorners>,
+}
+
+/// One lap's statistics for every corner.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LapCorners {
+    /// Lap id
+    pub lap_id: LapId,
+    /// Statistics, one per corner of [`CornerReport::corners`]
+    pub corners: Vec<CornerLapStats>,
 }
 
 /// A lap to compare with: one of the user's own (recorded or imported) or
@@ -467,6 +576,10 @@ pub struct ImportProgress {
 pub struct Settings {
     /// Where the data is stored
     pub data_dir: String,
+    /// How an AI assistant on this computer starts the app's MCP server
+    /// (desktop app)
+    #[serde(default)]
+    pub mcp_command: Option<McpCommand>,
     /// Debug: keep raw recordings after processing
     pub keep_raw_recordings: bool,
     /// Size of all raw recordings on disk, bytes
@@ -548,6 +661,18 @@ impl Default for LmuCaptureSettings {
     fn default() -> Self {
         Self { enabled: true }
     }
+}
+
+/// A program and its arguments that start the desktop app's MCP server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpCommand {
+    /// Path of the program
+    pub command: String,
+    /// Arguments (`mcp`)
+    pub args: Vec<String>,
+    /// Environment the program needs (e.g. a non-default data directory)
+    pub env: BTreeMap<String, String>,
 }
 
 /// Settings for recording F1 25 (UDP telemetry).

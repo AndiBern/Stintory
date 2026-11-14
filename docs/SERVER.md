@@ -4,7 +4,7 @@ The server keeps your sessions and laps, lets you log in from any browser,
 syncs with the desktop app and lets you share laps with friends and teams.
 It is meant to be self-hosted: you run it, you own the data.
 
-> Status: milestone M4 done. Accounts (password, TOTP, passkeys), the web UI,
+> Status: milestone M4 done, plus an MCP endpoint for AI assistants. Accounts (password, TOTP, passkeys), the web UI,
 > uploading `.stintory` files, sync with the desktop app, teams and sharing,
 > and comparing your laps with the ones others share with you work.
 
@@ -50,6 +50,7 @@ All settings are environment variables (or command-line flags, see
 | `STINTORY_DATA_DIR` | `/data` (image) | Telemetry files |
 | `STINTORY_LISTEN` | `0.0.0.0:8080` | Listen address |
 | `STINTORY_TRUST_PROXY` | `false` (`true` in compose) | Take the client address from `X-Forwarded-For`. Only enable behind a proxy that sets it |
+| `STINTORY_OAUTH_CLIENT_METADATA` | `true` | Fetch the client metadata documents of AI assistants that connect with OAuth (needs internet access). Set `false` on a server without internet: the assistants then register themselves (see AI assistants) |
 | `STINTORY_MAX_UPLOAD_MB` | `512` | Largest `.stintory` upload |
 | `STINTORY_DB_WAIT_SECONDS` | `300` | How long to wait at startup for the database. Every failed attempt is logged with the reason (wrong password, unknown host …) |
 | `STINTORY_ADMIN_USERNAME`, `STINTORY_ADMIN_PASSWORD` | – | First admin, created if there are no users |
@@ -150,6 +151,68 @@ Nothing is shared until a user says so.
   among the members of their teams.
 - Team changes (created, joined, left, roles, removed, deleted) are in the
   security log.
+
+## AI assistants (MCP)
+
+An AI assistant can read your laps and the corner analysis and tell you
+where you lose time, for example Claude Code or any other client of the
+Model Context Protocol (MCP). The server offers an MCP endpoint at
+`https://laps.example.com/mcp`.
+
+**With OAuth** (claude.ai and Claude Desktop custom connectors, Claude
+Code, other clients that support MCP authorization): add
+`https://laps.example.com/mcp` as a connector or server. The assistant
+opens your browser; log in and click *Allow*. In Claude Code:
+
+```sh
+claude mcp add --transport http stintory https://laps.example.com/mcp
+```
+
+then `/mcp` → *Authenticate*.
+
+**With a token** (clients without OAuth): Account page → *AI assistants*
+→ *Create token*, shown once, and give it to the assistant as an
+`Authorization: Bearer` header:
+
+```sh
+claude mcp add --transport http stintory https://laps.example.com/mcp \
+    --header "Authorization: Bearer syd_…"
+```
+
+Either way the assistant can only read: it can't change, delete or share
+anything, and nothing but the MCP endpoint accepts its access. Ask, for
+example: "Compare my last Snetterton laps with my best one.
+   Where do I lose the most time, and what should I change?"
+
+The assistant sees what you see in the web UI: your own sessions and laps
+and the laps others share with you. Its tools: `list_tracks`,
+`list_sessions`, `get_session`, `best_laps` (yours and shared, per track
+and car), `compare_laps` (corner by corner: time lost, braking point, apex
+speed, throttle, exit speed) and `lap_telemetry` (traces of a part of a
+lap).
+
+- Connected assistants (OAuth and tokens) are listed on the Account page
+  under *AI assistants*; *Remove* ends the access at once. Tool calls are
+  limited to 600 per 15 minutes per user.
+- OAuth details: the server is its own authorization server (discovery at
+  `/.well-known/oauth-protected-resource/mcp` and
+  `/.well-known/oauth-authorization-server`). Clients identify themselves
+  with a client ID metadata document (an https URL the server fetches;
+  addresses in private networks are refused) or register dynamically.
+  Authorization code with PKCE (S256), access tokens valid for an hour and
+  only for `/mcp`, refresh tokens renewed on every use (90 days without
+  use end the connection).
+- Fetching client metadata documents needs internet access. On a server
+  without it set `STINTORY_OAUTH_CLIENT_METADATA=false`: assistants then
+  register themselves. If an assistant already tried with its metadata
+  document, remove its saved login for the server (Claude Code: `/mcp` →
+  the server → *Clear authentication*, or add the server again) so it
+  registers on the next attempt.
+- `STINTORY_PUBLIC_URL` must be the address the assistant uses: the OAuth
+  issuer and the token's audience are derived from it.
+- Protocol: Streamable HTTP, stateless, answers as single JSON objects;
+  MCP versions 2026-07-28 and 2025-03-26 to 2025-11-25. Requests from
+  web pages of other sites are rejected (`Origin` check).
 
 ## Backups
 

@@ -22,6 +22,8 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (3, include_str!("../migrations/0003_passkeys.sql")),
     (4, include_str!("../migrations/0004_teams_and_sharing.sql")),
     (5, include_str!("../migrations/0005_reference_laps.sql")),
+    (6, include_str!("../migrations/0006_token_scope.sql")),
+    (7, include_str!("../migrations/0007_oauth.sql")),
 ];
 
 /// Creates a connection pool. `search_path` selects a schema (tests).

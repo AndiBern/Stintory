@@ -25,6 +25,8 @@ import type {
 	SessionSummary,
 	DeviceInfo,
 	NewDevice,
+	OAuthAuthorizeInfo,
+	TokenScope,
 	PasskeyInfo,
 	Settings,
 	SyncStatus,
@@ -60,7 +62,7 @@ export interface AccountApi {
 	browserSessions(): Promise<BrowserSession[]>;
 	endBrowserSession(id: string): Promise<void>;
 	devices(): Promise<DeviceInfo[]>;
-	createDevice(name: string): Promise<NewDevice>;
+	createDevice(name: string, scope?: TokenScope): Promise<NewDevice>;
 	revokeDevice(id: string): Promise<void>;
 	/** Approves a desktop app's login; returns where to send the browser. */
 	approveDeviceLogin(request: {
@@ -69,6 +71,10 @@ export interface AccountApi {
 		state: string;
 		deviceName: string;
 	}): Promise<{ redirectTo: string }>;
+	/** Checks an OAuth authorization request (`query`: the page's search string). */
+	oauthAuthorizeInfo(query: string): Promise<OAuthAuthorizeInfo>;
+	/** Allows or denies an OAuth client; returns where the browser goes next. */
+	oauthApprove(params: Record<string, string>, allow: boolean): Promise<{ redirectTo: string }>;
 	adminUsers(): Promise<AdminUser[]>;
 	adminCreateUser(
 		username: string,
@@ -397,8 +403,8 @@ export class HttpApi implements ApiClient, AccountApi {
 		return this.request<DeviceInfo[]>('GET', '/me/devices');
 	}
 
-	createDevice(name: string): Promise<NewDevice> {
-		return this.request<NewDevice>('POST', '/me/devices', { name });
+	createDevice(name: string, scope: TokenScope = 'sync'): Promise<NewDevice> {
+		return this.request<NewDevice>('POST', '/me/devices', { name, scope });
 	}
 
 	revokeDevice(id: string): Promise<void> {
@@ -412,6 +418,14 @@ export class HttpApi implements ApiClient, AccountApi {
 		deviceName: string;
 	}): Promise<{ redirectTo: string }> {
 		return this.request<{ redirectTo: string }>('POST', '/device-login/approve', request);
+	}
+
+	oauthAuthorizeInfo(query: string): Promise<OAuthAuthorizeInfo> {
+		return this.request<OAuthAuthorizeInfo>('GET', `/oauth/authorize${query}`);
+	}
+
+	oauthApprove(params: Record<string, string>, allow: boolean): Promise<{ redirectTo: string }> {
+		return this.request<{ redirectTo: string }>('POST', '/oauth/approve', { params, allow });
 	}
 
 	adminUsers(): Promise<AdminUser[]> {

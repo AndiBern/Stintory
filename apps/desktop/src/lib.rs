@@ -7,7 +7,10 @@
 //! Tauri's `invoke`. They implement the same API shape as sy-server's REST
 //! API, see `web/src/lib/api/`.
 
+#[cfg(target_os = "linux")]
+mod appimage;
 mod commands;
+mod mcp;
 mod recording;
 mod state;
 mod sync;
@@ -21,7 +24,13 @@ use tracing_subscriber::EnvFilter;
 use crate::state::AppState;
 
 /// Environment variable to override the data directory (useful for development).
-const DATA_DIR_ENV: &str = "STINTORY_DATA_DIR";
+pub(crate) const DATA_DIR_ENV: &str = "STINTORY_DATA_DIR";
+
+/// Runs the MCP server for AI assistants on stdin/stdout (`stintory mcp`,
+/// see [`mcp`]); returns the exit code.
+pub fn run_mcp() -> i32 {
+    mcp::run()
+}
 
 /// Starts the desktop app.
 pub fn run() {
@@ -30,6 +39,10 @@ pub fn run() {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
+
+    // before the window opens: the compositor looks the icon up when it maps
+    #[cfg(target_os = "linux")]
+    appimage::integrate();
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[package]
+name = "sy-mcp"
+description = "Stintory MCP tools and protocol: lets AI assistants read laps and the corner analysis (server and desktop app)"
+license = "AGPL-3.0-or-later"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sy-model.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[lints]
+workspace = true

@@ -96,13 +96,15 @@
 	}
 	if (account) loadDevices();
 
+	const desktopApps = $derived(devices.filter((d) => d.scope !== 'read'));
+	const assistants = $derived(devices.filter((d) => d.scope === 'read'));
+
 	async function revokeDevice(d: DeviceInfo) {
-		if (
-			!(await confirmAction(
-				`Disconnect "${d.name}"? It can't sync anymore until it connects again.`
-			))
-		)
-			return;
+		const question =
+			d.scope === 'read'
+				? `Remove the token "${d.name}"? The assistant can't read your laps anymore.`
+				: `Disconnect "${d.name}"? It can't sync anymore until it connects again.`;
+		if (!(await confirmAction(question))) return;
 		run(
 			async () => {
 				await account!.revokeDevice(d.id);
@@ -121,6 +123,23 @@
 				await loadDevices();
 			},
 			(t) => (deviceMsg = t)
+		);
+	}
+
+	// AI assistants (MCP, read-only tokens)
+	let assistantName = $state('Claude');
+	let assistantToken = $state<string | null>(null);
+	let assistantMsg = $state<string | null>(null);
+	const mcpUrl = $derived(typeof location === 'undefined' ? '/mcp' : `${location.origin}/mcp`);
+
+	function createAssistantToken(event: SubmitEvent) {
+		event.preventDefault();
+		run(
+			async () => {
+				assistantToken = (await account!.createDevice(assistantName, 'read')).token;
+				await loadDevices();
+			},
+			(t) => (assistantMsg = t)
 		);
 	}
 
@@ -491,12 +510,12 @@
 			<p class="mb-3 text-sm text-zinc-400">
 				Computers that sync with your account. Connect one from the app's settings ("Server sync").
 			</p>
-			{#if devices.length === 0}
+			{#if desktopApps.length === 0}
 				<p class="mb-3 text-sm text-zinc-500">None connected.</p>
 			{:else}
 				<table class="mb-3 w-full text-left text-sm">
 					<tbody>
-						{#each devices as d (d.id)}
+						{#each desktopApps as d (d.id)}
 							<tr class="border-t border-zinc-800 first:border-t-0">
 								<td class="py-1.5">
 									<div class="text-zinc-300">{d.name}</div>
@@ -541,6 +560,71 @@
 				</form>
 			</details>
 			{#if deviceMsg}<p class="mt-2 text-sm text-red-400">{deviceMsg}</p>{/if}
+		</section>
+
+		<section class="mt-6 max-w-2xl rounded border border-zinc-800 p-4">
+			<h2 class="mb-1 font-medium">AI assistants</h2>
+			<p class="mb-3 text-sm text-zinc-400">
+				Let an AI assistant read your sessions, laps and the corner analysis to tell you where you
+				lose time. It connects over MCP (Model Context Protocol) at
+				<code class="text-zinc-300">{mcpUrl}</code>: add that address in the assistant and allow it
+				in the browser (OAuth), or create a token below for assistants without OAuth. Either way it
+				can only read: it can't change, delete or share anything.
+			</p>
+			{#if assistants.length > 0}
+				<table class="mb-3 w-full text-left text-sm">
+					<tbody>
+						{#each assistants as d (d.id)}
+							<tr class="border-t border-zinc-800 first:border-t-0">
+								<td class="py-1.5">
+									<div class="text-zinc-300">{d.name}</div>
+									<div class="text-xs text-zinc-500">
+										created {formatDateTime(d.createdAt)} · last used {d.lastUsedAt
+											? formatDateTime(d.lastUsedAt)
+											: 'never'}
+									</div>
+								</td>
+								<td class="text-right">
+									<button type="button" class={secondary} onclick={() => revokeDevice(d)}
+										>Remove</button
+									>
+								</td>
+							</tr>
+						{/each}
+					</tbody>
+				</table>
+			{/if}
+			{#if assistantToken}
+				<div class="mb-3 rounded border border-emerald-800 bg-emerald-950 p-3 text-sm">
+					<p class="mb-2 text-emerald-200">
+						The token is shown only once. Give the assistant the address and the token as an
+						<code>Authorization: Bearer</code> header. In Claude Code:
+					</p>
+					<code
+						class="block rounded bg-emerald-900/40 p-2 font-mono text-xs break-all text-emerald-100 select-all"
+						>claude mcp add --transport http stintory {mcpUrl} --header "Authorization: Bearer {assistantToken}"</code
+					>
+					<p class="mt-2 text-emerald-200">Address and token on their own:</p>
+					<code class="block font-mono text-xs break-all text-emerald-100 select-all">{mcpUrl}</code
+					>
+					<code class="block font-mono text-xs break-all text-emerald-100 select-all"
+						>{assistantToken}</code
+					>
+					<div class="mt-2">
+						<button type="button" class={secondary} onclick={() => (assistantToken = null)}
+							>Done</button
+						>
+					</div>
+				</div>
+			{/if}
+			<form class="flex items-end gap-2 text-sm" onsubmit={createAssistantToken}>
+				<label class="flex flex-1 flex-col gap-1">
+					<span class="text-zinc-400">Name</span>
+					<input class={input} bind:value={assistantName} maxlength="64" />
+				</label>
+				<button type="submit" class={button}>Create token</button>
+			</form>
+			{#if assistantMsg}<p class="mt-2 text-sm text-red-400">{assistantMsg}</p>{/if}
 		</section>
 	{/if}
 {/if}

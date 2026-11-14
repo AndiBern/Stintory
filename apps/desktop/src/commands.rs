@@ -11,11 +11,11 @@ use sy_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
 use sy_capture::pipeline::{self, RunOptions};
 use sy_model::api::{
     AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ExportRequest, ExportResult,
-    F1CaptureSettings, ImportProgress, ImportResult, LapSummary, LmuCaptureSettings, OriginView,
-    ProtonBridgeSettings, REFERENCE_LAPS_MAX, RecorderStatus, ReferenceLap, ReferenceScope,
-    SessionDetail, SessionSummary, Settings, SyncStatus,
+    F1CaptureSettings, ImportProgress, ImportResult, LapSummary, LmuCaptureSettings, McpCommand,
+    OriginView, ProtonBridgeSettings, REFERENCE_LAPS_MAX, RecorderStatus, ReferenceLap,
+    ReferenceScope, SessionDetail, SessionSummary, Settings, SyncStatus,
 };
-use sy_model::{LapId, Origin, SessionId};
+use sy_model::{Lap, LapId, LapTelemetry, Origin, SessionId};
 use sy_source_iracing::IbtSource;
 use sy_store::{
     EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, F1_CAPTURE, KEEP_RAW_RECORDINGS,
@@ -82,43 +82,43 @@ pub async fn list_sessions(state: State<'_, AppState>) -> CmdResult<Vec<SessionS
 pub async fn get_session(state: State<'_, AppState>, id: String) -> CmdResult<SessionDetail> {
     let id: SessionId = parse_id(&id)?;
     Ok(state
-        .with_store(move |store| {
-            let session = store.session(id)?;
-            let laps = store.laps(id)?;
-            let summary = store
-                .list_sessions()?
-                .into_iter()
-                .find(|s| s.id == id)
-                .ok_or(sy_store::StoreError::SessionNotFound(id))?;
-            // weather, fuel and tyres per lap, from the telemetry
-            let names = sy_analysis::CompoundNames::from_session_info(
-                session.game,
-                session.session_info.as_ref(),
-            );
-            let hashes: Vec<_> = laps.iter().map(|l| &l.blob_hash).collect();
-            let conditions =
-                sy_analysis::laps_conditions(session.game, &names, &hashes, |h| store.lap_blob(h));
-            let laps = laps
-                .iter()
-                .zip(conditions)
-                .map(|(lap, conditions)| LapSummary {
-                    conditions: conditions
-                        .inspect_err(
-                            |e| tracing::warn!(lap = %lap.id, error = %e, "lap conditions"),
-                        )
-                        .ok(),
-                    ..LapSummary::from(lap)
-                })
-                .collect();
-            Ok(SessionDetail {
-                summary,
-                ended_at: session.ended_at,
-                game_version: session.game_version,
-                conditions: ConditionsView::from(&session.conditions),
-                laps,
-            })
-        })
+        .with_store(move |store| session_detail(store, id))
         .await?)
+}
+
+/// A session with its laps and their weather, fuel and tyres (also for the
+/// MCP server, [`crate::mcp`]).
+pub(crate) fn session_detail(store: &Store, id: SessionId) -> Result<SessionDetail, StoreError> {
+    let session = store.session(id)?;
+    let laps = store.laps(id)?;
+    let summary = store
+        .list_sessions()?
+        .into_iter()
+        .find(|s| s.id == id)
+        .ok_or(StoreError::SessionNotFound(id))?;
+    // weather, fuel and tyres per lap, from the telemetry
+    let names =
+        sy_analysis::CompoundNames::from_session_info(session.game, session.session_info.as_ref());
+    let hashes: Vec<_> = laps.iter().map(|l| &l.blob_hash).collect();
+    let conditions =
+        sy_analysis::laps_conditions(session.game, &names, &hashes, |h| store.lap_blob(h));
+    let laps = laps
+        .iter()
+        .zip(conditions)
+        .map(|(lap, conditions)| LapSummary {
+            conditions: conditions
+                .inspect_err(|e| tracing::warn!(lap = %lap.id, error = %e, "lap conditions"))
+                .ok(),
+            ..LapSummary::from(lap)
+        })
+        .collect();
+    Ok(SessionDetail {
+        summary,
+        ended_at: session.ended_at,
+        game_version: session.game_version,
+        conditions: ConditionsView::from(&session.conditions),
+        laps,
+    })
 }
 
 /// Deletes a session with all its laps.
@@ -148,31 +148,46 @@ pub async fn compare_laps(
     let step = request.step_m.unwrap_or(DEFAULT_STEP_M).max(MIN_STEP_M);
     let ids: Vec<LapId> = request.lap_ids;
     let laps = state
-        .with_store(move |store| {
-            ids.into_iter()
-                .map(|id| {
-                    let lap = store.lap(id)?;
-                    let driver = match store.session(lap.session_id)?.origin {
-                        Origin::Own => None,
-                        Origin::Imported { driver_name } => driver_name,
-                        Origin::Synced { owner, .. } => Some(owner),
-                    };
-                    Ok((lap, store.lap_telemetry(id)?, driver))
-                })
-                .collect::<std::result::Result<Vec<_>, sy_store::StoreError>>()
-        })
+        .with_store(move |store| comparison_laps(store, ids))
         .await?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let refs: Vec<_> = laps.iter().map(|(l, t, _)| (l, t)).collect();
-        let mut data = sy_analysis::compare(&refs, step)?;
-        for (trace, (_, _, driver)) in data.laps.iter_mut().zip(&laps) {
-            trace.driver = driver.clone();
-        }
-        Ok::<_, sy_analysis::AnalysisError>(data)
-    })
-    .await
-    .map_err(|e| CommandError::BadRequest(e.to_string()))?
-    .map_err(Into::into)
+    tauri::async_runtime::spawn_blocking(move || compare_loaded(&laps, step))
+        .await
+        .map_err(|e| CommandError::BadRequest(e.to_string()))?
+        .map_err(Into::into)
+}
+
+/// A lap to compare: metadata, telemetry and who drove it (if not the user).
+pub(crate) type ComparisonLap = (Lap, LapTelemetry, Option<String>);
+
+/// Loads laps for a comparison.
+pub(crate) fn comparison_laps(
+    store: &Store,
+    ids: Vec<LapId>,
+) -> Result<Vec<ComparisonLap>, StoreError> {
+    ids.into_iter()
+        .map(|id| {
+            let lap = store.lap(id)?;
+            let driver = match store.session(lap.session_id)?.origin {
+                Origin::Own => None,
+                Origin::Imported { driver_name } => driver_name,
+                Origin::Synced { owner, .. } => Some(owner),
+            };
+            Ok((lap, store.lap_telemetry(id)?, driver))
+        })
+        .collect()
+}
+
+/// Compares loaded laps (the first is the reference).
+pub(crate) fn compare_loaded(
+    laps: &[ComparisonLap],
+    step_m: f32,
+) -> Result<CompareData, sy_analysis::AnalysisError> {
+    let refs: Vec<_> = laps.iter().map(|(l, t, _)| (l, t)).collect();
+    let mut data = sy_analysis::compare(&refs, step_m)?;
+    for (trace, (_, _, driver)) in data.laps.iter_mut().zip(laps) {
+        trace.driver = driver.clone();
+    }
+    Ok(data)
 }
 
 /// Laps to compare with for a track and car, fastest first: own and
@@ -504,6 +519,15 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
         .with_store(|store| {
             Ok(Settings {
                 data_dir: store.root().display().to_string(),
+                mcp_command: crate::mcp::launch_command().map(|(command, args)| McpCommand {
+                    command,
+                    args,
+                    // a data directory set for the app must be set for the
+                    // MCP server too
+                    env: std::env::var(crate::DATA_DIR_ENV)
+                        .map(|dir| [(crate::DATA_DIR_ENV.to_owned(), dir)].into())
+                        .unwrap_or_default(),
+                }),
                 keep_raw_recordings: store.setting(KEEP_RAW_RECORDINGS)?.unwrap_or(false),
                 raw_storage_bytes: store.spool_size()?,
                 failed_recordings: store.spools(&[SpoolState::Failed])?.len() as u32,

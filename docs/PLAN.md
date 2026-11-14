@@ -30,7 +30,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 - Secure login: password, passkeys, TOTP
 - Web UI on the server with the same analysis views
 
-**Non-goals for v1** (candidates for later): live overlays/HUD, voice coaching, AI tips, setup sharing, video sync, consoles (F1 UDP could work almost for free; see M5), mobile app, OIDC login.
+**Non-goals for v1** (candidates for later): live overlays/HUD, voice coaching, built-in AI tips (an external assistant can use the MCP endpoint, §6.5), setup sharing, video sync, consoles (F1 UDP could work almost for free; see M5), mobile app, OIDC login.
 
 **Never:** recording other cars or other drivers' data.
 
@@ -72,6 +72,7 @@ crates/
   sy-sync/                 # sync client (HTTP)
   sy-server/               # axum server binary
   sy-bridge/               # Proton bridge: sy-bridge.exe (in the game's prefix) + the app's client
+  sy-mcp/                  # MCP tools + protocol for AI assistants (server /mcp, desktop `stintory mcp`)
 apps/
   desktop/                 # Tauri 2 app (src-tauri/ + uses web/ build)
 web/                       # SvelteKit app (adapter-static, SPA mode), shared by desktop + server
@@ -221,7 +222,7 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
 2. **Time delta**: Δt(d) = t_A(d) − t_B(d). Also the delta's derivative to highlight where time is gained/lost.
 3. **Track map**: from `pos_x/y` (F1/LMU) or dead reckoning/GPS (iRacing). Store a smoothed outline per track (median of several clean laps) in `Track.outline`. Colour by delta/speed/throttle/brake.
 4. **Sectors**: game sectors. Plus user-definable micro-sectors (later).
-5. **Later – corner insights** (local, no AI service): detect corners from curvature/steering, then per corner compare braking point, min speed, throttle pick-up point, exit speed, and time gained/lost. Gives a "biggest gains" list like the paid tools.
+5. **Corner insights** (local, no AI service; `sy_analysis::corners`): corners come from the reference lap's curvature `g_lat / speed²` (smoothed, radius < 250 m, same-direction bends < 30 m apart merged, a bend inside the next corner's braking zone belongs to that corner). Per corner and lap: braking point, peak pressure and release, lift, lowest speed and gear, throttle pick-up, full throttle, exit speed, and the time lost, split into entry (to the apex) and exit. The lap is split into one segment per corner (approach → next approach, wrapping around the line), so the times lost add up to the gap between the laps. Checked on the iRacing, F1 and LMU recordings (e.g. Hungaroring 14, Suzuka 18, Snetterton 300 11 corners). Shown in the compare view (corner list sorted by time lost, corner numbers on the map) and part of `CompareData`. AI assistants read it through the server's MCP endpoint (`/mcp`, docs/SERVER.md): OAuth 2.1 (own authorization server, client ID metadata documents or dynamic registration, PKCE, resource-bound access tokens, rotating refresh tokens) or read-only device tokens; tools for tracks, sessions, best laps, corner comparison and telemetry excerpts. Without a server, the desktop app serves the same tools from the local data: `stintory mcp` speaks MCP over stdio for assistants on the same computer (Settings → AI assistants shows the command). The tools and the protocol live once in `sy-mcp` behind a small data trait.
 6. **Theoretical best**: sum of best sectors (game sectors or micro-sectors).
 
 Frontend gets resampled arrays (not raw) for comparison. These are computed on demand and cached in memory (LRU).
@@ -388,7 +389,7 @@ Developing on Linux without the games running is a real constraint, so **record 
 | **M5 – F1 25** | Done, verified with 16 real recordings (Nov 2026: time trials, Grand Prix weekend, races with pit stops, red flag, safety car and VSC, both UDP formats; docs/games/f1.md): `sy-source-f1` with both UDP formats checked against the spec's packet sizes, player-only filter before the spool, UDP source on all platforms with forwarding to other apps, flashback = rewind + flag, validity from the game (end-of-lap state + session history), F1 settings in the desktop app (port, other devices, forwarding), `simulate` example, console note in docs | Time trial + race laps recorded with correct validity. Flashback laps flagged |
 | **M6 – LMU** | Done (checked with recordings: practice, a race with a rolling start, back to the garage; docs/games/lmu.md): `sy-source-lmu` with the layout written from the official headers (sizes asserted at compile time), event wait + the game's lock, player-only records before the spool, scoring interpolation of the lap distance, lap times/sectors/validity from the game, REST poller for the setup (GET only), *Enable Plugins* hint in the sidebar and settings, VE/battery, ABS/TC active and TC/ABS level charts | Laps recorded with correct times; VE/TC/ABS traces visible |
 | **M7 – Proton bridge + more games** | Done (checked with a simulated LMU and with the real LMU on Bazzite; still to verify: docs/games/proton.md): `sy-bridge` crate with `sy-bridge.exe` (LMU, iRacing) streaming the player-only raw records over 127.0.0.1 TCP, started by Proton with the game via the launch option `PROTON_REMOTE_DEBUG_CMD=… %command%`; the Linux app connects, spools and records them like on Windows, installs the exe at a fixed path in its data directory and shows the launch option under *Settings → Proton bridge*; `--simulate-lmu` for trying it without the game; MinGW cross build (`npm run build:bridge`) in CI and in the Linux packages. Not yet: more games (ACC, AC EVO, AMS2, rF2, Forza…), by demand | A Proton game captured on Linux end-to-end |
-| **Later** | OIDC login, corner insights, micro-sectors, theoretical best, MoTeC export, setups, live overlay | – |
+| **Later** | OIDC login, micro-sectors, theoretical best, MoTeC export, setups, live overlay | – |
 
 M1 is the biggest milestone. A useful internal split is M1a (capture + store + session list) and M1b (lap view + compare).
 
@@ -398,7 +399,7 @@ M1 is the biggest milestone. A useful internal split is M1a (capture + store + s
 
 | Component | License | Reason |
 |---|---|---|
-| `sy-server`, `apps/desktop`, `web/`, `sy-capture`, `sy-store`, `sy-sync`, `sy-analysis`, `sy-bridge` | **AGPL-3.0-or-later** | Anyone who changes these and distributes them, or runs them as a network service, must publish their changes. Nobody can turn Stintory into a closed hosted service |
+| `sy-server`, `apps/desktop`, `web/`, `sy-capture`, `sy-store`, `sy-sync`, `sy-analysis`, `sy-bridge`, `sy-mcp` | **AGPL-3.0-or-later** | Anyone who changes these and distributes them, or runs them as a network service, must publish their changes. Nobody can turn Stintory into a closed hosted service |
 | `sy-model` (incl. `.stintory` format), `sy-source-iracing`, `sy-source-f1`, `sy-source-lmu` | **MIT OR Apache-2.0** | Other tools can use the parsers and read/write the export format. That helps data portability and the format becomes a de-facto standard |
 
 Rules:

@@ -49,6 +49,17 @@ pub struct Config {
     #[arg(long, env = "STINTORY_TRUST_PROXY", default_value_t = false)]
     pub trust_proxy: bool,
 
+    /// Fetch the client ID metadata documents of OAuth clients (AI
+    /// assistants) from the internet. Turn it off on a server without
+    /// internet access: the assistants then register themselves.
+    #[arg(
+        long,
+        env = "STINTORY_OAUTH_CLIENT_METADATA",
+        default_value_t = true,
+        action = clap::ArgAction::Set
+    )]
+    pub oauth_client_metadata: bool,
+
     /// How long to wait at startup for the database to become reachable,
     /// seconds (0: try once)
     #[arg(long, env = "STINTORY_DB_WAIT_SECONDS", default_value_t = 300)]
@@ -122,6 +133,7 @@ impl Config {
             web_dir: PathBuf::from("/nonexistent"),
             listen: "127.0.0.1:0".parse().expect("valid"),
             trust_proxy: false,
+            oauth_client_metadata: true,
             max_upload_mb: 64,
             db_wait_seconds: 0,
             admin_username: None,

@@ -11,7 +11,8 @@ use crate::blobs::BlobStore;
 use crate::migrations;
 use crate::{Result, StoreError, timefmt};
 
-const DB_FILE: &str = "stintory.db";
+/// The database file in the data directory.
+pub const DB_FILE: &str = "stintory.db";
 
 /// Two sessions at the same track, in the same car and of the same type that
 /// started at most this far apart are the same session.

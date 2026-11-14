@@ -267,32 +267,35 @@
 	{/if}
 
 	<!-- tires: compound, temperature and wear; all four on hover -->
-	{#snippet tires(c: LapConditions)}
+	{#snippet tires(c: LapConditions, dim: boolean)}
 		{@const sum = tireSummary(c)}
 		{@const wheels = wheelDetails(c)}
-		<span class="group/tires relative inline-flex cursor-default items-center gap-3">
-			{#if sum.compound}
-				<span class="inline-flex items-center gap-1.5">
-					<!-- 1 dot (all the same), 2 (front, rear) or 4 (FL FR RL RR); split
+		<span class="group/tires relative inline-flex cursor-default">
+			<!-- dimmed like the rest of an invalid row; the tooltip below stays opaque -->
+			<span class="inline-flex items-center gap-3" class:opacity-60={dim}>
+				{#if sum.compound}
+					<span class="inline-flex items-center gap-1.5">
+						<!-- 1 dot (all the same), 2 (front, rear) or 4 (FL FR RL RR); split
 					     where changed in the lap: before | after -->
-					<span class="inline-flex gap-1" aria-hidden="true">
-						{#each compoundDots(c, game) as dot (dot.label)}
-							<span
-								class="inline-flex h-2.5 w-2.5 overflow-hidden rounded-full"
-								title="{dot.label}: {dot.before ? `${dot.before.name} → ` : ''}{dot.after.name}"
-							>
-								{#if dot.before}<span class="h-full w-1/2 {dot.before.bg}"></span>{/if}
-								<span class="h-full flex-1 {dot.after.bg}"></span>
-							</span>
-						{/each}
-					</span>{sum.compound}
-				</span>
-			{/if}
-			{#if sum.temp}<span class="tabular-nums">{sum.temp}</span>{/if}
-			{#if sum.wear}<span class="tabular-nums">{sum.wear}</span>{/if}
-			{#if anyFlat(c)}
-				<span class="rounded bg-amber-950 px-1 text-xs text-amber-300">flat</span>
-			{/if}
+						<span class="inline-flex gap-1" aria-hidden="true">
+							{#each compoundDots(c, game) as dot (dot.label)}
+								<span
+									class="inline-flex h-2.5 w-2.5 overflow-hidden rounded-full"
+									title="{dot.label}: {dot.before ? `${dot.before.name} → ` : ''}{dot.after.name}"
+								>
+									{#if dot.before}<span class="h-full w-1/2 {dot.before.bg}"></span>{/if}
+									<span class="h-full flex-1 {dot.after.bg}"></span>
+								</span>
+							{/each}
+						</span>{sum.compound}
+					</span>
+				{/if}
+				{#if sum.temp}<span class="tabular-nums">{sum.temp}</span>{/if}
+				{#if sum.wear}<span class="tabular-nums">{sum.wear}</span>{/if}
+				{#if anyFlat(c)}
+					<span class="rounded bg-amber-950 px-1 text-xs text-amber-300">flat</span>
+				{/if}
+			</span>
 			<span class="sr-only">
 				{#each wheels as w (w.key)}
 					{w.label}: {[w.compound, w.temp, w.wear && `${w.wear} worn`, w.flat && 'flat']
@@ -364,9 +367,13 @@
 		<tbody>
 			{#each visibleLaps as l (l.id)}
 				{@const isBest = best?.id === l.id}
+				{@const dim = !l.valid || l.incomplete}
+				<!-- invalid laps: the cells are dimmed, not the row, so tooltips in
+				     it stay opaque (opacity applies to everything inside) -->
 				<tr
-					class="border-t border-zinc-800 hover:bg-zinc-900"
-					class:opacity-60={!l.valid || l.incomplete}
+					class="border-t border-zinc-800 hover:bg-zinc-900 {dim
+						? '[&>td:not(.tires)]:opacity-60'
+						: ''}"
 				>
 					<td class="py-1.5">
 						<input
@@ -390,9 +397,9 @@
 					{#each conditionColumns as col (col.key)}
 						{@const c = l.conditions}
 						{#if col.key === 'tires'}
-							<td class="pl-4 whitespace-nowrap">
+							<td class="tires pl-4 whitespace-nowrap">
 								{#if c && cellText(c, col.key)}
-									{@render tires(c)}
+									{@render tires(c, dim)}
 								{/if}
 							</td>
 						{:else if col.key === 'weather'}

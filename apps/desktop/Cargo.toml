@@ -25,6 +25,7 @@ tauri-build = { version = "2", features = [] }
 sy-analysis.workspace = true
 sy-bridge.workspace = true
 sy-capture.workspace = true
+sy-mcp.workspace = true
 sy-model.workspace = true
 sy-source-f1.workspace = true
 sy-source-iracing.workspace = true
@@ -38,7 +39,8 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 time.workspace = true
-tokio = { version = "1", features = ["sync", "time", "macros"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
+dirs = "7"
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

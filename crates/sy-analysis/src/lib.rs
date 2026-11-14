@@ -7,12 +7,15 @@
 //!   compared point by point.
 //! - [`delta`]: time difference between two resampled laps.
 //! - [`compare`]: builds the [`CompareData`] the frontend draws.
+//! - [`corners`]: finds the corners and measures braking, lowest speed,
+//!   throttle and time lost in each.
 //! - [`lap_conditions`]: weather, fuel and tyres of one lap.
 //!
 //! Used by both the desktop backend and sy-server, so the analysis exists
 //! exactly once.
 
 mod conditions;
+mod corners;
 
 use std::collections::BTreeMap;
 
@@ -23,6 +26,7 @@ use sy_model::{ChannelData, Lap, LapTelemetry, Unit};
 pub use conditions::{
     CompoundNames, is_conditions_channel, lap_conditions, lap_conditions_named, laps_conditions,
 };
+pub use corners::corners;
 
 /// Default grid resolution in metres.
 pub const DEFAULT_STEP_M: f32 = 1.0;
@@ -187,12 +191,10 @@ pub fn delta(lap_time: &[f32], reference_time: &[f32]) -> Vec<f32> {
         .collect()
 }
 
-/// Resamples the given laps onto a common grid and computes each lap's delta
-/// to the first lap (the reference).
-pub fn compare(laps: &[(&Lap, &LapTelemetry)], step_m: f32) -> Result<CompareData, AnalysisError> {
-    // common grid: long enough for the longest lap
+/// Number of grid points of a grid long enough for the longest lap.
+fn common_grid_len<'a>(laps: impl Iterator<Item = &'a LapTelemetry>, step_m: f32) -> usize {
     let mut grid_len = 0;
-    for (_, t) in laps {
+    for t in laps {
         if let Some(dist) = t.channel(names::DIST) {
             let max = as_f32(&dist.data)
                 .into_iter()
@@ -201,6 +203,13 @@ pub fn compare(laps: &[(&Lap, &LapTelemetry)], step_m: f32) -> Result<CompareDat
             grid_len = grid_len.max((max / step_m).floor() as usize + 1);
         }
     }
+    grid_len
+}
+
+/// Resamples the given laps onto a common grid and computes each lap's delta
+/// to the first lap (the reference), and the corner analysis ([`corners`]).
+pub fn compare(laps: &[(&Lap, &LapTelemetry)], step_m: f32) -> Result<CompareData, AnalysisError> {
+    let grid_len = common_grid_len(laps.iter().map(|(_, t)| *t), step_m);
 
     let mut units = BTreeMap::new();
     let mut traces = Vec::new();
@@ -235,6 +244,7 @@ pub fn compare(laps: &[(&Lap, &LapTelemetry)], step_m: f32) -> Result<CompareDat
         dist_m: (0..grid_len).map(|g| g as f32 * step_m).collect(),
         units,
         laps: traces,
+        corners: corners(laps).ok(),
     })
 }
 
@@ -356,6 +366,8 @@ mod tests {
         assert!((d[1000] - 5.0).abs() < 1e-3);
         assert_eq!(c.units[names::SPEED], "m/s");
         assert!(c.laps[0].channels.contains_key(names::GEAR));
+        // no lateral acceleration in these laps: no corner analysis
+        assert_eq!(c.corners, None);
     }
 
     #[test]

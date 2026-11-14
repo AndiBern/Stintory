@@ -170,6 +170,65 @@ export interface CompareData {
 	distM: number[];
 	units: Record<string, string>;
 	laps: LapTrace[];
+	/**
+	 * Corners of the reference lap and how each lap drives them; null if the
+	 * reference has no lateral acceleration
+	 */
+	corners?: CornerReport | null;
+}
+
+export type TurnDirection = 'left' | 'right';
+
+/**
+ * A corner, found on the reference lap; distances in metres from the line.
+ * Its segment runs from before the earliest braking, lift or turn-in of the
+ * compared laps to the next corner's segment and includes the straight after
+ * it. The last one wraps around the line (segmentEndM < segmentStartM), so
+ * the segment times add up to the lap time.
+ */
+export interface Corner {
+	/** From 1 in driving order (Stintory's count, not the official turns) */
+	number: number;
+	direction: TurnDirection;
+	startM: number;
+	/** Where the reference is slowest */
+	apexM: number;
+	endM: number;
+	segmentStartM: number;
+	segmentEndM: number;
+	minRadiusM: number;
+}
+
+/**
+ * How one lap drives one corner. Distances in metres from the line, speeds
+ * m/s, pedals 0–1; null where there is no data or the event doesn't happen.
+ */
+export interface CornerLapStats {
+	timeS: number | null;
+	/** vs. the reference, positive = slower */
+	timeLostS: number | null;
+	/** Part of timeLostS up to the apex */
+	entryLostS: number | null;
+	/** Part of timeLostS after the apex */
+	exitLostS: number | null;
+	topSpeedMps: number | null;
+	liftM: number | null;
+	brakeM: number | null;
+	brakeMax: number | null;
+	brakeReleaseM: number | null;
+	minSpeedMps: number | null;
+	minSpeedM: number | null;
+	minSpeedGear: number | null;
+	throttleM: number | null;
+	fullThrottleM: number | null;
+	exitSpeedMps: number | null;
+	flatOut: boolean;
+}
+
+export interface CornerReport {
+	corners: Corner[];
+	/** Reference first, like {@link CompareData.laps} */
+	laps: { lapId: string; corners: CornerLapStats[] }[];
 }
 
 export interface ImportResult {
@@ -204,8 +263,17 @@ export interface ImportProgress {
 	laps: number;
 }
 
+/** How an AI assistant on this computer starts the app's MCP server. */
+export interface McpCommand {
+	command: string;
+	args: string[];
+	env: Record<string, string>;
+}
+
 export interface Settings {
 	dataDir: string;
+	/** Desktop app: how to start its MCP server for AI assistants */
+	mcpCommand?: McpCommand | null;
 	keepRawRecordings: boolean;
 	rawStorageBytes: number;
 	failedRecordings: number;
@@ -387,8 +455,28 @@ export interface SyncStatus {
 }
 
 /** A desktop app connected to the user's account (server). */
+/** An OAuth authorization request as the consent page shows it. */
+export interface OAuthAuthorizeInfo {
+	/** The client's own name (unverified) */
+	clientName: string;
+	clientId: string;
+	/** Host of the client's metadata document (verified), if it has one */
+	clientHost: string | null;
+	/** Where the browser goes back to */
+	redirectHost: string;
+	/** The redirect goes to a program on this computer */
+	localRedirect: boolean;
+	/** Set when the request is invalid in a way the client is told about */
+	redirectTo: string | null;
+}
+
+/** What a device token may do: the desktop app (sync) or an AI assistant (read, MCP only). */
+export type TokenScope = 'sync' | 'read';
+
 export interface DeviceInfo {
 	id: string;
+	/** missing from older servers: sync */
+	scope?: TokenScope;
 	name: string;
 	createdAt: string;
 	lastUsedAt: string | null;
