@@ -16,6 +16,7 @@ pub mod data;
 pub mod db;
 pub mod devices;
 pub mod error;
+pub mod mcp;
 pub mod passkeys;
 pub mod ratelimit;
 pub mod sharing;
@@ -242,7 +243,15 @@ fn api(state: &SharedState) -> Router<SharedState> {
 
 /// The complete application.
 pub fn app(state: SharedState) -> Router {
-    let mut router = Router::new().nest("/api/v1", api(&state));
+    let mut router = Router::new()
+        .nest("/api/v1", api(&state))
+        // AI assistants (Model Context Protocol)
+        .route(
+            "/mcp",
+            post(mcp::post)
+                .get(mcp::not_allowed)
+                .delete(mcp::not_allowed),
+        );
     let web = &state.config.web_dir;
     if web.join("index.html").is_file() {
         // single-page app: unknown paths get index.html

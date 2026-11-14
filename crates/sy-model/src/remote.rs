@@ -44,6 +44,9 @@ pub struct Me {
 pub struct DeviceInfo {
     /// Id
     pub id: Uuid,
+    /// What the token may do
+    #[serde(default)]
+    pub scope: TokenScope,
     /// Name chosen at login, e.g. the computer's name
     pub name: String,
     /// Connected since
@@ -67,6 +70,27 @@ pub struct NewDevice {
     pub device: DeviceInfo,
     /// Whose device it is
     pub user: Me,
+}
+
+/// What a device token may do.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenScope {
+    /// The desktop app: full access (sync)
+    #[default]
+    Sync,
+    /// An AI assistant: reads through the MCP endpoint only
+    Read,
+}
+
+impl TokenScope {
+    /// Name in the database.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TokenScope::Sync => "sync",
+            TokenScope::Read => "read",
+        }
+    }
 }
 
 /// `GET /devices/current`

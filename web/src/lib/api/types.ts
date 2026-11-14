@@ -446,8 +446,13 @@ export interface SyncStatus {
 }
 
 /** A desktop app connected to the user's account (server). */
+/** What a device token may do: the desktop app (sync) or an AI assistant (read, MCP only). */
+export type TokenScope = 'sync' | 'read';
+
 export interface DeviceInfo {
 	id: string;
+	/** missing from older servers: sync */
+	scope?: TokenScope;
 	name: string;
 	createdAt: string;
 	lastUsedAt: string | null;

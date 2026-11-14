@@ -4,7 +4,7 @@ The server keeps your sessions and laps, lets you log in from any browser,
 syncs with the desktop app and lets you share laps with friends and teams.
 It is meant to be self-hosted: you run it, you own the data.
 
-> Status: milestone M4 done. Accounts (password, TOTP, passkeys), the web UI,
+> Status: milestone M4 done, plus an MCP endpoint for AI assistants. Accounts (password, TOTP, passkeys), the web UI,
 > uploading `.stintory` files, sync with the desktop app, teams and sharing,
 > and comparing your laps with the ones others share with you work.
 
@@ -150,6 +150,41 @@ Nothing is shared until a user says so.
   among the members of their teams.
 - Team changes (created, joined, left, roles, removed, deleted) are in the
   security log.
+
+## AI assistants (MCP)
+
+An AI assistant can read your laps and the corner analysis and tell you
+where you lose time, for example Claude Code or any other client of the
+Model Context Protocol (MCP). The server offers an MCP endpoint at
+`https://laps.example.com/mcp`.
+
+1. Account page → *AI assistants* → *Create token*. The token is shown
+   once. It can only read: it works for the MCP endpoint and nothing else,
+   and the assistant can't change, delete or share anything.
+2. Give the assistant the address and the token as an
+   `Authorization: Bearer` header. In Claude Code:
+
+   ```sh
+   claude mcp add --transport http stintory https://laps.example.com/mcp \
+       --header "Authorization: Bearer syd_…"
+   ```
+3. Ask, for example: "Compare my last Snetterton laps with my best one.
+   Where do I lose the most time, and what should I change?"
+
+The assistant sees what you see in the web UI: your own sessions and laps
+and the laps others share with you. Its tools: `list_tracks`,
+`list_sessions`, `get_session`, `best_laps` (yours and shared, per track
+and car), `compare_laps` (corner by corner: time lost, braking point, apex
+speed, throttle, exit speed) and `lap_telemetry` (traces of a part of a
+lap).
+
+- Remove a token on the Account page to end the access. Tool calls are
+  limited to 600 per 15 minutes per user.
+- Clients that only connect through OAuth (for example custom connectors
+  in claude.ai) can't connect yet.
+- Protocol: Streamable HTTP, stateless, answers as single JSON objects;
+  MCP versions 2026-07-28 and 2025-03-26 to 2025-11-25. Requests from
+  web pages of other sites are rejected (`Origin` check).
 
 ## Backups
 

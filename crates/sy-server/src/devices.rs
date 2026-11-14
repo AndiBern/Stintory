@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use sy_model::remote::{CurrentDevice, DeviceInfo, NewDevice, TokenRequest};
+use sy_model::remote::{CurrentDevice, DeviceInfo, NewDevice, TokenRequest, TokenScope};
 
 use crate::auth::{AccountAuth, Auth, ClientIp, Session, USER_COLUMNS, User, me};
 use crate::crypto;
@@ -48,7 +48,7 @@ pub async fn authenticate(state: &SharedState, token: &str, ip: &ClientIp) -> Ap
     let row = db
         .query_opt(
             &format!(
-                "SELECT d.id, d.last_used_at, {USER_COLUMNS}
+                "SELECT d.id, d.last_used_at, d.scope, {USER_COLUMNS}
                  FROM device_tokens d JOIN users u ON u.id = d.user_id
                  WHERE d.token_hash = $1 AND NOT u.disabled"
             ),
@@ -64,6 +64,7 @@ pub async fn authenticate(state: &SharedState, token: &str, ip: &ClientIp) -> Ap
     };
     let device_id: Uuid = row.get(0);
     let last_used: Option<time::OffsetDateTime> = row.get(1);
+    let read_only = row.get::<_, &str>(2) == TokenScope::Read.as_str();
     if last_used.is_none_or(|t| time::OffsetDateTime::now_utc() - t > time::Duration::minutes(5)) {
         db.execute(
             "UPDATE device_tokens SET last_used_at = now(), last_ip = $2 WHERE id = $1",
@@ -72,10 +73,11 @@ pub async fn authenticate(state: &SharedState, token: &str, ip: &ClientIp) -> Ap
         .await?;
     }
     Ok(Session {
-        user: User::from_row(&row, 2),
+        user: User::from_row(&row, 3),
         token_hash: Vec::new(),
         csrf_token: String::new(),
         device_id: Some(device_id),
+        read_only,
     })
 }
 
@@ -94,13 +96,21 @@ async fn create_token(
     name: &str,
     ip: &ClientIp,
     how: &str,
+    scope: TokenScope,
 ) -> ApiResult<NewDevice> {
     let id = Uuid::now_v7();
     let token = format!("{TOKEN_PREFIX}{}", crypto::new_token());
     let db = state.conn().await?;
     db.execute(
-        "INSERT INTO device_tokens (id, user_id, token_hash, name) VALUES ($1, $2, $3, $4)",
-        &[&id, &user, &crypto::token_hash(&token), &name],
+        "INSERT INTO device_tokens (id, user_id, token_hash, name, scope)
+         VALUES ($1, $2, $3, $4, $5)",
+        &[
+            &id,
+            &user,
+            &crypto::token_hash(&token),
+            &name,
+            &scope.as_str(),
+        ],
     )
     .await?;
     audit(
@@ -108,7 +118,7 @@ async fn create_token(
         Some(user),
         "device_connected",
         ip.as_deref(),
-        serde_json::json!({ "device": id, "name": name, "via": how }),
+        serde_json::json!({ "device": id, "name": name, "via": how, "scope": scope.as_str() }),
     )
     .await;
     let user = User::by_id(&db, user)
@@ -119,6 +129,7 @@ async fn create_token(
         token,
         device: DeviceInfo {
             id,
+            scope,
             name: name.to_owned(),
             created_at: time::OffsetDateTime::now_utc(),
             last_used_at: None,
@@ -264,7 +275,7 @@ pub async fn token(
         return Err(invalid());
     }
     Ok(Json(
-        create_token(&state, user, &name, &ip, "device login").await?,
+        create_token(&state, user, &name, &ip, "device login", TokenScope::Sync).await?,
     ))
 }
 
@@ -279,7 +290,7 @@ async fn list(state: &SharedState, user: Uuid) -> ApiResult<Vec<DeviceInfo>> {
         .conn()
         .await?
         .query(
-            "SELECT id, name, created_at, last_used_at, last_ip FROM device_tokens
+            "SELECT id, name, created_at, last_used_at, last_ip, scope FROM device_tokens
              WHERE user_id = $1 ORDER BY created_at",
             &[&user],
         )
@@ -288,6 +299,11 @@ async fn list(state: &SharedState, user: Uuid) -> ApiResult<Vec<DeviceInfo>> {
         .iter()
         .map(|r| DeviceInfo {
             id: r.get(0),
+            scope: if r.get::<_, &str>(5) == TokenScope::Read.as_str() {
+                TokenScope::Read
+            } else {
+                TokenScope::Sync
+            },
             name: r.get(1),
             created_at: r.get(2),
             last_used_at: r.get(3),
@@ -365,10 +381,14 @@ pub struct CreateDevice {
     /// Name for the list
     #[serde(default)]
     pub name: String,
+    /// What the token may do (default: sync, for the desktop app)
+    #[serde(default)]
+    pub scope: TokenScope,
 }
 
 /// Creates a device token by hand (for setups where the browser login
-/// can't reach the app). Shown once.
+/// can't reach the app), or a read-only token for an AI assistant (MCP).
+/// Shown once.
 pub async fn create(
     State(state): State<SharedState>,
     Auth(session): Auth,
@@ -380,7 +400,7 @@ pub async fn create(
     }
     let name = device_name(&req.name)?;
     Ok(Json(
-        create_token(&state, session.user.id, &name, &ip, "manual").await?,
+        create_token(&state, session.user.id, &name, &ip, "manual", req.scope).await?,
     ))
 }
 

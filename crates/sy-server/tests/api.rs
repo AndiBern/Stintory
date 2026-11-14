@@ -586,6 +586,17 @@ fn sample() -> (Session, Vec<(Lap, Vec<u8>)>) {
                 Unit::MeterPerSecond,
                 ChannelData::F32(vec![50.0 + n as f32; samples]),
             ))
+            .unwrap()
+            // one right-hander from 300 to 450 m (radius ~130 m)
+            .with_channel(Channel::new(
+                names::G_LAT,
+                Unit::MeterPerSecondSquared,
+                ChannelData::F32(
+                    (0..samples)
+                        .map(|i| if (30..45).contains(&i) { 20.0 } else { 0.0 })
+                        .collect(),
+                ),
+            ))
             .unwrap();
         let bytes = t.to_parquet().unwrap();
         let lap = Lap {
@@ -2044,4 +2055,349 @@ async fn reference_laps_of_team_mates() {
     assert_eq!(me.get("/shared/tracks").await.1, json!([]));
     assert_eq!(me.get(&refs("shared")).await.1, json!([]));
     assert_eq!(me.get(&refs("all")).await.1.as_array().unwrap().len(), 4);
+}
+
+// ----- MCP ------------------------------------------------------------------
+
+/// Posts one JSON-RPC message to `/mcp`.
+async fn mcp(
+    s: &TestServer,
+    token: Option<&str>,
+    headers: &[(&str, &str)],
+    body: Value,
+) -> (StatusCode, Value, axum::http::HeaderMap) {
+    let mut b = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::ACCEPT, "application/json, text/event-stream");
+    if let Some(t) = token {
+        b = b.header(header::AUTHORIZATION, format!("Bearer {t}"));
+    }
+    for (k, v) in headers {
+        b = b.header(*k, *v);
+    }
+    let res = s
+        .app
+        .clone()
+        .oneshot(b.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap();
+    let (status, headers) = (res.status(), res.headers().clone());
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    let body = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    (status, body, headers)
+}
+
+/// A modern (2026-07-28) request with matching headers.
+async fn mcp_modern(
+    s: &TestServer,
+    token: &str,
+    id: u32,
+    method: &str,
+    params: Value,
+) -> (StatusCode, Value) {
+    let mut params = params;
+    params["_meta"] = json!({
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": { "name": "test", "version": "1" },
+        "io.modelcontextprotocol/clientCapabilities": {}
+    });
+    let name = params["name"].as_str().map(str::to_owned);
+    let mut headers = vec![
+        ("mcp-protocol-version", "2026-07-28"),
+        ("mcp-method", method),
+    ];
+    if let Some(n) = &name {
+        headers.push(("mcp-name", n.as_str()));
+    }
+    let body = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
+    let (st, body, _) = mcp(s, Some(token), &headers, body).await;
+    (st, body)
+}
+
+/// The JSON a tool returned as text.
+fn tool_json(result: &Value) -> Value {
+    assert_eq!(result["isError"], false, "{result}");
+    serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mcp_endpoint_for_ai_assistants() {
+    let Some(s) = server().await else { return };
+    let mut b = Browser::new(&s);
+    b.login(ADMIN, ADMIN_PW).await;
+    let (session, laps) = push_sample(&mut b).await;
+
+    // a read-only token: works for /mcp, nothing else
+    let (st, created) = b
+        .post("/me/devices", json!({ "name": "Claude", "scope": "read" }))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{created}");
+    assert_eq!(created["device"]["scope"], "read");
+    let token = created["token"].as_str().unwrap().to_owned();
+    let (st, body) = Browser::device(&s, &token).get("/sessions").await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    assert_eq!(body["code"], "read_only_token");
+    let (_, devices) = b.get("/me/devices").await;
+    assert_eq!(devices[0]["scope"], "read");
+
+    // no or a wrong token: 401 with a Bearer challenge
+    let ping = json!({ "jsonrpc": "2.0", "id": 1, "method": "ping" });
+    let (st, _, headers) = mcp(&s, None, &[], ping.clone()).await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
+    assert!(
+        headers[header::WWW_AUTHENTICATE]
+            .to_str()
+            .unwrap()
+            .starts_with("Bearer")
+    );
+    let (st, _, _) = mcp(&s, Some("syd_wrong"), &[], ping.clone()).await;
+    assert_eq!(st, StatusCode::UNAUTHORIZED);
+    // other websites can't use it
+    let (st, _, _) = mcp(
+        &s,
+        Some(&token),
+        &[("origin", "https://evil.example")],
+        ping.clone(),
+    )
+    .await;
+    assert_eq!(st, StatusCode::FORBIDDEN);
+    // no streams, no sessions
+    let req = Request::builder()
+        .method("GET")
+        .uri("/mcp")
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        s.app.clone().oneshot(req).await.unwrap().status(),
+        StatusCode::METHOD_NOT_ALLOWED
+    );
+
+    // legacy clients: initialize, then plain requests
+    let init = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {},
+        "clientInfo": { "name": "test", "version": "1" } } });
+    let (st, body, headers) = mcp(&s, Some(&token), &[], init).await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["protocolVersion"], "2025-06-18");
+    assert_eq!(body["result"]["serverInfo"]["name"], "stintory");
+    assert!(
+        body["result"]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("compare_laps")
+    );
+    assert!(headers.get("mcp-session-id").is_none(), "stateless");
+    let note = json!({ "jsonrpc": "2.0", "method": "notifications/initialized" });
+    let v = [("mcp-protocol-version", "2025-06-18")];
+    assert_eq!(
+        mcp(&s, Some(&token), &v, note).await.0,
+        StatusCode::ACCEPTED
+    );
+    let list = json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" });
+    let (st, body, _) = mcp(&s, Some(&token), &v, list).await;
+    assert_eq!(st, StatusCode::OK);
+    let tools: Vec<&str> = body["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        tools,
+        [
+            "list_tracks",
+            "list_sessions",
+            "get_session",
+            "best_laps",
+            "compare_laps",
+            "lap_telemetry"
+        ]
+    );
+    assert!(
+        body["result"].get("resultType").is_none(),
+        "legacy results stay plain"
+    );
+    let call = json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+        "params": { "name": "list_sessions", "arguments": {} } });
+    let (_, body, _) = mcp(&s, Some(&token), &v, call).await;
+    let sessions = tool_json(&body["result"]);
+    assert_eq!(sessions["total"], 1);
+    assert_eq!(sessions["sessions"][0]["sessionId"], session.id.to_string());
+    assert_eq!(sessions["sessions"][0]["bestLap"], "0:09.998");
+
+    // modern clients: metadata on every request, mirrored in headers
+    let (st, body) = mcp_modern(&s, &token, 4, "server/discover", json!({})).await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    assert_eq!(body["result"]["resultType"], "complete");
+    assert!(
+        body["result"]["supportedVersions"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("2026-07-28"))
+    );
+    assert_eq!(
+        body["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+        "stintory"
+    );
+
+    let (_, body) = mcp_modern(
+        &s,
+        &token,
+        5,
+        "tools/call",
+        json!({ "name": "list_tracks", "arguments": {} }),
+    )
+    .await;
+    let tracks = tool_json(&body["result"]);
+    assert_eq!(tracks["driven"][0]["trackKey"], "iracing:439");
+    assert_eq!(tracks["driven"][0]["laps"], 2);
+
+    let (_, body) = mcp_modern(
+        &s,
+        &token,
+        6,
+        "tools/call",
+        json!({ "name": "get_session", "arguments": { "session_id": session.id.to_string() } }),
+    )
+    .await;
+    let detail = tool_json(&body["result"]);
+    assert_eq!(detail["laps"].as_array().unwrap().len(), 2);
+    assert_eq!(detail["laps"][0]["valid"], true);
+
+    let (_, body) = mcp_modern(
+        &s,
+        &token,
+        7,
+        "tools/call",
+        json!({ "name": "best_laps",
+        "arguments": { "track_key": "iracing:439", "car_key": "iracing:67" } }),
+    )
+    .await;
+    let best = tool_json(&body["result"]);
+    assert_eq!(best["laps"][0]["lapId"], laps[1].id.to_string());
+    assert_eq!(best["laps"][0]["driver"], "you");
+
+    // lap 1 against lap 2: one corner (both laps cover the distance at the same
+    // rate in the sample, so no time is lost; lap 1 is slower at the apex)
+    let (_, body) = mcp_modern(&s, &token, 8, "tools/call", json!({ "name": "compare_laps",
+        "arguments": { "lap_id": laps[0].id.to_string(), "reference_lap_id": laps[1].id.to_string() } })).await;
+    let cmp = tool_json(&body["result"]);
+    assert_eq!(cmp["corners"].as_array().unwrap().len(), 1, "{cmp}");
+    assert_eq!(cmp["corners"][0]["direction"], "right");
+    assert_eq!(cmp["corners"][0]["timeLostS"], 0.0, "{cmp}");
+    assert!(
+        cmp["corners"][0]["lap"]["minSpeedKmh"].as_f64().unwrap()
+            < cmp["corners"][0]["reference"]["minSpeedKmh"]
+                .as_f64()
+                .unwrap()
+    );
+    assert_eq!(cmp["lap"]["number"], 1);
+
+    let (_, body) = mcp_modern(
+        &s,
+        &token,
+        9,
+        "tools/call",
+        json!({ "name": "lap_telemetry",
+        "arguments": { "lap_id": laps[0].id.to_string(), "reference_lap_id": laps[1].id.to_string(),
+                       "from_m": 300, "to_m": 400, "step_m": 10, "channels": ["speed", "nope"] } }),
+    )
+    .await;
+    let tel = tool_json(&body["result"]);
+    assert_eq!(tel["distM"].as_array().unwrap().len(), 11);
+    assert_eq!(tel["units"]["speed"], "km/h");
+    assert_eq!(tel["lap"]["channels"]["speed"][0], 183.6, "51 m/s");
+    assert!(tel["lap"]["deltaS"].is_array());
+    assert_eq!(tel["unknownChannels"], json!(["nope"]));
+
+    // tool errors are results the model can correct
+    let (st, body) = mcp_modern(
+        &s,
+        &token,
+        10,
+        "tools/call",
+        json!({ "name": "get_session", "arguments": { "session_id": "nope" } }),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(body["result"]["isError"], true);
+    let (_, body) = mcp_modern(
+        &s,
+        &token,
+        11,
+        "tools/call",
+        json!({ "name": "get_session",
+        "arguments": { "session_id": uuid::Uuid::new_v4().to_string() } }),
+    )
+    .await;
+    assert_eq!(
+        body["result"]["isError"], true,
+        "someone else's or no session"
+    );
+
+    // protocol errors
+    let (st, body) = mcp_modern(
+        &s,
+        &token,
+        12,
+        "tools/call",
+        json!({ "name": "delete_everything" }),
+    )
+    .await;
+    assert_eq!(
+        (st, body["error"]["code"].clone()),
+        (StatusCode::BAD_REQUEST, json!(-32602))
+    );
+    let (st, body) = mcp_modern(&s, &token, 13, "resources/list", json!({})).await;
+    assert_eq!(
+        (st, body["error"]["code"].clone()),
+        (StatusCode::NOT_FOUND, json!(-32601))
+    );
+    let meta = json!({ "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                       "io.modelcontextprotocol/clientCapabilities": {} });
+    let call = json!({ "jsonrpc": "2.0", "id": 14, "method": "tools/call",
+        "params": { "name": "list_tracks", "_meta": meta } });
+    let wrong = [
+        ("mcp-protocol-version", "2026-07-28"),
+        ("mcp-method", "tools/call"),
+        ("mcp-name", "list_sessions"),
+    ];
+    let (st, body, _) = mcp(&s, Some(&token), &wrong, call).await;
+    assert_eq!(
+        (st, body["error"]["code"].clone()),
+        (StatusCode::BAD_REQUEST, json!(-32020))
+    );
+    let old = json!({ "jsonrpc": "2.0", "id": 15, "method": "tools/list",
+        "params": { "_meta": { "io.modelcontextprotocol/protocolVersion": "2099-01-01",
+                               "io.modelcontextprotocol/clientCapabilities": {} } } });
+    let (st, body, _) = mcp(
+        &s,
+        Some(&token),
+        &[
+            ("mcp-protocol-version", "2099-01-01"),
+            ("mcp-method", "tools/list"),
+        ],
+        old,
+    )
+    .await;
+    assert_eq!(
+        (st, body["error"]["code"].clone()),
+        (StatusCode::BAD_REQUEST, json!(-32022))
+    );
+    assert_eq!(body["error"]["data"]["requested"], "2099-01-01");
+
+    // revoking the token ends the access
+    let id = created["device"]["id"].as_str().unwrap();
+    assert_eq!(
+        b.call("DELETE", &format!("/me/devices/{id}"), json!({}))
+            .await
+            .0,
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        mcp(&s, Some(&token), &[], ping).await.0,
+        StatusCode::UNAUTHORIZED
+    );
 }

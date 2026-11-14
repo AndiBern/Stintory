@@ -247,6 +247,8 @@ pub struct Session {
     pub csrf_token: String,
     /// The desktop client making the request (device token), if any
     pub device_id: Option<Uuid>,
+    /// True for a read-only token (MCP endpoint only)
+    pub read_only: bool,
 }
 
 async fn load_session(
@@ -276,6 +278,7 @@ async fn load_session(
                 token_hash: hash,
                 csrf_token: r.get(0),
                 device_id: None,
+                read_only: false,
             },
             r.get(1),
         )
@@ -283,7 +286,7 @@ async fn load_session(
 }
 
 /// The token of an `Authorization: Bearer ...` header.
-fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn bearer_token(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(axum::http::header::AUTHORIZATION)?
         .to_str()
@@ -343,21 +346,33 @@ impl FromRequestParts<SharedState> for Auth {
             }
             None => AccountAuth::from_request_parts(parts, state).await?.0,
         };
-        if session.user.must_change_password {
-            return Err(ApiError::forbidden("please set a new password first")
-                .with_code("password_change_required"));
+        if session.read_only {
+            return Err(
+                ApiError::forbidden("this token only works for the MCP endpoint")
+                    .with_code("read_only_token"),
+            );
         }
-        if !session.user.has_second_factor() {
-            let settings = ServerSettings::load(&state.conn().await?).await?;
-            if settings.enforce_2fa {
-                return Err(
-                    ApiError::forbidden("please set up two-factor authentication first")
-                        .with_code("two_factor_required"),
-                );
-            }
-        }
+        check_restrictions(state, &session).await?;
         Ok(Self(session))
     }
+}
+
+/// Rejects users who must change their password or set up 2FA first.
+pub(crate) async fn check_restrictions(state: &SharedState, session: &Session) -> ApiResult<()> {
+    if session.user.must_change_password {
+        return Err(ApiError::forbidden("please set a new password first")
+            .with_code("password_change_required"));
+    }
+    if !session.user.has_second_factor() {
+        let settings = ServerSettings::load(&state.conn().await?).await?;
+        if settings.enforce_2fa {
+            return Err(
+                ApiError::forbidden("please set up two-factor authentication first")
+                    .with_code("two_factor_required"),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// Logged in as server admin (full access).

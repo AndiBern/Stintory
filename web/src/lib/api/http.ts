@@ -25,6 +25,7 @@ import type {
 	SessionSummary,
 	DeviceInfo,
 	NewDevice,
+	TokenScope,
 	PasskeyInfo,
 	Settings,
 	SyncStatus,
@@ -60,7 +61,7 @@ export interface AccountApi {
 	browserSessions(): Promise<BrowserSession[]>;
 	endBrowserSession(id: string): Promise<void>;
 	devices(): Promise<DeviceInfo[]>;
-	createDevice(name: string): Promise<NewDevice>;
+	createDevice(name: string, scope?: TokenScope): Promise<NewDevice>;
 	revokeDevice(id: string): Promise<void>;
 	/** Approves a desktop app's login; returns where to send the browser. */
 	approveDeviceLogin(request: {
@@ -397,8 +398,8 @@ export class HttpApi implements ApiClient, AccountApi {
 		return this.request<DeviceInfo[]>('GET', '/me/devices');
 	}
 
-	createDevice(name: string): Promise<NewDevice> {
-		return this.request<NewDevice>('POST', '/me/devices', { name });
+	createDevice(name: string, scope: TokenScope = 'sync'): Promise<NewDevice> {
+		return this.request<NewDevice>('POST', '/me/devices', { name, scope });
 	}
 
 	revokeDevice(id: string): Promise<void> {
