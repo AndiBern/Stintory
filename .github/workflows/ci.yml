@@ -78,20 +78,35 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+
+  # A job of its own: next to the workspace build above, the Windows targets
+  # and MinGW don't fit on the disk of a GitHub runner (about 14 GB free).
+  windows-targets:
+    name: Windows targets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install system dependencies (MinGW)
+        run: |
+          SUDO=$(command -v sudo || true)
+          $SUDO apt-get update
+          $SUDO apt-get install -y --no-install-recommends \
+            build-essential pkg-config gcc-mingw-w64-x86-64
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      # in the repo, so the targets go to the toolchain of rust-toolchain.toml
+      - run: rustup target add x86_64-pc-windows-msvc x86_64-pc-windows-gnu
+      - uses: Swatinem/rust-cache@v2
       # Windows-only code (live shared memory readers) can't run here, but it
       # must compile and pass clippy for the Windows target.
-      - run: rustup target add x86_64-pc-windows-msvc
       - run: cargo clippy --target x86_64-pc-windows-msvc -p sy-source-iracing -p sy-source-lmu --all-targets --locked -- -D warnings
       # The Proton bridge (sy-bridge.exe) is cross-built with MinGW; the
       # Linux packages ship it (npm run build:desktop:linux:docker). MinGW also
       # builds its examples' C dependencies (examples/fake_lmu.rs).
+      - run: cargo clippy --target x86_64-pc-windows-gnu -p sy-bridge --all-targets --locked -- -D warnings
       - name: Build the Proton bridge
-        run: |
-          SUDO=$(command -v sudo || true)
-          $SUDO apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
-          rustup target add x86_64-pc-windows-gnu
-          cargo clippy --target x86_64-pc-windows-gnu -p sy-bridge --all-targets --locked -- -D warnings
-          cargo build --release --locked -p sy-bridge --target x86_64-pc-windows-gnu
+        run: cargo build --release --locked -p sy-bridge --target x86_64-pc-windows-gnu
 
   licenses:
     name: Licenses
