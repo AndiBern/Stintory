@@ -289,6 +289,56 @@ fn winton_practice_has_no_pit_lane_laps() {
     assert!(lap(&r, 4, 95_047).lap.valid);
 }
 
+/// Corner insights on real laps: Snetterton 300 has 12 turns; Brundle (a
+/// bend in the braking zone of Nelson) is part of Nelson's approach, so 11
+/// corners. The time lost per corner adds up to the gap between the laps.
+#[test]
+fn snetterton_corners() {
+    let Some(all) = examples() else {
+        return;
+    };
+    let files = files_matching(&all, "snetterton 300 2026-11-05 19-27-13");
+    if files.is_empty() {
+        return;
+    }
+    let r = run(&files);
+    let (best, other) = (lap(&r, 8, 125_172), lap(&r, 7, 125_494));
+    let meta = |l: &RecordedLap| l.lap.clone().into_lap(sy_model::BlobHash::of(b""), 60.0, 0);
+    let (a, b) = (meta(best), meta(other));
+    let report =
+        sy_analysis::corners(&[(&a, &best.telemetry), (&b, &other.telemetry)]).expect("corners");
+    assert_eq!(report.corners.len(), 11, "{:#?}", report.corners);
+
+    let lost: f32 = report.laps[1]
+        .corners
+        .iter()
+        .map(|c| c.time_lost_s.expect("full laps"))
+        .sum();
+    assert!((lost - 0.322).abs() < 0.02, "{lost}");
+
+    // Murrays, the last corner: the slower lap brakes 31 m earlier, while
+    // still in Coram, and loses the most time there
+    let murrays = |l: usize| &report.laps[l].corners[10];
+    let (rb, lb) = (murrays(0).brake_m.unwrap(), murrays(1).brake_m.unwrap());
+    assert!(
+        (rb - 4169.0).abs() < 3.0 && (lb - 4138.0).abs() < 3.0,
+        "{rb} {lb}"
+    );
+    assert!(report.corners[10].segment_start_m < lb);
+    let worst = report.laps[1]
+        .corners
+        .iter()
+        .enumerate()
+        .max_by(|x, y| {
+            x.1.time_lost_s
+                .unwrap()
+                .total_cmp(&y.1.time_lost_s.unwrap())
+        })
+        .unwrap()
+        .0;
+    assert_eq!(worst, 10);
+}
+
 /// Live telemetry has no GPS; the decoder reckons the position from
 /// velocity and heading. It must match the GPS position of the same laps.
 #[test]
