@@ -13,6 +13,10 @@ use crate::{Result, timefmt};
 /// Debug setting: keep raw spool files after they were processed.
 pub const KEEP_RAW_RECORDINGS: &str = "debug.keep_raw_recordings";
 
+/// Setting: closing the window hides the desktop app in the system tray
+/// (`bool`, default off).
+pub const CLOSE_TO_TRAY: &str = "app.close_to_tray";
+
 /// Setting: driver name used for the last `.stintory` export (`Option<String>`).
 pub const EXPORT_DRIVER_NAME: &str = "export.driver_name";
 

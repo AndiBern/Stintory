@@ -138,6 +138,10 @@ export class TauriApi implements ApiClient {
 		return call('get_settings');
 	}
 
+	setCloseToTray(close: boolean): Promise<void> {
+		return call('set_close_to_tray', { close });
+	}
+
 	setKeepRawRecordings(keep: boolean): Promise<void> {
 		return call('set_keep_raw_recordings', { keep });
 	}

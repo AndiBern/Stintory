@@ -14,6 +14,7 @@ mod mcp;
 mod recording;
 mod state;
 mod sync;
+mod tray;
 
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -44,7 +45,17 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     appimage::integrate();
 
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    // A second start shows the running app's window instead (it may be
+    // hidden in the tray). Two apps on the same data directory would both
+    // record. Skipped with an own data directory, so a development build
+    // can run next to the installed app.
+    if std::env::var_os(DATA_DIR_ENV).is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main_window(app);
+        }));
+    }
+    let app = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -74,10 +85,22 @@ pub fn run() {
                 state.lmu.clone(),
                 state.bridge.clone(),
             );
+            let close_to_tray = state
+                .store
+                .with(|s| s.setting(sy_store::CLOSE_TO_TRAY))
+                .unwrap_or_else(|e| {
+                    tracing::warn!(error = %e, "couldn't read the tray setting");
+                    None
+                })
+                .unwrap_or(false);
+            if close_to_tray && let Err(e) = tray::enable(app.handle()) {
+                tracing::warn!(error = %e, "close to tray not available");
+            }
             app.manage(state);
             app.manage(sync);
             Ok(())
         })
+        .on_window_event(tray::on_window_event)
         .invoke_handler(tauri::generate_handler![
             commands::get_info,
             commands::list_sessions,
@@ -99,6 +122,7 @@ pub fn run() {
             commands::open_shared_session,
             commands::get_settings,
             commands::set_keep_raw_recordings,
+            commands::set_close_to_tray,
             commands::set_f1_capture,
             commands::set_lmu_capture,
             commands::set_proton_bridge,

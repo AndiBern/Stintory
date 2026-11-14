@@ -239,7 +239,7 @@ Frontend gets resampled arrays (not raw) for comparison. These are computed on d
 7. **Share dialog** (session or lap): "Use my default" or custom: an "Everyone on this server" toggle plus a picker for users and teams, with a summary of who can see it.
 8. **Teams** (when connected to a server): my teams, create team, invite (by username or invite link), pending invites to accept/decline, members and roles, leave team.
 9. **Account** (when connected): login via browser (§9.3), change password, manage passkeys, set up TOTP + recovery codes, list/revoke devices.
-10. **Settings**: data directory, enabled games, F1 UDP port/forwarding, server URL, default sharing, auto-sync on/off. **Advanced/Debug:** "Keep raw recordings" + raw folder size/open/delete, log level.
+10. **Settings**: data directory, close to tray (desktop: closing the window hides the app in the system tray; a second start shows the running app), enabled games, F1 UDP port/forwarding, server URL, default sharing, auto-sync on/off. **Advanced/Debug:** "Keep raw recordings" + raw folder size/open/delete, log level.
 
 ## 8. Export / import format
 
@@ -387,7 +387,7 @@ The MVP is complete (version 0.2.0, November 2026): the core features of §2 wor
 |---|---|
 | Capture | iRacing live (Windows) and `.ibt` import (everywhere). F1 25 incl. the 2026 Season Pack format over UDP (Windows, Linux, consoles/other PCs, forwarding to other apps). LMU from the shared memory (Windows, and Linux through `sy-bridge.exe`). Raw spool with crash recovery, player-only filtering before the spool. All three games checked with real recordings, which are golden tests (docs/games/) |
 | Analysis | Distance resampling, delta, track map, game sectors, corner insights (§6.5) |
-| Desktop app | Sessions, session detail, lap view, compare with synced traces and map, reference laps (own, imported, shared), `.stintory` + CSV export/import, settings for every game, Proton bridge setup, MCP over stdio (`stintory mcp`) |
+| Desktop app | Sessions, session detail, lap view, compare with synced traces and map, reference laps (own, imported, shared), `.stintory` + CSV export/import, settings for every game, Proton bridge setup, MCP over stdio (`stintory mcp`), close to tray, single instance |
 | Server | Docker image; accounts with password, TOTP + recovery codes and passkeys; admin page and CLI reset; device login from the desktop app; sync of own data; teams, invites and sharing; web UI with the same views as the desktop app; reference laps across users; MCP endpoint with OAuth 2.1 (docs/SERVER.md) |
 
 **Known gaps**

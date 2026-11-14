@@ -580,6 +580,9 @@ pub struct Settings {
     /// (desktop app)
     #[serde(default)]
     pub mcp_command: Option<McpCommand>,
+    /// Closing the window hides the app in the system tray (desktop app)
+    #[serde(default)]
+    pub close_to_tray: bool,
     /// Debug: keep raw recordings after processing
     pub keep_raw_recordings: bool,
     /// Size of all raw recordings on disk, bytes

@@ -18,8 +18,8 @@ use sy_model::api::{
 use sy_model::{Lap, LapId, LapTelemetry, Origin, SessionId};
 use sy_source_iracing::IbtSource;
 use sy_store::{
-    EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, F1_CAPTURE, KEEP_RAW_RECORDINGS,
-    LMU_CAPTURE, PROTON_BRIDGE, SpoolState, Store, StoreError,
+    CLOSE_TO_TRAY, EXPORT_DRIVER_NAME, ExportOptions, ExportSelection, F1_CAPTURE,
+    KEEP_RAW_RECORDINGS, LMU_CAPTURE, PROTON_BRIDGE, SpoolState, Store, StoreError,
 };
 use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_opener::OpenerExt;
@@ -532,6 +532,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
                         .map(|dir| [(crate::DATA_DIR_ENV.to_owned(), dir)].into())
                         .unwrap_or_default(),
                 }),
+                close_to_tray: store.setting(CLOSE_TO_TRAY)?.unwrap_or(false),
                 keep_raw_recordings: store.setting(KEEP_RAW_RECORDINGS)?.unwrap_or(false),
                 raw_storage_bytes: store.spool_size()?,
                 failed_recordings: store.spools(&[SpoolState::Failed])?.len() as u32,
@@ -618,6 +619,24 @@ pub async fn set_proton_bridge(
         .await?;
     state.bridge.changed();
     Ok(())
+}
+
+/// Closing the window hides the app in the system tray. Creates or removes
+/// the tray icon right away; not saved if the tray isn't available.
+#[tauri::command]
+pub async fn set_close_to_tray(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    close: bool,
+) -> CmdResult<()> {
+    if close {
+        crate::tray::enable(&app).map_err(CommandError::BadRequest)?;
+    } else {
+        crate::tray::disable(&app);
+    }
+    Ok(state
+        .with_store(move |s| s.set_setting(CLOSE_TO_TRAY, &close))
+        .await?)
 }
 
 /// Debug setting: keep raw recordings after processing.

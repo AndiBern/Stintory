@@ -197,6 +197,10 @@ export class HttpApi implements ApiClient, AccountApi {
 		return Promise.reject(notAvailable('Local settings'));
 	}
 
+	setCloseToTray(): Promise<void> {
+		return Promise.reject(notAvailable('Local settings'));
+	}
+
 	setKeepRawRecordings(): Promise<void> {
 		return Promise.reject(notAvailable('Local settings'));
 	}

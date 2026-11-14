@@ -90,6 +90,8 @@ export interface ApiClient {
 	 */
 	exportCsv(lapIds: string[], suggestedName: string): Promise<ExportResult | null>;
 	getSettings(): Promise<Settings>;
+	/** Desktop app: closing the window hides the app in the system tray. */
+	setCloseToTray(close: boolean): Promise<void>;
 	setKeepRawRecordings(keep: boolean): Promise<void>;
 	/** Applied as soon as no F1 session is being recorded. */
 	setF1Capture(settings: F1CaptureSettings): Promise<void>;

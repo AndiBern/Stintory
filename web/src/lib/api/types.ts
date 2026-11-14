@@ -274,6 +274,8 @@ export interface Settings {
 	dataDir: string;
 	/** Desktop app: how to start its MCP server for AI assistants */
 	mcpCommand?: McpCommand | null;
+	/** Desktop app: closing the window hides the app in the system tray */
+	closeToTray: boolean;
 	keepRawRecordings: boolean;
 	rawStorageBytes: number;
 	failedRecordings: number;

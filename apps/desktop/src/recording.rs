@@ -58,6 +58,7 @@ impl StatusReporter {
             f(&mut s);
             s.clone()
         };
+        crate::tray::show_status(&self.app, &snapshot);
         let _ = self.app.emit(EVENT_RECORDER_STATUS, snapshot);
     }
 

@@ -35,9 +35,10 @@ sy-sync.workspace = true
 keyring = "4"
 serde.workspace = true
 serde_json.workspace = true
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
 time.workspace = true
 tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
 dirs = "7"
@@ -45,6 +46,9 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libloading = "0.7"
 
 [lints]
 workspace = true

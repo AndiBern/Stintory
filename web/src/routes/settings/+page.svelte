@@ -32,6 +32,18 @@
 		await load();
 	}
 
+	let trayError: string | null = $state(null);
+
+	async function setCloseToTray(close: boolean) {
+		trayError = null;
+		try {
+			await client.setCloseToTray(close);
+		} catch (e) {
+			trayError = e instanceof Error ? e.message : String(e);
+		}
+		await load();
+	}
+
 	let openError: string | null = $state(null);
 
 	async function openDataDir() {
@@ -104,6 +116,28 @@
 {#if active === null}
 	<p class="text-zinc-400">Loading…</p>
 {:else if active === 'general'}
+	<section class="mb-6 max-w-2xl rounded border border-zinc-800 p-4">
+		<h2 class="mb-1 font-medium">Window</h2>
+		<p class="mb-3 text-sm text-zinc-400">
+			Closing the window keeps Stintory running in the system tray, so it goes on recording and
+			syncing. Quit it from the tray icon's menu.
+		</p>
+		{#if settings}
+			<label class="flex items-center gap-2 text-sm">
+				<input
+					type="checkbox"
+					checked={settings.closeToTray}
+					onchange={(e) => setCloseToTray(e.currentTarget.checked)}
+				/>
+				Close to tray
+			</label>
+			{#if trayError}
+				<p class="mt-2 text-sm text-red-400" role="alert">{trayError}</p>
+			{/if}
+		{:else if loading}
+			<p class="text-sm text-zinc-400">Loading…</p>
+		{/if}
+	</section>
 	<section class="mb-6 max-w-2xl rounded border border-zinc-800 p-4">
 		<h2 class="mb-3 font-medium">Storage</h2>
 		{#if settings}
