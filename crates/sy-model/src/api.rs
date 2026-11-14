@@ -346,6 +346,10 @@ pub struct CompareData {
     pub units: BTreeMap<String, String>,
     /// The laps, reference first
     pub laps: Vec<LapTrace>,
+    /// Corners found on the reference lap and how each lap drives them;
+    /// None if the reference has no lateral acceleration
+    #[serde(default)]
+    pub corners: Option<CornerReport>,
 }
 
 /// Direction of a corner.

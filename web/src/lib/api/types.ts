@@ -170,6 +170,65 @@ export interface CompareData {
 	distM: number[];
 	units: Record<string, string>;
 	laps: LapTrace[];
+	/**
+	 * Corners of the reference lap and how each lap drives them; null if the
+	 * reference has no lateral acceleration
+	 */
+	corners?: CornerReport | null;
+}
+
+export type TurnDirection = 'left' | 'right';
+
+/**
+ * A corner, found on the reference lap; distances in metres from the line.
+ * Its segment runs from before the earliest braking, lift or turn-in of the
+ * compared laps to the next corner's segment and includes the straight after
+ * it. The last one wraps around the line (segmentEndM < segmentStartM), so
+ * the segment times add up to the lap time.
+ */
+export interface Corner {
+	/** From 1 in driving order (Stintory's count, not the official turns) */
+	number: number;
+	direction: TurnDirection;
+	startM: number;
+	/** Where the reference is slowest */
+	apexM: number;
+	endM: number;
+	segmentStartM: number;
+	segmentEndM: number;
+	minRadiusM: number;
+}
+
+/**
+ * How one lap drives one corner. Distances in metres from the line, speeds
+ * m/s, pedals 0–1; null where there is no data or the event doesn't happen.
+ */
+export interface CornerLapStats {
+	timeS: number | null;
+	/** vs. the reference, positive = slower */
+	timeLostS: number | null;
+	/** Part of timeLostS up to the apex */
+	entryLostS: number | null;
+	/** Part of timeLostS after the apex */
+	exitLostS: number | null;
+	topSpeedMps: number | null;
+	liftM: number | null;
+	brakeM: number | null;
+	brakeMax: number | null;
+	brakeReleaseM: number | null;
+	minSpeedMps: number | null;
+	minSpeedM: number | null;
+	minSpeedGear: number | null;
+	throttleM: number | null;
+	fullThrottleM: number | null;
+	exitSpeedMps: number | null;
+	flatOut: boolean;
+}
+
+export interface CornerReport {
+	corners: Corner[];
+	/** Reference first, like {@link CompareData.laps} */
+	laps: { lapId: string; corners: CornerLapStats[] }[];
 }
 
 export interface ImportResult {

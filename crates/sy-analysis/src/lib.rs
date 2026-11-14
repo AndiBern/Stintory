@@ -207,7 +207,7 @@ fn common_grid_len<'a>(laps: impl Iterator<Item = &'a LapTelemetry>, step_m: f32
 }
 
 /// Resamples the given laps onto a common grid and computes each lap's delta
-/// to the first lap (the reference).
+/// to the first lap (the reference), and the corner analysis ([`corners`]).
 pub fn compare(laps: &[(&Lap, &LapTelemetry)], step_m: f32) -> Result<CompareData, AnalysisError> {
     let grid_len = common_grid_len(laps.iter().map(|(_, t)| *t), step_m);
 
@@ -244,6 +244,7 @@ pub fn compare(laps: &[(&Lap, &LapTelemetry)], step_m: f32) -> Result<CompareDat
         dist_m: (0..grid_len).map(|g| g as f32 * step_m).collect(),
         units,
         laps: traces,
+        corners: corners(laps).ok(),
     })
 }
 
@@ -365,6 +366,8 @@ mod tests {
         assert!((d[1000] - 5.0).abs() < 1e-3);
         assert_eq!(c.units[names::SPEED], "m/s");
         assert!(c.laps[0].channels.contains_key(names::GEAR));
+        // no lateral acceleration in these laps: no corner analysis
+        assert_eq!(c.corners, None);
     }
 
     #[test]
