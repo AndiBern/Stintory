@@ -7,7 +7,7 @@
 	track in the corner.
 -->
 <script lang="ts">
-	import type { CompareData } from '#lib/api/index.ts';
+	import type { CompareData, Corner } from '#lib/api/index.ts';
 	import { lapColor } from './colors.ts';
 	import {
 		carIndex,
@@ -25,6 +25,7 @@
 		cursor,
 		labels,
 		section = null,
+		corners = [],
 		mode = $bindable('distance')
 	}: {
 		data: CompareData;
@@ -34,6 +35,8 @@
 		labels: string[];
 		/** the part of the lap being looked at, highlighted in the overview */
 		section?: Section | null;
+		/** corners, numbered at their apex on the outside of the bend */
+		corners?: Corner[];
 		mode?: OffsetMode;
 	} = $props();
 
@@ -194,6 +197,50 @@
 			ctx.lineWidth = 2 * px;
 			ctx.stroke();
 		}
+
+		// corner numbers, on the outside of the bend (before the cars, which
+		// go on top)
+		ctx.restore();
+		ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		const rc = Math.cos(rotation);
+		const rs = Math.sin(rotation);
+		const toScreen = (p: Point) => {
+			const dx = p.x - centre.x;
+			const dy = p.y - centre.y;
+			return {
+				x: width / 2 + zoom * (dx * rc - dy * rs),
+				y: HEIGHT / 2 - zoom * (dx * rs + dy * rc)
+			};
+		};
+		for (const c of corners) {
+			const i = Math.round(c.apexM / data.stepM);
+			const p = positionAt(ref, i);
+			const h = headingAt(ref, i, data.stepM, 8);
+			if (!p || h === null) continue;
+			// left of the driving direction is outside in a right-hander
+			const out = h + (c.direction === 'right' ? Math.PI / 2 : -Math.PI / 2);
+			const d = 22 / zoom;
+			const s = toScreen({ x: p.x + Math.cos(out) * d, y: p.y + Math.sin(out) * d });
+			if (s.x < -20 || s.y < -20 || s.x > width + 20 || s.y > HEIGHT + 20) continue;
+			ctx.beginPath();
+			ctx.arc(s.x, s.y, 10, 0, Math.PI * 2);
+			ctx.fillStyle = page;
+			ctx.globalAlpha = 0.85;
+			ctx.fill();
+			ctx.globalAlpha = 1;
+			ctx.strokeStyle = grid;
+			ctx.lineWidth = 1;
+			ctx.stroke();
+			ctx.fillStyle = muted;
+			ctx.fillText(String(c.number), s.x, s.y + 0.5);
+		}
+		ctx.save();
+		ctx.translate(width / 2, HEIGHT / 2);
+		ctx.scale(zoom, -zoom);
+		ctx.rotate(rotation);
+		ctx.translate(-centre.x, -centre.y);
 
 		// cars: the reference first, the others on top of it
 		data.laps.forEach((lap, k) => {

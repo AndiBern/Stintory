@@ -5,8 +5,10 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
-	import { api, type CompareData, type LapTrace } from '#lib/api/index.ts';
+	import { api, type CompareData, type Corner, type LapTrace } from '#lib/api/index.ts';
 	import CompareCharts from '#lib/charts/CompareCharts.svelte';
+	import CornerTable from '#lib/charts/CornerTable.svelte';
+	import { cornerRange } from '#lib/charts/corners.ts';
 	import FollowMap from '#lib/charts/FollowMap.svelte';
 	import { lapColor } from '#lib/charts/colors.ts';
 	import type { XRange } from '#lib/charts/compare-panels.ts';
@@ -107,6 +109,27 @@
 		if (cursor <= start) return;
 		range = { min: at(start), max: at(cursor) };
 	}
+
+	/** Shows a corner: its segment in the charts, the cursor at its apex. */
+	function showCorner(c: Corner) {
+		if (!data) return;
+		playing = false;
+		range = cornerRange(c, at(last));
+		const apex = Math.round(c.apexM / data.stepM);
+		cursor = Math.min(sectionOf(data, range).end, Math.max(first, apex));
+	}
+
+	/** The corner whose segment is the current section, if any. */
+	const selectedCorner = $derived.by(() => {
+		const r = range;
+		if (!r || !data?.corners) return null;
+		const end = at(last);
+		const c = data.corners.corners.find((c) => {
+			const cr = cornerRange(c, end);
+			return cr.min === r.min && cr.max === r.max;
+		});
+		return c?.number ?? null;
+	});
 
 	/** Moving through the lap by hand stops the playback. */
 	function seek(index: number) {
@@ -254,11 +277,14 @@
 		{/each}
 	</ul>
 
+	<CornerTable {data} labels={shortLabels} selected={selectedCorner} onselect={showCorner} />
+
 	<FollowMap
 		data={view ?? data}
 		{cursor}
 		labels={shortLabels}
 		section={range ? section : null}
+		corners={data.corners?.corners ?? []}
 		bind:mode
 	/>
 
