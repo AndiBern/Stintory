@@ -815,6 +815,18 @@ pub enum SyncState {
     Syncing,
 }
 
+/// Which side has to be updated before the desktop app and the server sync.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateNeeded {
+    /// The app is older than the server
+    App,
+    /// The server is older than the app
+    Server,
+    /// The versions differ, but which one is newer is unclear
+    AppOrServer,
+}
+
 /// Sync status shown in the desktop app.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -841,6 +853,11 @@ pub struct SyncStatus {
     pub last_pulled: u32,
     /// Why the last sync or connection attempt failed
     pub last_error: Option<String>,
+    /// The server's version, once the app talked to it
+    pub server_version: Option<String>,
+    /// Set when the app and the server run different versions: they only
+    /// sync when both are on the same version
+    pub update_needed: Option<UpdateNeeded>,
 }
 
 impl SyncStatus {
@@ -857,6 +874,8 @@ impl SyncStatus {
             last_pushed: 0,
             last_pulled: 0,
             last_error: None,
+            server_version: None,
+            update_needed: None,
         }
     }
 }

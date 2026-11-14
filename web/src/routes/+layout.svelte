@@ -153,6 +153,8 @@
 							Syncing…
 						{:else if app.sync.state === 'connecting'}
 							Connecting…
+						{:else if app.sync.updateNeeded}
+							<span class="text-amber-400">Update needed to sync</span>
 						{:else if app.sync.lastError}
 							<span class="text-amber-400">Sync failed</span>
 						{:else}

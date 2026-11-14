@@ -352,6 +352,7 @@ GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, adm
 ```
 
 ### 9.5 Sync protocol (client side, `sy-sync`)
+- Versions: the app and the server only sync when both run exactly the same version (`GET /info`, checked at the start of every sync). On a mismatch the app shows the server's version and which side to update (the older one), and passes no teams/sharing requests on until a sync finds both on the same version again.
 - Push: on lap completion (if auto-sync) or manually. Send manifest diff → upload missing blobs → upsert metadata. Retries with backoff and works offline-first (outbox table in SQLite). "Missing" means missing for this user: a lap may only refer to a telemetry file its owner uploaded or imported, so knowing a hash (e.g. of a lap that is no longer shared) gives no access. Files are still stored once.
 - Pull: own data from other devices (e.g. view on Linux what was recorded on Windows), and **on-demand** fetch of laps shared with me when chosen as a reference (no full mirror). Teams and invites are refreshed on each sync. Cached foreign laps that lost access are deleted.
 - Teams and sharing live on the server. The desktop app's frontend uses the same API as the browser; the Tauri backend passes the requests on with the device token (only the teams and sharing paths). So they need a connection for now.

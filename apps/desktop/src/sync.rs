@@ -10,6 +10,9 @@
 //! - A background task syncs a few seconds after something changed
 //!   ([`SyncManager::nudge`]), every few minutes, and on request.
 //! - If the server revoked the token, the app disconnects and tells the user.
+//! - The app only syncs with a server of the same version; otherwise the
+//!   status says which side to update, and requests to the server stop until
+//!   a sync finds both on the same version again.
 //! - Teams and sharing live on the server: the frontend's requests are passed
 //!   on with the device token ([`SyncManager::server_request`]). Sessions
 //!   others shared are kept locally as references while access lasts.
@@ -258,6 +261,20 @@ impl SyncManager {
         msg
     }
 
+    /// Refuses to talk to a server of another version (as the last sync
+    /// found it).
+    fn same_version(&self) -> SyncResult<()> {
+        let s = self.status();
+        match (s.update_needed, s.server_version) {
+            (Some(update), Some(server)) => Err(sy_sync::version::mismatch_message(
+                sy_sync::VERSION,
+                &server,
+                update,
+            )),
+            _ => Ok(()),
+        }
+    }
+
     /// A request of the server's teams and sharing API as this device's
     /// user (see `commands::server_request`).
     pub async fn server_request(
@@ -266,6 +283,7 @@ impl SyncManager {
         path: &str,
         body: Option<&serde_json::Value>,
     ) -> SyncResult<serde_json::Value> {
+        self.same_version()?;
         let client = self.client().await?;
         match client.request(method, path, body).await {
             Ok(v) => Ok(v),
@@ -283,6 +301,7 @@ impl SyncManager {
         if self.status().server_url.is_none() {
             return Ok(None);
         }
+        self.same_version()?;
         let client = self.client().await?;
         match client.shared_reference_laps(track_key, car_key).await {
             Ok(v) => Ok(Some(v)),
@@ -293,6 +312,7 @@ impl SyncManager {
     /// Keeps a session someone shared as a local reference (or refreshes
     /// the copy); returns the id of the local session.
     pub async fn open_shared(&self, owner: uuid::Uuid, id: SessionId) -> SyncResult<SessionId> {
+        self.same_version()?;
         let client = self.client().await?;
         match fetch_shared_session(&client, &self.store, owner, id).await {
             Ok(local) => {
@@ -322,6 +342,8 @@ impl SyncManager {
                     s.last_pushed = report.pushed_sessions + report.pushed_laps;
                     s.last_pulled = report.pulled_sessions + report.pulled_laps;
                     s.last_error = None;
+                    s.server_version = Some(report.server_version);
+                    s.update_needed = None;
                 }))
             }
             Err(SyncError::Revoked) => {
@@ -335,6 +357,10 @@ impl SyncManager {
                 self.update(|s| {
                     s.state = SyncState::Idle;
                     s.last_error = Some(msg.clone());
+                    if let SyncError::VersionMismatch { server, update, .. } = e {
+                        s.server_version = Some(server);
+                        s.update_needed = Some(update);
+                    }
                 });
                 Err(msg)
             }
@@ -451,6 +477,8 @@ impl SyncManager {
             s.token_in_keychain = in_keychain;
             s.last_error = None;
             s.last_sync_at = None;
+            s.server_version = None;
+            s.update_needed = None;
         });
         self.wake.notify_one();
         Ok(status)

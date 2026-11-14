@@ -16,6 +16,12 @@
 
 	const s = $derived(app.sync);
 
+	let appVersion = $state<string | null>(null);
+	client
+		.getInfo()
+		.then((i) => (appVersion = i.version))
+		.catch(() => {});
+
 	async function act(action: () => Promise<unknown>) {
 		busy = true;
 		error = null;
@@ -110,6 +116,13 @@
 		<dl class="mb-3 grid grid-cols-[9rem_1fr] gap-y-1 text-sm">
 			<dt class="text-zinc-400">Server</dt>
 			<dd class="break-all">{s.serverUrl}</dd>
+			<dt class="text-zinc-400">Server version</dt>
+			<dd>
+				{s.serverVersion ?? 'not known yet'}
+				{#if s.updateNeeded && appVersion}
+					<span class="text-zinc-500">· this app: {appVersion}</span>
+				{/if}
+			</dd>
 			<dt class="text-zinc-400">Account</dt>
 			<dd>@{s.username}</dd>
 			<dt class="text-zinc-400">This computer</dt>
@@ -126,6 +139,26 @@
 				{/if}
 			</dd>
 		</dl>
+		{#if s.updateNeeded}
+			<div
+				class="mb-3 rounded border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-200"
+				role="alert"
+			>
+				<p class="font-medium">
+					{#if s.updateNeeded === 'app'}
+						Update the app to sync
+					{:else if s.updateNeeded === 'server'}
+						Update the server to sync
+					{:else}
+						Update the app or the server to sync
+					{/if}
+				</p>
+				<p class="mt-1 text-amber-200/80">
+					The app and the server only sync when both run the same version. Syncing resumes once they
+					match.
+				</p>
+			</div>
+		{/if}
 		{#if !s.tokenInKeychain}
 			<p class="mb-3 text-xs text-amber-300/80">
 				No system keychain was found, so the login is kept in the app's data folder.
@@ -153,7 +186,7 @@
 		</div>
 	{/if}
 
-	{#if error ?? s?.lastError}
+	{#if error ?? (s?.updateNeeded ? null : s?.lastError)}
 		<p class="mt-3 text-sm text-red-400" role="alert">{error ?? s?.lastError}</p>
 	{/if}
 </section>

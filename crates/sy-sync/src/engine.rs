@@ -23,9 +23,11 @@ const PUSH_BATCH: usize = 500;
 const PULL_BATCH: u32 = 500;
 
 /// What a sync run did.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncReport {
+    /// The server's version (the same as this client's)
+    pub server_version: String,
     /// Sessions sent to the server
     pub pushed_sessions: u32,
     /// Laps sent to the server
@@ -65,7 +67,10 @@ where
 
 /// Pushes local changes, then pulls changes from the server.
 pub async fn sync_once(client: &Client, store: &SharedStore) -> Result<SyncReport, SyncError> {
-    let mut report = SyncReport::default();
+    let mut report = SyncReport {
+        server_version: client.check_server_version().await?,
+        ..SyncReport::default()
+    };
     push(client, store, &mut report).await?;
     pull(client, store, &mut report).await?;
     revoke(client, store, &mut report).await?;

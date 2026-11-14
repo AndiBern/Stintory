@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use reqwest::{RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
-use sy_model::api::ReferenceLap;
+use sy_model::api::{AppInfo, ReferenceLap, UpdateNeeded};
 use sy_model::remote::{
     BlobHashes, CurrentDevice, ForeignLap, ForeignLapCheck, ForeignLapCheckResult, MissingBlobs,
     NewDevice, SharedSessionDownload, SyncChanges, SyncPush, SyncPushResult, TokenRequest,
@@ -43,6 +43,16 @@ pub enum SyncError {
     /// Local store error
     #[error(transparent)]
     Store(#[from] sy_store::StoreError),
+    /// The server runs another version than the app
+    #[error("{}", crate::version::mismatch_message(app, server, *update))]
+    VersionMismatch {
+        /// This app's version
+        app: String,
+        /// The server's version
+        server: String,
+        /// Which side to update
+        update: UpdateNeeded,
+    },
 }
 
 impl SyncError {
@@ -159,6 +169,19 @@ impl Client {
             .json()
             .await
             .map_err(SyncError::network)
+    }
+
+    /// The server's name and version (no token needed).
+    pub async fn server_info(&self) -> Result<AppInfo, SyncError> {
+        self.json(self.http.get(self.url("/info"))).await
+    }
+
+    /// The server's version, if it is the same as this client's
+    /// ([`SyncError::VersionMismatch`] otherwise).
+    pub async fn check_server_version(&self) -> Result<String, SyncError> {
+        let info = self.server_info().await?;
+        crate::version::check_version(&info.version)?;
+        Ok(info.version)
     }
 
     /// The device and user of the token.

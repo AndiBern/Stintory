@@ -442,6 +442,9 @@ export interface AuditEntry {
 
 export type SyncState = 'disconnected' | 'connecting' | 'idle' | 'syncing';
 
+/** Which side to update before the app and the server sync again. */
+export type UpdateNeeded = 'app' | 'server' | 'app_or_server';
+
 export interface SyncStatus {
 	state: SyncState;
 	serverUrl: string | null;
@@ -454,6 +457,10 @@ export interface SyncStatus {
 	lastPushed: number;
 	lastPulled: number;
 	lastError: string | null;
+	/** Known once the app talked to the server */
+	serverVersion: string | null;
+	/** Set when the app and the server run different versions (no sync then) */
+	updateNeeded: UpdateNeeded | null;
 }
 
 /** A desktop app connected to the user's account (server). */
