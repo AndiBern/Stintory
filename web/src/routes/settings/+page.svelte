@@ -32,6 +32,17 @@
 		await load();
 	}
 
+	let openError: string | null = $state(null);
+
+	async function openDataDir() {
+		openError = null;
+		try {
+			await client.openDataDir();
+		} catch (e) {
+			openError = e instanceof Error ? e.message : String(e);
+		}
+	}
+
 	async function deleteRaw() {
 		if (!(await confirmAction('Delete all kept raw recordings?'))) return;
 		await client.deleteRawRecordings();
@@ -100,6 +111,16 @@
 				<dt class="text-zinc-400">Data directory</dt>
 				<dd class="font-mono text-xs break-all">{settings.dataDir}</dd>
 			</dl>
+			<button
+				type="button"
+				class="mt-3 rounded border border-zinc-700 px-3 py-1 text-sm hover:border-zinc-500"
+				onclick={openDataDir}
+			>
+				Open data directory
+			</button>
+			{#if openError}
+				<p class="mt-2 text-sm text-red-400" role="alert">{openError}</p>
+			{/if}
 		{:else if loading}
 			<p class="text-sm text-zinc-400">Loading…</p>
 		{/if}

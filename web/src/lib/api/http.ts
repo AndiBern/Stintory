@@ -217,6 +217,10 @@ export class HttpApi implements ApiClient, AccountApi {
 		return Promise.reject(notAvailable('Local settings'));
 	}
 
+	openDataDir(): Promise<void> {
+		return Promise.reject(notAvailable('Local settings'));
+	}
+
 	recorderStatus(): Promise<RecorderStatus> {
 		return Promise.resolve({
 			state: 'unsupported',

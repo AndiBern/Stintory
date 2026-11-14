@@ -158,6 +158,10 @@ export class TauriApi implements ApiClient {
 		return call('delete_raw_recordings');
 	}
 
+	openDataDir(): Promise<void> {
+		return call('open_data_dir');
+	}
+
 	recorderStatus(): Promise<RecorderStatus> {
 		return call('recorder_status');
 	}

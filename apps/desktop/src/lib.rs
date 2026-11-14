@@ -103,6 +103,7 @@ pub fn run() {
             commands::set_lmu_capture,
             commands::set_proton_bridge,
             commands::delete_raw_recordings,
+            commands::open_data_dir,
             commands::recorder_status,
         ])
         .build(tauri::generate_context!())

@@ -22,6 +22,7 @@ use sy_store::{
     LMU_CAPTURE, PROTON_BRIDGE, SpoolState, Store, StoreError,
 };
 use tauri::{AppHandle, Emitter, State};
+use tauri_plugin_opener::OpenerExt;
 
 use crate::state::AppState;
 use crate::sync::SyncManager;
@@ -46,6 +47,9 @@ pub enum CommandError {
     /// Bad input from the frontend
     #[error("{0}")]
     BadRequest(String),
+    /// The system couldn't open a file or folder
+    #[error("cannot open {0}")]
+    Open(String),
 }
 
 impl Serialize for CommandError {
@@ -622,6 +626,16 @@ pub async fn set_keep_raw_recordings(state: State<'_, AppState>, keep: bool) -> 
     Ok(state
         .with_store(move |s| s.set_setting(KEEP_RAW_RECORDINGS, &keep))
         .await?)
+}
+
+/// Opens the data directory in the system's file browser. Takes no path:
+/// the frontend can only open this one folder.
+#[tauri::command]
+pub async fn open_data_dir(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    let dir = state.with_store(|s| Ok(s.root().to_path_buf())).await?;
+    app.opener()
+        .open_path(dir.display().to_string(), None::<&str>)
+        .map_err(|e| CommandError::Open(format!("{}: {e}", dir.display())))
 }
 
 /// Deletes all kept raw recordings (processed or failed; not the one being

@@ -97,6 +97,8 @@ export interface ApiClient {
 	/** Linux: applied as soon as no game is being recorded through the bridge. */
 	setProtonBridge(settings: ProtonBridgeSettings): Promise<void>;
 	deleteRawRecordings(): Promise<void>;
+	/** Opens the data directory in the system's file browser. */
+	openDataDir(): Promise<void>;
 	recorderStatus(): Promise<RecorderStatus>;
 
 	syncStatus(): Promise<SyncStatus>;
