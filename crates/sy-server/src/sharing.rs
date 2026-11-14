@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Sharing sessions and laps with users, teams and everyone on the server
-//! (docs/PLAN.md §9.2).
+//! (docs/ARCHITECTURE.md §9.2).
 //!
 //! # Rules
 //!
@@ -791,7 +791,7 @@ pub async fn download_shared(
 }
 
 /// `POST /shared/check`: which of the laps of others a client keeps the
-/// user may not read anymore (docs/PLAN.md §9.2, revocation).
+/// user may not read anymore (docs/ARCHITECTURE.md §9.2, revocation).
 pub async fn check_foreign(
     State(state): State<SharedState>,
     Auth(session): Auth,

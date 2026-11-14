@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Passkeys (WebAuthn, docs/PLAN.md §9.3), via `webauthn-rs`.
+//! Passkeys (WebAuthn, docs/ARCHITECTURE.md §9.3), via `webauthn-rs`.
 //!
 //! - **Passwordless login**: `POST /auth/passkey/start` + `…/finish`. The
 //!   browser offers the user's passkeys for this site (discoverable

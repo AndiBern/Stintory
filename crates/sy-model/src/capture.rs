@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! The interface between game adapters and the capture pipeline
-//! (docs/PLAN.md §5).
+//! (docs/ARCHITECTURE.md §5).
 //!
 //! A game adapter has two parts:
 //!
 //! - a [`RawSource`] reads the game (shared memory, UDP, file) and returns
 //!   [`RawRecord`]s. Data about other cars and drivers must already be
-//!   removed (docs/PLAN.md §5.2), because raw records are spooled to disk.
+//!   removed (docs/ARCHITECTURE.md §5.2), because raw records are spooled to disk.
 //! - a [`Decoder`] turns raw records into [`SourceEvent`]s for the recorder.
 //!
 //! The split makes live capture, crash recovery (replaying a spool file) and

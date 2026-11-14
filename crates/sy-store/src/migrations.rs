@@ -62,7 +62,7 @@ CREATE INDEX laps_by_session ON laps (session_id, number);
 CREATE INDEX laps_by_blob ON laps (blob_hash);
 "#;
 
-/// Version 2: raw spool files (docs/PLAN.md §5.1). `path` is relative to
+/// Version 2: raw spool files (docs/ARCHITECTURE.md §5.1). `path` is relative to
 /// the data directory.
 const V2_RAW_SPOOL: &str = r#"
 CREATE TABLE raw_spools (
@@ -106,7 +106,7 @@ CREATE TABLE session_aliases (
 CREATE INDEX session_aliases_by_session ON session_aliases (session_id);
 "#;
 
-/// Version 5: sync with a server (docs/PLAN.md §9.5). `sync_pushed`
+/// Version 5: sync with a server (docs/ARCHITECTURE.md §9.5). `sync_pushed`
 /// remembers which version (`updated_at`) of a session or lap the server
 /// has; `sync_deleted` lists deleted sessions the server must still hear
 /// about.

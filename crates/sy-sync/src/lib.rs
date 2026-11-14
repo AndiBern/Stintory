@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Client side of the Stintory server (docs/PLAN.md §9.3, §9.5):
+//! Client side of the Stintory server (docs/ARCHITECTURE.md §9.3, §9.5):
 //!
 //! - [`DeviceLogin`]: connect a desktop app through the system browser
 //!   (loopback redirect + PKCE);

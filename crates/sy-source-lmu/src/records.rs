@@ -3,7 +3,7 @@
 
 //! The raw records the LMU source spools, and their parsed form.
 //!
-//! Only the player's car is spooled (docs/PLAN.md §5.2), never the whole
+//! Only the player's car is spooled (docs/ARCHITECTURE.md §5.2), never the whole
 //! `LMU_Data` mapping:
 //!
 //! | kind | payload |

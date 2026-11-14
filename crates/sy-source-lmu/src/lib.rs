@@ -5,7 +5,7 @@
 //!
 //! Written from scratch from Studio 397's `SharedMemoryInterface.hpp` and
 //! `InternalsPlugin.hpp` (shipped with LMU in `Support\SharedMemoryInterface`).
-//! No code from other telemetry tools is used (docs/PLAN.md §12.2).
+//! No code from other telemetry tools is used (docs/ARCHITECTURE.md §12.2).
 //! Behaviour still to be verified with recordings is listed in
 //! docs/games/lmu.md.
 //!

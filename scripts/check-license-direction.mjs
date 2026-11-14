@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-// Enforces the license split from docs/PLAN.md §12.1:
+// Enforces the license split from docs/ARCHITECTURE.md §12.1:
 // workspace crates under a permissive license must not depend (directly or
 // transitively, via normal or build dependencies) on any GPL/AGPL crate.
 
@@ -71,7 +71,7 @@ for (const memberId of metadata.workspace_members) {
 }
 
 if (violations > 0) {
-	console.error(`\n${violations} license direction violation(s). See docs/PLAN.md §12.1.`);
+	console.error(`\n${violations} license direction violation(s). See docs/ARCHITECTURE.md §12.1.`);
 	process.exit(1);
 }
 console.log('✓ License direction OK: permissive crates have no copyleft dependencies.');

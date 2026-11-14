@@ -1,7 +1,7 @@
 -- SPDX-FileCopyrightText: 2026 The Stintory Contributors
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 
--- Passkeys (WebAuthn, docs/PLAN.md §9.3): passwordless login or second factor.
+-- Passkeys (WebAuthn, docs/ARCHITECTURE.md §9.3): passwordless login or second factor.
 CREATE TABLE passkeys (
     id             uuid PRIMARY KEY,
     user_id        uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,

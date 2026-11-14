@@ -4,15 +4,16 @@ The server keeps your sessions and laps, lets you log in from any browser,
 syncs with the desktop app and lets you share laps with friends and teams.
 It is meant to be self-hosted: you run it, you own the data.
 
-> Status: milestone M4 done, plus an MCP endpoint for AI assistants. Accounts (password, TOTP, passkeys), the web UI,
-> uploading `.stintory` files, sync with the desktop app, teams and sharing,
-> and comparing your laps with the ones others share with you work.
+> Status: all features work: accounts (password, TOTP, passkeys), the web
+> UI, uploading `.stintory` files, sync with the desktop app, teams and
+> sharing, comparing your laps with the ones others share with you, and an
+> MCP endpoint for AI assistants.
 
 ## What you need
 
 - A machine with Docker and Docker Compose.
 - A domain and a reverse proxy with TLS (Caddy, Traefik, nginx …). Browsers
-  only allow secure cookies and (later) passkeys over HTTPS.
+  only allow secure cookies and passkeys over HTTPS.
 
 ## Start
 

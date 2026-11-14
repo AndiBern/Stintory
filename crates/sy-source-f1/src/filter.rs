@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 //! Removes everything about other cars and drivers from a packet before it
-//! is spooled to disk (docs/PLAN.md §5.2).
+//! is spooled to disk (docs/ARCHITECTURE.md §5.2).
 //!
 //! - Per-car arrays: every entry except the player's is zeroed (also the
 //!   second player's in split screen: that is another person).

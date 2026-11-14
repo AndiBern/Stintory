@@ -4,7 +4,7 @@
 //! Telemetry channels: one named, typed column of samples with a unit.
 //!
 //! Game adapters map game data onto the canonical channels in [`names`]
-//! (SI units, see docs/PLAN.md §4.2). Game-specific extras use a namespaced
+//! (SI units, see docs/ARCHITECTURE.md §4.2). Game-specific extras use a namespaced
 //! name such as `iracing.LFshockDefl` or `f1.ers_store`.
 
 use std::fmt;

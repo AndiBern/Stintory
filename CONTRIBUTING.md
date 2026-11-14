@@ -4,7 +4,7 @@ Thanks for your interest! Please read this before opening a pull request.
 
 ## Licensing
 
-Stintory uses two licenses (see [docs/PLAN.md §12](docs/PLAN.md)):
+Stintory uses two licenses (see [docs/ARCHITECTURE.md §12](docs/ARCHITECTURE.md#12-licensing--clean-room-parsers)):
 
 | Part | License |
 |---|---|
@@ -34,7 +34,7 @@ This adds a `Signed-off-by: Your Name <you@example.com>` line, which certifies t
 
 ## Clean-room rule for game parsers
 
-All game telemetry parsers are written **from scratch** (see [docs/PLAN.md §12.2](docs/PLAN.md)):
+All game telemetry parsers are written **from scratch** (see [docs/ARCHITECTURE.md §12.2](docs/ARCHITECTURE.md#122-parsers-from-scratch-clean-room)):
 
 - Allowed sources: official game documentation/SDKs, and your own recordings and experiments.
 - **Not allowed:** copying, translating or porting code from other telemetry tools (TinyPedal, CrewChief, SimHub, kerb, pyirsdk, existing F1/iRacing parser crates, …), or depending on them.

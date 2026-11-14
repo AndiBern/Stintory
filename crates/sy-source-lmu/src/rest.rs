@@ -5,7 +5,7 @@
 //!
 //! Stintory only ever sends `GET` requests, and only to the endpoint listed
 //! here: the game has many endpoints that change things (garage, pit menu,
-//! session control), and none of them may be called (docs/PLAN.md §13).
+//! session control), and none of them may be called (docs/ARCHITECTURE.md §13).
 //! Not even every `GET` is harmless (`/rest/options/resetVRView`,
 //! `/rest/multiplayer/join`, `/rest/profile/getAuthSessionTicket`, …), so
 //! new endpoints are added here one by one, after looking at what they do.

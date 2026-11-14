@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! The processing pipeline shared by live recording, file import and crash
-//! recovery (docs/PLAN.md §5):
+//! recovery (docs/ARCHITECTURE.md §5):
 //!
 //! ```text
 //! RawSource ─► [spool] ─► Decoder ─► Recorder ─► Sink (store)

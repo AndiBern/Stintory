@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Sync of a user's own sessions and laps between their devices
-//! (docs/PLAN.md §9.5).
+//! (docs/ARCHITECTURE.md §9.5).
 //!
 //! # Push (client → server)
 //!

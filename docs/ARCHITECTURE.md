@@ -1,15 +1,16 @@
-# Stintory – Implementation Plan
+# Stintory – Architecture
 
-See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor analysis this plan is based on.
+How Stintory is built and the rules it follows. Code comments cite this document by section (e.g. `docs/ARCHITECTURE.md §5.2`), so **keep the section numbers stable**: add new topics as new sections at the end or as sub-sections, and don't renumber.
 
-## 1. Decisions so far
+See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor analysis these decisions are based on.
+
+## 1. Key decisions
 
 | Topic | Decision |
 |---|---|
 | Stack | **Rust** for capture, storage, analysis and server. **Tauri 2** desktop client with a **Svelte 5 + TypeScript** web frontend (SvelteKit, static SPA build) that is reused as the server's web UI |
-| Capture platforms | iRacing and LMU capture on **Windows**, and on Linux for games in Proton through a small in-prefix helper (`sy-bridge.exe`, M7). F1 25 (UDP) on Windows and Linux, also from consoles |
-| Linux client | Full viewer: browse, compare, import/export, sync. Plus `.ibt` file import |
-| MVP game | **iRacing** |
+| Capture platforms | iRacing and LMU capture on **Windows**, and on Linux for games in Proton through a small in-prefix helper (`sy-bridge.exe`, §3). F1 25 (UDP) on Windows and Linux, also from consoles |
+| Linux client | Same client as on Windows: browse, compare, import/export, sync, `.ibt` import. Records F1 25 natively and Proton games through `sy-bridge.exe` |
 | Server | Docker container: sync + sharing + **web UI** for browsing/comparing laps |
 | Privacy | Client is fully offline by default. No analytics and no network calls except to the user-configured server |
 | License | Open source. **AGPL-3.0-or-later** for apps (client, server, web UI), **MIT OR Apache-2.0** for reusable library crates (see §12) |
@@ -19,10 +20,11 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 | Export format | `.stintory` bundles (§8) |
 | Login | **Username + password**, **passkeys** (WebAuthn) and **TOTP** 2FA. OIDC later (§9.3) |
 | Raw data | Raw game data is spooled to disk and **deleted once processed**. A debug setting keeps the raw files (§5.1) |
+| AI | No built-in AI service. The user's own assistant reads laps and the corner analysis over MCP: from the server (`/mcp`) or from the desktop app (`stintory mcp`) (§6.5) |
 
-## 2. Goals and non-goals
+## 2. Scope
 
-**Goals (v1)**
+**Core features** (all built, see §11)
 - Automatically record every session/lap while driving, with no clicks needed
 - Session and lap browser, lap view with traces over distance, **compare two laps** (delta trace, track map, synced cursor)
 - Export selected sessions/laps to a file; import files (own or other people's)
@@ -30,7 +32,7 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 - Secure login: password, passkeys, TOTP
 - Web UI on the server with the same analysis views
 
-**Non-goals for v1** (candidates for later): live overlays/HUD, voice coaching, built-in AI tips (an external assistant can use the MCP endpoint, §6.5), setup sharing, video sync, consoles (F1 UDP could work almost for free; see M5), mobile app, OIDC login.
+**Not built yet** (candidates, see §11): live overlays/HUD, voice coaching, built-in AI tips (an external assistant can use the MCP endpoint, §6.5), setup sharing, video sync, mobile app, OIDC login.
 
 **Never:** recording other cars or other drivers' data.
 
@@ -51,8 +53,8 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 │                    ▲ invoke()                  │             Any device (Linux …)
 │  Web frontend (TS): sessions, lap view, compare│
 └───────────────────────────────────────────────┘
- Linux PC: same client, without the Windows-only source adapters (viewer + import + sync)
- Proton (M7):     game ─shm─► sy-bridge.exe (in prefix) ─localhost TCP─► client
+ Linux PC: same client. F1 25 over UDP; shared-memory games in Proton through the bridge:
+ Proton:          game ─shm─► sy-bridge.exe (in prefix) ─localhost TCP─► client
 ```
 
 Key idea: **the frontend talks to one API shape** (`ApiClient` interface). In the desktop app it calls the Tauri backend (`invoke`). In the browser it calls the server over HTTP. Both backends use the same Rust crates (`sy-model`, `sy-analysis`), so resampling, delta computation, etc. exist exactly once.
@@ -68,7 +70,7 @@ crates/
   sy-source-f1/            # UDP parser 2025/2026 formats (all platforms)
   sy-source-lmu/           # LMU_Data reader (cfg windows) + REST poller
   sy-store/                # local SQLite + Parquet blob store, export/import bundles
-  sy-analysis/             # distance resampling, delta, track map, sectors, (later) corners
+  sy-analysis/             # distance resampling, delta, track map, sectors, corner insights
   sy-sync/                 # sync client (HTTP)
   sy-server/               # axum server binary
   sy-bridge/               # Proton bridge: sy-bridge.exe (in the game's prefix) + the app's client
@@ -100,7 +102,7 @@ LICENSES/                  # REUSE-style full texts: AGPL-3.0-or-later, MIT, Apa
 | Auth | `argon2` (password hashes), `webauthn-rs` (passkeys, pure Rust since 0.6), own RFC 6238 TOTP (tested against the RFC vectors), cookie sessions for the web UI, per-device API tokens for clients. Later `openidconnect` | Self-hosters often have no IdP. Passkeys + TOTP give strong security without one |
 | Frontend | **Svelte 5** (runes) + TypeScript, **SvelteKit** with `adapter-static` (SPA, no SSR), Vite, **uPlot** for traces, Canvas for track map, shadcn-svelte/Bits UI for UI components, TanStack Table for lap tables. Tests: Vitest + Playwright | Little boilerplate, easy to learn, built-in reactivity/state. A static build runs unchanged in Tauri and served by axum. uPlot handles 100k+ points smoothly with cursor sync across charts |
 | Packaging | Tauri bundler: MSI/NSIS (Windows), AppImage/deb/rpm (Linux). Server: multi-stage Docker image | |
-| CI | Forgejo Actions on an Ubuntu runner (`.forgejo/workflows/ci.yml`): `cargo fmt`/`clippy`/`test`, frontend check/lint/tests/build, `reuse lint`, `cargo deny`, license-direction script. Windows builds and Windows-only tests run locally for now; CI compile-checks Windows-only crates against the Windows target from M1 | License checks keep the license split (§12) enforced |
+| CI | Forgejo Actions on an Ubuntu runner (`.forgejo/workflows/ci.yml`): `cargo fmt`/`clippy`/`test`, frontend check/lint/tests/build, `reuse lint`, `cargo deny`, license-direction script. Windows builds and Windows-only tests run locally for now; CI also compile-checks the Windows-only crates against the Windows targets and cross-builds `sy-bridge.exe` with MinGW | License checks keep the license split (§12) enforced |
 
 ## 4. Data model
 
@@ -212,9 +214,9 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
   - Validity: F1 and LMU flags directly. iRacing: incident counter increase, `PlayerTrackSurface` off-track, or pit road during the lap → invalid with a reason.
   - Rewind: truncate buffer to `to_time`, flag lap `flashback`.
   - On lap completion: build Arrow batch → Parquet → hash → write blob → insert Lap row (one transaction). Combined with the raw spool (§5.1), a crash loses nothing.
-- **iRacing specifics (M1):** wait on `IRSDKDataValidEvent`. Parse the var table once per session (re-parse if the header changes). Parse the session YAML on `sessionInfoUpdate` change. Player car only. `.ibt` import uses the same var-table parser plus the same recorder (file source instead of shm source).
-- **F1 specifics (M5):** bind UDP port (configurable, default 20777; this PC only, or all interfaces for consoles/other PCs). Group by `sessionUID` + player car index. One Frame per Car Telemetry packet with the latest Motion, LapData, Status, MotionEx and Telemetry2. Branch on `packetFormat` 2025/2026. Player index from header. Optional UDP forwarding to other tools (many users run several F1 apps). Details: docs/games/f1.md.
-- **LMU specifics (M6):** open `LMU_Data`. Wait for a frame on the events `LMU_Data_HoldEvent` + `LMU_Data_DataEvent` and copy the player's structs under the game's lock `LMU_SharedMemoryLockData` (bounded wait), as the current `SharedMemoryInterface.hpp` describes (`generic.events` turned out to be an event queue, not counters). Interpolate lap distance from 5 Hz scoring. Virtual energy, TC/ABS and motor map are in the shared memory now; the REST API (a fixed list of GET endpoints) gives the car setup and tells "game running without shared memory" apart. Show a clear hint in the UI if the map is missing ("Enable Plugins in LMU Gameplay settings and restart"). Details: docs/games/lmu.md.
+- **iRacing specifics:** wait on `IRSDKDataValidEvent`. Parse the var table once per session (re-parse if the header changes). Parse the session YAML on `sessionInfoUpdate` change. Player car only. `.ibt` import uses the same var-table parser plus the same recorder (file source instead of shm source).
+- **F1 specifics:** bind UDP port (configurable, default 20777; this PC only, or all interfaces for consoles/other PCs). Group by `sessionUID` + player car index. One Frame per Car Telemetry packet with the latest Motion, LapData, Status, MotionEx and Telemetry2. Branch on `packetFormat` 2025/2026. Player index from header. Optional UDP forwarding to other tools (many users run several F1 apps). Details: docs/games/f1.md.
+- **LMU specifics:** open `LMU_Data`. Wait for a frame on the events `LMU_Data_HoldEvent` + `LMU_Data_DataEvent` and copy the player's structs under the game's lock `LMU_SharedMemoryLockData` (bounded wait), as the current `SharedMemoryInterface.hpp` describes (`generic.events` turned out to be an event queue, not counters). Interpolate lap distance from 5 Hz scoring. Virtual energy, TC/ABS and motor map are in the shared memory now; the REST API (a fixed list of GET endpoints) gives the car setup and tells "game running without shared memory" apart. Show a clear hint in the UI if the map is missing ("Enable Plugins in LMU Gameplay settings and restart"). Details: docs/games/lmu.md.
 
 ## 6. Analysis (`sy-analysis`)
 
@@ -376,22 +378,24 @@ Developing on Linux without the games running is a real constraint, so **record 
 - Golden tests: fixture → expected lap count, lap times (must match the game's official times within 1 ms), validity flags.
 - Frontend: component tests + Playwright smoke test against the server with seeded data.
 
-## 11. Roadmap
+## 11. Status and roadmap
 
-| Milestone | Content | Done when |
-|---|---|---|
-| **M0 – Skeleton** | Cargo workspace, Tauri app shell, `web/` with ApiClient abstraction, CI for Windows+Linux, `sy-model` + Parquet read/write, SQLite schema + migrations, license setup (per-crate `license` fields, SPDX headers, `CONTRIBUTING.md` with DCO, `deny.toml`) | CI green incl. license checks; empty app starts on Windows and Linux |
-| **M1 – iRacing MVP** | iRacing shm source, raw spool + crash recovery + "keep raw" debug setting, player-only filtering, lap segmenter, local store, `.ibt` import (also on Linux), sessions list, session detail, lap view, compare 2 laps with delta + track map | Drive 10 laps → all laps appear with correct times. Kill the client mid-lap → after restart nothing is lost. Spool files are gone after processing (kept with debug setting). Compare best vs. second best with delta + map. Same data visible on Linux via `.ibt` import |
-| **M2 – Export/Import** | `.stintory` bundles, CSV export, import with dedupe, "imported" origin in UI | Export on Windows → import on Linux → identical comparison |
-| **M3a – Server, auth, own sync** | Part 1 (done): axum server, Postgres, Docker image + compose, admin bootstrap + CLI reset, password login, TOTP + recovery codes, web sessions with CSRF protection, rate limiting, audit log, admin page, web UI on server data, `.stintory` upload. Part 2 (done): browser-based device login (loopback + PKCE) + device tokens (keychain, file fallback), sync push/pull of own data (`sy-sync`, change feed with per-user ordering, tombstones), DB wait at startup. Part 3 (done): passkeys (webauthn-rs, passwordless + second factor, count as 2FA) | Log in with each method. Record on Windows → appears in the Linux client via sync. Revoking a device token stops its sync |
-| **M3b – Teams & sharing** | Done: teams, roles, invites (username + link), share grants with inherit/custom, default sharing, share dialog + teams and sharing pages (browser and desktop app), "shared with me" list, comparing shared laps, desktop keeps shared sessions as references and deletes them when access is lost. Not yet: sharing changes while offline (outbox) | Access-control test matrix green. User B sees only laps shared with B or B's teams. Leaving a team removes access |
-| **M4 – Web UI** | Done: `web/` served by the server with HttpApi; account/teams/sharing pages (M3); "shared with me" per track/car (*Sharing → By track and car*: shared laps, fastest driver, own best and gap; lap list fastest first); reference laps for a track+car (own, imported, shared; `GET /reference-laps`, desktop merges local laps with the server's and keeps a chosen shared lap as a local copy); "Compare with…" on the session page; compare page names the drivers and can change the reference, remove and add laps | Compare own lap vs a team mate's shared lap in the browser |
-| **M5 – F1 25** | Done, verified with 16 real recordings (Nov 2026: time trials, Grand Prix weekend, races with pit stops, red flag, safety car and VSC, both UDP formats; docs/games/f1.md): `sy-source-f1` with both UDP formats checked against the spec's packet sizes, player-only filter before the spool, UDP source on all platforms with forwarding to other apps, flashback = rewind + flag, validity from the game (end-of-lap state + session history), F1 settings in the desktop app (port, other devices, forwarding), `simulate` example, console note in docs | Time trial + race laps recorded with correct validity. Flashback laps flagged |
-| **M6 – LMU** | Done (checked with recordings: practice, a race with a rolling start, back to the garage; docs/games/lmu.md): `sy-source-lmu` with the layout written from the official headers (sizes asserted at compile time), event wait + the game's lock, player-only records before the spool, scoring interpolation of the lap distance, lap times/sectors/validity from the game, REST poller for the setup (GET only), *Enable Plugins* hint in the sidebar and settings, VE/battery, ABS/TC active and TC/ABS level charts | Laps recorded with correct times; VE/TC/ABS traces visible |
-| **M7 – Proton bridge + more games** | Done (checked with a simulated LMU and with the real LMU on Bazzite; still to verify: docs/games/proton.md): `sy-bridge` crate with `sy-bridge.exe` (LMU, iRacing) streaming the player-only raw records over 127.0.0.1 TCP, started by Proton with the game via the launch option `PROTON_REMOTE_DEBUG_CMD=… %command%`; the Linux app connects, spools and records them like on Windows, installs the exe at a fixed path in its data directory and shows the launch option under *Settings → Proton bridge*; `--simulate-lmu` for trying it without the game; MinGW cross build (`npm run build:bridge`) in CI and in the Linux packages. Not yet: more games (ACC, AC EVO, AMS2, rF2, Forza…), by demand | A Proton game captured on Linux end-to-end |
-| **Later** | OIDC login, micro-sectors, theoretical best, MoTeC export, setups, live overlay | – |
+The MVP is complete (version 0.2.0, November 2026): the core features of §2 work for iRacing, F1 25 and Le Mans Ultimate, on Windows and Linux. The milestones that got there (M0 skeleton … M7 Proton bridge) are in the git history. From here on, Stintory grows through new features and refinements of existing ones, tracked as issues.
 
-M1 is the biggest milestone. A useful internal split is M1a (capture + store + session list) and M1b (lap view + compare).
+**Built**
+
+| Area | What works |
+|---|---|
+| Capture | iRacing live (Windows) and `.ibt` import (everywhere). F1 25 incl. the 2026 Season Pack format over UDP (Windows, Linux, consoles/other PCs, forwarding to other apps). LMU from the shared memory (Windows, and Linux through `sy-bridge.exe`). Raw spool with crash recovery, player-only filtering before the spool. All three games checked with real recordings, which are golden tests (docs/games/) |
+| Analysis | Distance resampling, delta, track map, game sectors, corner insights (§6.5) |
+| Desktop app | Sessions, session detail, lap view, compare with synced traces and map, reference laps (own, imported, shared), `.stintory` + CSV export/import, settings for every game, Proton bridge setup, MCP over stdio (`stintory mcp`) |
+| Server | Docker image; accounts with password, TOTP + recovery codes and passkeys; admin page and CLI reset; device login from the desktop app; sync of own data; teams, invites and sharing; web UI with the same views as the desktop app; reference laps across users; MCP endpoint with OAuth 2.1 (docs/SERVER.md) |
+
+**Known gaps**
+- Sharing changes while offline (outbox, §9.5): the desktop app needs a server connection for teams and sharing.
+- Proton bridge: the open points under *To verify with the real game* in docs/games/proton.md.
+
+**Ideas for later** (no fixed order): OIDC login (§9.3), micro-sectors and theoretical best (§6), MoTeC `.ld` export (§8), setup sharing, static track outlines (e.g. from LMU's REST track map, docs/games/lmu.md), live overlay, more games (ACC, AC EVO, AMS2, rF2, Forza …) by demand.
 
 ## 12. Licensing & clean-room parsers
 
@@ -452,4 +456,4 @@ All game parsers are written **from scratch**. We don't build on other telemetry
 
 ## 14. Open questions
 
-None at the moment. All decisions are in §1.
+None at the moment. Decisions are recorded in §1; add new ones there.

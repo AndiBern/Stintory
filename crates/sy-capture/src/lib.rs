@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Game-independent capture pipeline (docs/PLAN.md §5).
+//! Game-independent capture pipeline (docs/ARCHITECTURE.md §5).
 //!
 //! ```text
 //! game ─► RawSource ─RawRecord─► spool file

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Teams, roles and invitations (docs/PLAN.md §9.2).
+//! Teams, roles and invitations (docs/ARCHITECTURE.md §9.2).
 //!
 //! - Whoever creates a team is its owner. Owners and admins invite, remove
 //!   members and change roles; admins can't touch owners or make owners.

@@ -116,7 +116,7 @@ impl ServerSettings {
     }
 }
 
-/// Writes a security event to the audit log (docs/PLAN.md §9.3). Failures
+/// Writes a security event to the audit log (docs/ARCHITECTURE.md §9.3). Failures
 /// are logged, not returned: auditing must not break the action itself.
 pub async fn audit(
     db: &impl GenericClient,

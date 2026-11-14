@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Raw spool files (`.syraw`, docs/PLAN.md §5.1).
+//! Raw spool files (`.syraw`, docs/ARCHITECTURE.md §5.1).
 //!
 //! Everything a source reads from the game is appended to a spool file
 //! **before** it is parsed. After a crash the file is replayed through the

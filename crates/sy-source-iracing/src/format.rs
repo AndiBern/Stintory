@@ -342,7 +342,7 @@ impl VarTable {
 
     /// Removes other cars' data from a live row: every `CarIdx*` array
     /// (one entry per car) is zeroed except the player's entry
-    /// (docs/PLAN.md §5.2). `.ibt` rows contain no such arrays.
+    /// (docs/ARCHITECTURE.md §5.2). `.ibt` rows contain no such arrays.
     pub fn scrub_other_cars(&self, row: &mut [u8], player_idx: Option<usize>) {
         for var in self.vars.iter().filter(|v| v.name.starts_with("CarIdx")) {
             var.zero_except(row, player_idx);

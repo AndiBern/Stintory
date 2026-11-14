@@ -122,7 +122,7 @@ fn import_after_live_recording_merges() {
     });
 }
 
-/// M2 acceptance: export on one machine, import on another, the laps and
+/// Export/import round trip: export on one machine, import on another, the laps and
 /// their telemetry are identical (so is every comparison computed from them).
 #[test]
 fn bundle_roundtrip_with_real_data() {

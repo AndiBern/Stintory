@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 //! Laps other users shared on the server, kept locally as references
-//! (docs/PLAN.md §9.2, §9.5).
+//! (docs/ARCHITECTURE.md §9.2, §9.5).
 //!
 //! Such sessions have the origin [`Origin::Synced`]. They are copies: never
 //! pushed to the server, and deleted again when the owner stops sharing

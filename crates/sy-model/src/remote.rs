@@ -3,7 +3,7 @@
 
 //! Types exchanged between Stintory clients and a Stintory server
 //! (`/api/v1`): the account of the logged-in user, connected devices and
-//! sync (docs/PLAN.md §9.5). Serialized in camelCase; sessions and laps use
+//! sync (docs/ARCHITECTURE.md §9.5). Serialized in camelCase; sessions and laps use
 //! their own serialization (the same as in `.stintory` files).
 
 use serde::{Deserialize, Serialize};

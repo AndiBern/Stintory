@@ -5,7 +5,7 @@
 //! blob, see [`crate::telemetry`].
 //!
 //! Who a session or lap is shared with is kept on the server only
-//! (docs/PLAN.md §9.2).
+//! (docs/ARCHITECTURE.md §9.2).
 
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -74,7 +74,7 @@ pub struct Session {
     /// Car setup as reported by the game (game-specific JSON).
     pub setup: Option<serde_json::Value>,
     /// Further session information from the game, filtered to the player
-    /// only (never contains other drivers' data, see docs/PLAN.md §5.2).
+    /// only (never contains other drivers' data, see docs/ARCHITECTURE.md §5.2).
     pub session_info: Option<serde_json::Value>,
     /// Where the session came from.
     pub origin: Origin,

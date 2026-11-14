@@ -110,7 +110,7 @@ lets it detach). Without `--port` it listens on `127.0.0.1:20790`.
   even when it connects in the middle of a session.
 - The game's state about once a second (also the heartbeat), and while the
   player drives, the game's raw records: exactly what the Windows reader
-  spools, **already filtered to the player's car** (docs/PLAN.md §5.2).
+  spools, **already filtered to the player's car** (docs/ARCHITECTURE.md §5.2).
   When the bridge's idle rules (the same as the Windows app's) end a
   recording, it says so and Stintory ends the recording too.
 - Only on `127.0.0.1`, and to one Stintory at a time; a second connection

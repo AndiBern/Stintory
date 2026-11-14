@@ -18,7 +18,7 @@
 //! 4. copy what is needed, release the lock.
 //!
 //! Under the lock we copy only the session scoring, the player's scoring and
-//! the player's telemetry, never other cars' data (docs/PLAN.md §5.2). Our
+//! the player's telemetry, never other cars' data (docs/ARCHITECTURE.md §5.2). Our
 //! lock waits are bounded (the game must never wait on us for long).
 //!
 //! The player's telemetry is `telemInfo[playerVehicleIdx]`; its slot id must

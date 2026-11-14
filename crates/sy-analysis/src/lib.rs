@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Lap analysis (docs/PLAN.md §6).
+//! Lap analysis (docs/ARCHITECTURE.md §6).
 //!
 //! - [`resample`]: puts a lap onto a fixed distance grid, so laps can be
 //!   compared point by point.

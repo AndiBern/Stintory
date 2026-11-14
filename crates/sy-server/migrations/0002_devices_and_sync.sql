@@ -1,7 +1,7 @@
 -- SPDX-FileCopyrightText: 2026 The Stintory Contributors
 -- SPDX-License-Identifier: AGPL-3.0-or-later
 
--- Desktop clients (docs/PLAN.md §9.3): long-lived device tokens, created by
+-- Desktop clients (docs/ARCHITECTURE.md §9.3): long-lived device tokens, created by
 -- the browser-based device login. Only token hashes are stored.
 CREATE TABLE device_tokens (
     id            uuid PRIMARY KEY,
@@ -24,7 +24,7 @@ CREATE TABLE device_codes (
     expires_at      timestamptz NOT NULL
 );
 
--- Sync (docs/PLAN.md §9.5): every change to a user's sessions and laps gets
+-- Sync (docs/ARCHITECTURE.md §9.5): every change to a user's sessions and laps gets
 -- the next number of one sequence; clients pull "everything after N".
 -- Writes of one user are serialized (advisory lock), so numbers become
 -- visible in order.

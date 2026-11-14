@@ -314,7 +314,7 @@ pub async fn import_files(
     Ok(result)
 }
 
-/// Extension of raw recordings (spool files, docs/PLAN.md §5.1).
+/// Extension of raw recordings (spool files, docs/ARCHITECTURE.md §5.1).
 const RAW_EXTENSION: &str = "syraw";
 
 /// Processes kept raw recordings again (e.g. after a fix in a game
