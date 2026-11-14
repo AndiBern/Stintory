@@ -7,14 +7,11 @@
 //! Telemetry files are content addressed on disk ([`sy_store::BlobStore`]);
 //! the database has the metadata.
 
-use std::io::Write;
-
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use deadpool_postgres::GenericClient;
-use http_body_util::BodyExt;
 use sy_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
 use sy_model::api::{
     AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ImportResult, LapSummary,
@@ -306,11 +303,7 @@ pub async fn insert_lap(
     lap: &Lap,
     blob_size: u64,
 ) -> ApiResult<bool> {
-    db.execute(
-        "INSERT INTO blobs (hash, size) VALUES ($1, $2) ON CONFLICT (hash) DO NOTHING",
-        &[&lap.blob_hash.as_str(), &(blob_size as i64)],
-    )
-    .await?;
+    crate::sync::record_upload(db, owner, &lap.blob_hash, blob_size).await?;
     let n = db
         .execute(
             "INSERT INTO laps (owner_id, id, session_id, number, lap_time_ms, sector_times_ms,
@@ -360,9 +353,22 @@ fn read_bundle(state: &SharedState, file: std::fs::File) -> ApiResult<Bundle> {
             },
         };
     }
+    let limit = state.config.import_unpacked_limit();
+    let mut unpacked = 0u64;
     let mut laps = Vec::new();
     for mut lap in reader.laps().map_err(bad)? {
         let bytes = reader.telemetry(&lap).map_err(bad)?;
+        unpacked += bytes.len() as u64;
+        if unpacked > limit {
+            // files stored so far are removed by the periodic cleanup
+            return Err(ApiError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!(
+                    "the file unpacks to more than {} MiB of telemetry",
+                    limit / (1024 * 1024)
+                ),
+            ));
+        }
         let telemetry = LapTelemetry::from_parquet(bytes.clone())
             .map_err(|e| ApiError::bad_request(format!("telemetry of lap {}: {e}", lap.id)))?;
         lap.sample_count = u32::try_from(telemetry.len()).unwrap_or(u32::MAX);
@@ -379,21 +385,13 @@ pub async fn import(
     Auth(session): Auth,
     body: Body,
 ) -> ApiResult<Json<ImportResult>> {
-    // stream the upload into a temporary file (bounded by the body limit)
-    let tmp_dir = state.config.data_dir.join("tmp");
-    std::fs::create_dir_all(&tmp_dir)?;
-    let mut tmp = tempfile::NamedTempFile::new_in(&tmp_dir)?;
-    let mut body = body;
-    while let Some(frame) = body.frame().await {
-        let frame = frame.map_err(|e| {
-            ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, format!("upload failed: {e}"))
-        })?;
-        if let Some(data) = frame.data_ref() {
-            tmp.write_all(data)?;
-        }
-    }
-    tmp.flush()?;
+    // stream the upload into a temporary file (at most STINTORY_MAX_UPLOAD_MB)
+    let (tmp, _) = crate::sync::spool_body(&state, body, state.config.upload_limit()).await?;
     let file = tmp.reopen()?;
+    // one lap's telemetry at a time is in memory; the stored files must
+    // survive until the laps referring to them are committed
+    let _slot = crate::sync::decode_slot(&state).await?;
+    let _writes = state.blob_writes.read().await;
     let state2 = state.clone();
     let bundle = tokio::task::spawn_blocking(move || read_bundle(&state2, file)).await??;
     drop(tmp);

@@ -224,7 +224,7 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
 2. **Time delta**: Δt(d) = t_A(d) − t_B(d). Also the delta's derivative to highlight where time is gained/lost.
 3. **Track map**: from `pos_x/y` (F1/LMU) or dead reckoning/GPS (iRacing). Store a smoothed outline per track (median of several clean laps) in `Track.outline`. Colour by delta/speed/throttle/brake.
 4. **Sectors**: game sectors.
-5. **Corner insights** (local, no AI service; `sy_analysis::corners`): corners come from the reference lap's curvature `g_lat / speed²` (smoothed, radius < 250 m, same-direction bends < 30 m apart merged, a bend inside the next corner's braking zone belongs to that corner). Per corner and lap: braking point, peak pressure and release, lift, lowest speed and gear, throttle pick-up, full throttle, exit speed, and the time lost, split into entry (to the apex) and exit. The lap is split into one segment per corner (approach → next approach, wrapping around the line), so the times lost add up to the gap between the laps. Checked on the iRacing, F1 and LMU recordings (e.g. Hungaroring 14, Suzuka 18, Snetterton 300 11 corners). Shown in the compare view (corner list sorted by time lost, corner numbers on the map) and part of `CompareData`. AI assistants read it through the server's MCP endpoint (`/mcp`, docs/SERVER.md): OAuth 2.1 (own authorization server, client ID metadata documents or dynamic registration, PKCE, resource-bound access tokens, rotating refresh tokens) or read-only device tokens; tools for tracks, sessions, best laps, corner comparison and telemetry excerpts. Without a server, the desktop app serves the same tools from the local data: `stintory mcp` speaks MCP over stdio for assistants on the same computer (Settings → AI assistants shows the command). The tools and the protocol live once in `sy-mcp` behind a small data trait.
+5. **Corner insights** (local, no AI service; `sy_analysis::corners`): corners come from the reference lap's curvature `g_lat / speed²` (smoothed, radius < 250 m, same-direction bends < 30 m apart merged, a bend inside the next corner's braking zone belongs to that corner). Per corner and lap: braking point, peak pressure and release, lift, lowest speed and gear, throttle pick-up, full throttle, exit speed, and the time lost, split into entry (to the apex) and exit. The lap is split into one segment per corner (approach → next approach, wrapping around the line), so the times lost add up to the gap between the laps. Checked on the iRacing, F1 and LMU recordings (e.g. Hungaroring 14, Suzuka 18, Snetterton 300 11 corners). Shown in the compare view (corner list sorted by time lost, corner numbers on the map) and part of `CompareData`. AI assistants read it through the server's MCP endpoint (`/mcp`, docs/SERVER.md): OAuth 2.1 (own authorization server, client ID metadata documents or dynamic registration, PKCE, resource-bound access tokens, rotating refresh tokens with reuse detection) or read-only device tokens; tools for tracks, sessions, best laps, corner comparison and telemetry excerpts. Without a server, the desktop app serves the same tools from the local data: `stintory mcp` speaks MCP over stdio for assistants on the same computer (Settings → AI assistants shows the command). The tools and the protocol live once in `sy-mcp` behind a small data trait.
 
 Frontend gets resampled arrays (not raw) for comparison. These are computed on demand and cached in memory (LRU).
 
@@ -302,7 +302,7 @@ Sharing mode   on Session and Lap: inherit | custom
 - **TOTP** (RFC 6238, 30 s, 6 digits) as a second factor. Setup with QR code + confirm code. 10 single-use **recovery codes** (stored hashed). Secrets are encrypted at rest with a server key from the environment.
 - **Passkeys** (WebAuthn, `webauthn-rs`): usable for **passwordless login** (discoverable credentials) or as a second factor. A user can register several passkeys and remove them. Requires HTTPS and a stable origin: the RP ID = the server's domain from config (`localhost` works for testing).
 - A user must keep at least one usable login method. Admin can enforce 2FA (TOTP or passkey) for all users.
-- Account recovery: an admin can reset a user's password and 2FA. CLI command `sy-server admin reset-user <name>` for the very first admin.
+- Account recovery: an admin can reset a user's password and 2FA. CLI command `sy-server admin reset-user <name>` for the very first admin. A reset ends all sessions and disconnects all devices and AI assistants (device tokens, OAuth grants); a user changing their own password can choose to do the same.
 
 **Web UI sessions:** server-side sessions in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie, CSRF token on state-changing requests, session list with "log out other sessions".
 
@@ -352,16 +352,17 @@ GET/POST /admin/users  PATCH /admin/users/{id} (disable, reset password/2FA, adm
 ```
 
 ### 9.5 Sync protocol (client side, `sy-sync`)
-- Push: on lap completion (if auto-sync) or manually. Send manifest diff → upload missing blobs → upsert metadata. Retries with backoff and works offline-first (outbox table in SQLite).
+- Push: on lap completion (if auto-sync) or manually. Send manifest diff → upload missing blobs → upsert metadata. Retries with backoff and works offline-first (outbox table in SQLite). "Missing" means missing for this user: a lap may only refer to a telemetry file its owner uploaded or imported, so knowing a hash (e.g. of a lap that is no longer shared) gives no access. Files are still stored once.
 - Pull: own data from other devices (e.g. view on Linux what was recorded on Windows), and **on-demand** fetch of laps shared with me when chosen as a reference (no full mirror). Teams and invites are refreshed on each sync. Cached foreign laps that lost access are deleted.
 - Teams and sharing live on the server. The desktop app's frontend uses the same API as the browser; the Tauri backend passes the requests on with the device token (only the teams and sharing paths). So they need a connection for now.
 - Later: sharing changes made offline go into the outbox and apply on the next sync. The picker offers users/teams from the last cached list.
 - Mutable fields (sharing, notes, tags): last-write-wins on `updated_at`.
-- Deleting: tombstones synced both ways. Deleting on the server removes the blob when no other reference exists.
+- Deleting: tombstones synced both ways. Deleting on the server removes the blob when no other reference exists. An hourly cleanup removes blobs no lap refers to once they are 24 h old (uploads whose push never came, failed imports).
 
 ### 9.6 Deployment
 - `docker-compose.yml`: `stintory-server` + `postgres`. Volume for blobs. Env vars for public base URL (= WebAuthn origin/RP ID), secret key (TOTP encryption, cookies), admin bootstrap, registration mode (closed / invite-only / open).
 - TLS via the user's reverse proxy (Caddy/Traefik/nginx). Documented, not built in. It is required for passkeys and secure cookies.
+- The server connects to Postgres without TLS: Postgres runs next to it (compose network or the same host).
 - Note in docs: the server admin can technically read all data on their server. That is fine for self-hosting, but we state it.
 
 ## 10. Testing & development strategy
@@ -392,6 +393,8 @@ The MVP is complete (version 0.2.0, November 2026): the core features of §2 wor
 **Known gaps**
 - Sharing changes while offline (outbox, §9.5): the desktop app needs a server connection for teams and sharing.
 - Proton bridge: the open points under *To verify with the real game* in docs/games/proton.md.
+- Server web UI: its Content Security Policy allows inline scripts (`script-src 'self' 'unsafe-inline'`), which the static SvelteKit build's bootstrap script needs. No way to inject script is known; the policy is just not a second line of defense against one.
+- Server database connection: no TLS (§9.6, docs/SERVER.md).
 
 ## 12. Licensing & clean-room parsers
 

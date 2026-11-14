@@ -30,7 +30,16 @@ pub struct AppState {
     /// WebAuthn relying party (None if `STINTORY_PUBLIC_URL` doesn't allow
     /// passkeys)
     pub webauthn: Option<webauthn_rs::Webauthn>,
+    /// Telemetry files decoded in memory at the same time (uploads,
+    /// imports): bounds the memory they need
+    pub decode_slots: tokio::sync::Semaphore,
+    /// Writers of telemetry files hold it shared, the cleanup of unused
+    /// files exclusively, so it never deletes a file that is being stored
+    pub blob_writes: tokio::sync::RwLock<()>,
 }
+
+/// Telemetry files decoded at the same time ([`AppState::decode_slots`]).
+pub const DECODE_SLOTS: usize = 4;
 
 impl std::fmt::Debug for AppState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

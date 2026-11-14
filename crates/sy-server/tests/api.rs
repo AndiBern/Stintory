@@ -2724,7 +2724,7 @@ async fn oauth_for_mcp_clients() {
         StatusCode::NO_CONTENT
     );
     assert_eq!(
-        mcp(&s, Some(&access2), &[], ping).await.0,
+        mcp(&s, Some(&access2), &[], ping.clone()).await.0,
         StatusCode::UNAUTHORIZED
     );
     let (_, err) = token_request(
@@ -2737,6 +2737,80 @@ async fn oauth_for_mcp_clients() {
     )
     .await;
     assert_eq!(err["error"], "invalid_grant");
+
+    // a rotated-out refresh token that comes back later was copied: the
+    // grant ends (above, right after the rotation, it was only refused)
+    let (_, approved) = b
+        .post("/oauth/approve", json!({ "params": params, "allow": true }))
+        .await;
+    let code = redirect_param(approved["redirectTo"].as_str().unwrap(), "code").unwrap();
+    let (st, tokens) = send(vec![
+        ("grant_type", "authorization_code".to_owned()),
+        ("code", code),
+        ("client_id", client_id.clone()),
+        ("redirect_uri", redirect.to_owned()),
+        ("code_verifier", verifier.clone()),
+        ("resource", format!("{base}/mcp")),
+    ])
+    .await;
+    assert_eq!(st, StatusCode::OK, "{tokens}");
+    let first = tokens["refresh_token"].as_str().unwrap().to_owned();
+    let refreshed = |token: String| {
+        let (s, client_id) = (&s, client_id.clone());
+        async move {
+            token_request(
+                s,
+                &[
+                    ("grant_type", "refresh_token"),
+                    ("refresh_token", &token),
+                    ("client_id", &client_id),
+                ],
+            )
+            .await
+        }
+    };
+    let (st, renewed) = refreshed(first.clone()).await;
+    assert_eq!(st, StatusCode::OK, "{renewed}");
+    let (access3, second) = (
+        renewed["access_token"].as_str().unwrap().to_owned(),
+        renewed["refresh_token"].as_str().unwrap().to_owned(),
+    );
+    s.state
+        .conn()
+        .await
+        .unwrap()
+        .execute(
+            "UPDATE oauth_used_refresh_tokens SET used_at = now() - interval '2 minutes'",
+            &[],
+        )
+        .await
+        .unwrap();
+    let (st, err) = refreshed(first).await;
+    assert_eq!(
+        (st, err["error"].clone()),
+        (StatusCode::BAD_REQUEST, json!("invalid_grant"))
+    );
+    assert_eq!(
+        mcp(&s, Some(&access3), &[], ping.clone()).await.0,
+        StatusCode::UNAUTHORIZED,
+        "the grant's access token stops working"
+    );
+    assert_eq!(refreshed(second).await.1["error"], "invalid_grant");
+    let (_, devices) = b.get("/me/devices").await;
+    assert!(
+        !devices
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["name"] == "Test Assistant")
+    );
+    let (_, log) = b.get("/admin/audit").await;
+    assert!(
+        log.as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["event"] == "oauth_refresh_reused")
+    );
 
     // a client known from its metadata document (cached, so no fetch here)
     let doc_id = "https://assistant.example/oauth/client.json";
@@ -2826,4 +2900,263 @@ async fn oauth_without_client_metadata_documents() {
         .await;
     assert_eq!(st, StatusCode::OK, "{info}");
     assert_eq!(info["clientName"], "Old");
+}
+
+/// A device token for `b`'s user, created on the account page.
+async fn device_token(b: &mut Browser<'_>) -> String {
+    let (st, body) = b.post("/me/devices", json!({ "name": "pc" })).await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    body["token"].as_str().unwrap().to_owned()
+}
+
+#[tokio::test]
+async fn password_changes_and_resets_disconnect_devices() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut u, id) = user(&s, &mut admin, "racer").await;
+    let connected = |token: &str| {
+        let token = token.to_owned();
+        let s = &s;
+        async move { Browser::device(s, &token).get("/devices/current").await.0 == StatusCode::OK }
+    };
+
+    // a routine change keeps the devices
+    let token = device_token(&mut u).await;
+    let (st, _) = u
+        .post(
+            "/me/password",
+            json!({ "currentPassword": "a long password 1", "newPassword": "a long password 2" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert!(connected(&token).await);
+
+    // on request it disconnects them
+    let (st, _) = u
+        .post(
+            "/me/password",
+            json!({
+                "currentPassword": "a long password 2",
+                "newPassword": "a long password 3",
+                "disconnectDevices": true
+            }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    assert!(!connected(&token).await);
+    assert_eq!(u.get("/me/devices").await.1, json!([]));
+    assert!(u.get("/me").await.0 == StatusCode::OK, "own session stays");
+
+    // an admin reset always does
+    let token = device_token(&mut u).await;
+    let (st, _) = admin
+        .call(
+            "PATCH",
+            &format!("/admin/users/{id}"),
+            json!({ "resetPassword": true }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(!connected(&token).await);
+}
+
+#[tokio::test]
+async fn password_confirmations_are_rate_limited() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut u, _) = user(&s, &mut admin, "racer").await;
+    for _ in 0..sy_server::ratelimit::PER_ACCOUNT {
+        let (st, body) = u
+            .call(
+                "DELETE",
+                "/me/totp",
+                json!({ "password": "wrong password!" }),
+            )
+            .await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{body}");
+    }
+    // further guesses are refused, even the right password
+    let (st, _) = u
+        .call(
+            "DELETE",
+            "/me/totp",
+            json!({ "password": "a long password 1" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+    let (st, _) = u
+        .post(
+            "/me/passkeys/register/start",
+            json!({ "password": "a long password 1" }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
+async fn blob_uploads_are_limited_and_unused_files_removed() {
+    let Some(s) = server_with(|c| {
+        c.max_blob_mb = 1;
+        c.max_upload_mb = 1;
+    })
+    .await
+    else {
+        return;
+    };
+    let mut b = Browser::new(&s);
+    b.login(ADMIN, ADMIN_PW).await;
+
+    // larger than STINTORY_MAX_BLOB_MB / STINTORY_MAX_UPLOAD_MB
+    let big = vec![7u8; 2 << 20];
+    let req = b
+        .request("PUT", &format!("/sync/blobs/{}", BlobHash::of(&big)))
+        .body(Body::from(big.clone()))
+        .unwrap();
+    assert_eq!(b.send(req).await.0, StatusCode::PAYLOAD_TOO_LARGE);
+    let req = b.request("POST", "/import").body(Body::from(big)).unwrap();
+    assert_eq!(b.send(req).await.0, StatusCode::PAYLOAD_TOO_LARGE);
+
+    // both files uploaded, only one lap pushed; plus a file without a row
+    let (session, laps) = sample();
+    for (lap, bytes) in &laps {
+        let req = b
+            .request("PUT", &format!("/sync/blobs/{}", lap.blob_hash))
+            .body(Body::from(bytes.clone()))
+            .unwrap();
+        assert_eq!(b.send(req).await.0, StatusCode::NO_CONTENT);
+    }
+    let (st, body) = b
+        .post(
+            "/sync/push",
+            json!({ "sessions": [session], "laps": [laps[0].0] }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    let stray = s.state.blobs.put(b"left over by a failed import").unwrap();
+    let (used, unused) = (&laps[0].0.blob_hash, &laps[1].0.blob_hash);
+
+    // young files stay: their laps may still come
+    let hour = std::time::Duration::from_secs(3600);
+    assert_eq!(
+        sy_server::sync::remove_orphan_blobs(&s.state, hour)
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(s.state.blobs.contains(unused) && s.state.blobs.contains(&stray));
+
+    // old ones go, the used one stays
+    assert_eq!(
+        sy_server::sync::remove_orphan_blobs(&s.state, std::time::Duration::ZERO)
+            .await
+            .unwrap(),
+        2
+    );
+    assert!(s.state.blobs.contains(used));
+    assert!(!s.state.blobs.contains(unused) && !s.state.blobs.contains(&stray));
+    let (_, body) = b
+        .post(
+            "/sync/blobs/missing",
+            json!({ "hashes": [used.to_string(), unused.to_string()] }),
+        )
+        .await;
+    assert_eq!(body["missing"], json!([unused.to_string()]));
+
+    // a cleanup while files are being stored skips its run
+    let writing = s.state.blob_writes.read().await;
+    s.state.blobs.put(b"another stray").unwrap();
+    assert_eq!(
+        sy_server::sync::remove_orphan_blobs(&s.state, std::time::Duration::ZERO)
+            .await
+            .unwrap(),
+        0
+    );
+    drop(writing);
+}
+
+#[tokio::test]
+async fn expired_rows_are_removed() {
+    let Some(s) = server().await else { return };
+    let mut old = Browser::new(&s);
+    old.login(ADMIN, ADMIN_PW).await;
+    let mut current = Browser::new(&s);
+    current.login(ADMIN, ADMIN_PW).await;
+    let db = s.state.conn().await.unwrap();
+    // the first session expired, the second is valid
+    db.execute(
+        "UPDATE web_sessions SET expires_at = now() - interval '1 minute'
+         WHERE created_at = (SELECT min(created_at) FROM web_sessions)",
+        &[],
+    )
+    .await
+    .unwrap();
+    let count = |sql: &'static str| {
+        let db = &db;
+        async move { db.query_one(sql, &[]).await.unwrap().get::<_, i64>(0) }
+    };
+    assert_eq!(count("SELECT count(*) FROM web_sessions").await, 2);
+    assert!(
+        sy_server::cleanup::remove_expired(&db).await.unwrap() >= 1,
+        "the expired session"
+    );
+    assert_eq!(count("SELECT count(*) FROM web_sessions").await, 1);
+    assert_eq!(current.get("/me").await.0, StatusCode::OK);
+    assert_eq!(old.get("/me").await.0, StatusCode::UNAUTHORIZED);
+    sy_server::cleanup::run_once(&s.state).await;
+}
+
+#[tokio::test]
+async fn laps_only_refer_to_telemetry_their_owner_has() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut a, _) = user(&s, &mut admin, "alice").await;
+    let (mut b, _) = user(&s, &mut admin, "bob").await;
+    push_sample(&mut a).await;
+
+    // bob knows the hashes (e.g. from a lap alice shared once), not the files
+    let (session, laps) = sample();
+    let hashes: Vec<String> = laps.iter().map(|(l, _)| l.blob_hash.to_string()).collect();
+    let (_, body) = b
+        .post("/sync/blobs/missing", json!({ "hashes": hashes }))
+        .await;
+    assert_eq!(
+        body["missing"],
+        json!(hashes),
+        "missing for bob, although the server has them"
+    );
+    let all_laps: Vec<&Lap> = laps.iter().map(|(l, _)| l).collect();
+    let (st, _) = b
+        .post(
+            "/sync/push",
+            json!({ "sessions": [session], "laps": all_laps }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        b.get(&format!("/sync/blobs/{}", hashes[0])).await.0,
+        StatusCode::NOT_FOUND
+    );
+
+    // with the files he may
+    for (lap, bytes) in &laps {
+        let req = b
+            .request("PUT", &format!("/sync/blobs/{}", lap.blob_hash))
+            .body(Body::from(bytes.clone()))
+            .unwrap();
+        assert_eq!(b.send(req).await.0, StatusCode::NO_CONTENT);
+    }
+    let (_, body) = b
+        .post("/sync/blobs/missing", json!({ "hashes": hashes }))
+        .await;
+    assert_eq!(body["missing"], json!([]));
+    let (st, body) = b
+        .post(
+            "/sync/push",
+            json!({ "sessions": [session], "laps": all_laps }),
+        )
+        .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
 }

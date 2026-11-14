@@ -230,15 +230,7 @@ pub async fn register_start(
 ) -> ApiResult<Json<Ceremony<CreationChallengeResponse>>> {
     let user = &session.user;
     let name = passkey_name(&req.name)?;
-    let hash: String = state
-        .conn()
-        .await?
-        .query_one("SELECT password_hash FROM users WHERE id = $1", &[&user.id])
-        .await?
-        .get(0);
-    if !crypto::verify_password(req.password, Some(hash)).await? {
-        return Err(ApiError::forbidden("wrong password").with_code("wrong_password"));
-    }
+    crate::account::check_password(&state, user, &req.password).await?;
     let db = state.conn().await?;
     let existing = user_passkeys(&db, user.id).await?;
     let exclude = existing.iter().map(|(_, p)| p.cred_id().clone()).collect();

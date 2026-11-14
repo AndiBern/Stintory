@@ -87,6 +87,35 @@ impl BlobStore {
     pub fn root(&self) -> &Path {
         &self.root
     }
+
+    /// All blob files with their modification time (for cleaning up files
+    /// nothing refers to). Other files in the directory are skipped.
+    pub fn list(&self) -> Result<Vec<(BlobHash, std::time::SystemTime)>> {
+        let mut out = Vec::new();
+        for dir in fs::read_dir(&self.root)? {
+            let dir = dir?;
+            let name = dir.file_name();
+            let name = name.to_string_lossy();
+            if name.len() != 2 || !dir.file_type()?.is_dir() {
+                continue;
+            }
+            for file in fs::read_dir(dir.path())? {
+                let file = file?;
+                let file_name = file.file_name();
+                let Some(hash) = file_name
+                    .to_str()
+                    .and_then(|n| n.strip_suffix(".parquet"))
+                    .and_then(|h| h.parse::<BlobHash>().ok())
+                else {
+                    continue;
+                };
+                if hash.as_str().starts_with(name.as_ref()) {
+                    out.push((hash, file.metadata()?.modified()?));
+                }
+            }
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
@@ -121,5 +150,25 @@ mod tests {
         let hash = blobs.put(b"original").unwrap();
         fs::write(blobs.path(&hash), b"tampered").unwrap();
         assert!(matches!(blobs.get(&hash), Err(StoreError::BlobCorrupt(_))));
+    }
+
+    #[test]
+    fn lists_blob_files_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let blobs = BlobStore::open(dir.path()).unwrap();
+        let a = blobs.put(b"a").unwrap();
+        let b = blobs.put(b"b").unwrap();
+        fs::write(dir.path().join("tmp").join("x.tmp"), b"partial").unwrap();
+        fs::write(dir.path().join("readme.txt"), b"other").unwrap();
+        let mut listed: Vec<String> = blobs
+            .list()
+            .unwrap()
+            .into_iter()
+            .map(|(h, _)| h.as_str().to_owned())
+            .collect();
+        listed.sort();
+        let mut expected = vec![a.as_str().to_owned(), b.as_str().to_owned()];
+        expected.sort();
+        assert_eq!(listed, expected);
     }
 }

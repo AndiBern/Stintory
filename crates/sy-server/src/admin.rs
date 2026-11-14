@@ -209,7 +209,9 @@ pub async fn update(
 }
 
 /// Resets an account's password (returns the new temporary one) and/or its
-/// second factor. Ends the user's sessions. Also used by
+/// second factor. Ends the user's sessions and disconnects all their desktop
+/// apps and AI assistants (a reset is how an account is recovered: nothing
+/// someone else may have set up survives it). Also used by
 /// `sy-server admin reset-user`.
 pub async fn reset_user(
     db: &impl GenericClient,
@@ -246,6 +248,7 @@ pub async fn reset_user(
         .await?;
     db.execute("DELETE FROM login_challenges WHERE user_id = $1", &[&id])
         .await?;
+    crate::account::disconnect_devices(db, id).await?;
     Ok(temporary)
 }
 

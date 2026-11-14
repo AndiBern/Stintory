@@ -23,6 +23,7 @@
 	let currentPassword = $state('');
 	let newPassword = $state('');
 	let newPassword2 = $state('');
+	let disconnectDevices = $state(false);
 	let passwordMsg = $state<{ ok: boolean; text: string } | null>(null);
 
 	// two-factor
@@ -171,11 +172,18 @@
 		}
 		run(
 			async () => {
-				await account!.changePassword(currentPassword, newPassword);
+				await account!.changePassword(currentPassword, newPassword, disconnectDevices);
 				currentPassword = newPassword = newPassword2 = '';
-				passwordMsg = { ok: true, text: 'Password changed. Other sessions were logged out.' };
+				passwordMsg = {
+					ok: true,
+					text: disconnectDevices
+						? 'Password changed. Other sessions were logged out, desktop apps and AI assistants disconnected.'
+						: 'Password changed. Other sessions were logged out.'
+				};
+				disconnectDevices = false;
 				await refreshAuth();
 				await loadSessions();
+				await loadDevices();
 			},
 			(t) => (passwordMsg = { ok: false, text: t })
 		);
@@ -324,6 +332,16 @@
 					minlength="12"
 					required
 				/>
+			</label>
+			<label class="flex items-start gap-2 text-sm">
+				<input type="checkbox" class="mt-1" bind:checked={disconnectDevices} />
+				<span>
+					Also disconnect all desktop apps and AI assistants
+					<span class="block text-zinc-500"
+						>Do this if someone else may have had access to your account. You connect them again
+						afterwards.</span
+					>
+				</span>
 			</label>
 			<div><button type="submit" class={button}>Change password</button></div>
 			{#if passwordMsg}

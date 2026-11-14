@@ -54,7 +54,12 @@ export interface AccountApi {
 	removePasskey(id: string): Promise<void>;
 	me(): Promise<Me>;
 	updateMe(displayName: string): Promise<void>;
-	changePassword(currentPassword: string, newPassword: string): Promise<void>;
+	/** `disconnectDevices`: also disconnect all desktop apps and AI assistants. */
+	changePassword(
+		currentPassword: string,
+		newPassword: string,
+		disconnectDevices: boolean
+	): Promise<void>;
 	totpSetup(): Promise<TotpSetup>;
 	totpConfirm(code: string): Promise<RecoveryCodes>;
 	totpDisable(password: string): Promise<void>;
@@ -371,8 +376,16 @@ export class HttpApi implements ApiClient, AccountApi {
 		return this.request<void>('PATCH', '/me', { displayName });
 	}
 
-	changePassword(currentPassword: string, newPassword: string): Promise<void> {
-		return this.request<void>('POST', '/me/password', { currentPassword, newPassword });
+	changePassword(
+		currentPassword: string,
+		newPassword: string,
+		disconnectDevices: boolean
+	): Promise<void> {
+		return this.request<void>('POST', '/me/password', {
+			currentPassword,
+			newPassword,
+			disconnectDevices
+		});
 	}
 
 	totpSetup(): Promise<TotpSetup> {
