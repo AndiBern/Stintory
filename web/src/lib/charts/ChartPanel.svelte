@@ -217,7 +217,7 @@
 				{/if}
 			{/each}
 			<div
-				class="pointer-events-none absolute z-20 grid grid-flow-col gap-x-4 rounded border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-xs whitespace-nowrap shadow-lg"
+				class="pointer-events-none absolute z-20 grid grid-flow-col gap-x-4 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs whitespace-nowrap shadow-lg"
 				style:left="{markerX}px"
 				style:top="{geo.top + 2}px"
 				style:grid-template-rows="repeat({tooltipRows}, auto)"
