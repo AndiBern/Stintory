@@ -9,6 +9,9 @@ SPDX-License-Identifier: MIT
   <project_license>AGPL-3.0-or-later</project_license>
   <name>Stintory</name>
   <summary>Record and compare your sim racing laps</summary>
+  <developer id="de.stintory">
+    <name>Stintory</name>
+  </developer>
   <description>
     <p>
       Stintory records every session and lap while you drive and lets you
@@ -25,4 +28,8 @@ SPDX-License-Identifier: MIT
   <url type="homepage">https://github.com/AndiBern/Stintory</url>
   <url type="bugtracker">https://github.com/AndiBern/Stintory/issues</url>
   <content_rating type="oars-1.1"/>
+  <!-- filled in by the Flatpak build from Cargo.toml -->
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
 </component>
