@@ -40,6 +40,8 @@ All game telemetry parsers are written **from scratch** (see [docs/ARCHITECTURE.
 - **Not allowed:** copying, translating or porting code from other telemetry tools (TinyPedal, CrewChief, SimHub, kerb, pyirsdk, existing F1/iRacing parser crates, …), or depending on them.
 - Don't copy official SDK headers into the repo. Write Rust definitions from the spec and cite the spec version in a comment.
 
+Want to add a game? [docs/games/adding-a-game.md](docs/games/adding-a-game.md) lists every step, from the adapter crate to tests, settings and docs.
+
 ## Privacy rules
 
 - Only the player's own car is ever stored. Data about other cars and drivers must be filtered before it reaches disk.
