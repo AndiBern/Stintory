@@ -1,0 +1,128 @@
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Release build, started by publishing a release on GitHub (Releases →
+# Draft a new release: pick or create a tag like v0.4.0 on the branch to
+# release, then Publish release). It builds from that tag and
+#
+# - attaches the desktop app to the release: the Windows installer (NSIS)
+#   and the Linux packages (AppImage, deb, rpm, built in the Ubuntu 24.04
+#   container of scripts/build-linux-packages.sh);
+# - pushes the server image to the repository's packages
+#   (ghcr.io/<owner>/stintory-server, tagged with the version and latest).
+#
+# The tag has to match the version in Cargo.toml (with or without a leading
+# v): the app and the server only sync on the same version, so a release
+# must not carry another version than its files.
+#
+# GitHub only: releases, ghcr.io and the Windows runner don't exist on the
+# Forgejo instance, which also reads .github/workflows.
+
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write # attach files to the release
+  packages: write # push the server image
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ github.event.release.tag_name }}
+
+jobs:
+  version:
+    name: Check the version
+    if: github.server_url == 'https://github.com'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tag matches Cargo.toml
+        run: |
+          version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          if [ "${TAG#v}" != "$version" ]; then
+            echo "::error::The tag $TAG doesn't match the version in Cargo.toml ($version). Bump the version or use the tag v$version."
+            exit 1
+          fi
+
+  windows:
+    name: Windows installer
+    needs: version
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      # builds the frontend first (beforeBuildCommand)
+      - run: npx tauri build --bundles nsis
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" target/release/bundle/nsis/*-setup.exe --clobber
+
+  linux:
+    name: Linux packages
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build:desktop:linux:docker
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bundle=target/linux-packages/target/release/bundle
+          gh release upload "$TAG" \
+            "$bundle"/appimage/*.AppImage "$bundle"/deb/*.deb "$bundle"/rpm/*.rpm \
+            --clobber
+
+  server:
+    name: Server image
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      # image names must be lowercase
+      - name: Image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/stintory-server" >> "$GITHUB_OUTPUT"
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ steps.image.outputs.name }}
+          # 0.4.0, 0.4 and latest (only 0.4.0-beta.1 for such versions)
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=Stintory server
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
