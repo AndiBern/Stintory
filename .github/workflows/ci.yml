@@ -94,7 +94,7 @@ jobs:
       # must compile and pass clippy for the Windows target.
       - run: cargo clippy --target x86_64-pc-windows-msvc -p sy-source-iracing -p sy-source-lmu --all-targets --locked -- -D warnings
       # The Proton bridge (sy-bridge.exe) is cross-built with MinGW; the
-      # Linux packages ship it (npm run build:desktop:linux:docker). MinGW also
+      # Flatpak ships it (npm run build:desktop:linux). MinGW also
       # builds its examples' C dependencies (examples/fake_lmu.rs).
       - run: cargo clippy --target x86_64-pc-windows-gnu -p sy-bridge --all-targets --locked -- -D warnings
       - name: Build the Proton bridge

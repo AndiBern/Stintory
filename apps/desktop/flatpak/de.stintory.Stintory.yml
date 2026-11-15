@@ -1,0 +1,90 @@
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Flatpak of the desktop app, the only Linux package. Built by
+# scripts/build-flatpak.sh (npm run build:desktop:linux), which cross-builds
+# sy-bridge.exe first: the SDK has no MinGW compiler.
+#
+# The build downloads its dependencies (rustup with the toolchain from
+# rust-toolchain.toml, npm and cargo packages) while it runs. Flathub would
+# want them listed here instead, which this file doesn't do.
+#
+# The app id is the Tauri identifier (apps/desktop/tauri.conf.json), which
+# also names the data directory and the single-instance D-Bus name.
+
+id: de.stintory.Stintory
+runtime: org.gnome.Platform
+runtime-version: "51"
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.node24
+# GTK takes the program name from argv[0], and Wayland compositors find the
+# window's icon through the desktop file named after it. So the command is
+# a link named like the app id (see the install steps below).
+command: de.stintory.Stintory
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # F1 25 over UDP, the Proton bridge and LMU's REST API on 127.0.0.1,
+  # sync, and the browser login's redirect to 127.0.0.1
+  - --share=network
+  # tray icon (Settings → General → Close to tray)
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # the sync token in the keychain (Secret Service)
+  - --talk-name=org.freedesktop.secrets
+
+modules:
+  # the tray library that libappindicator-sys loads at runtime
+  - shared-modules/libayatana-appindicator/libayatana-appindicator-gtk3.json
+
+  - name: stintory
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/node24/bin
+      env:
+        CARGO_HOME: /run/build/stintory/.cargo
+        RUSTUP_HOME: /run/build/stintory/.rustup
+      build-args:
+        - --share=network
+    build-commands:
+      - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs
+        | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
+      - npm ci
+      # builds the frontend first (beforeBuildCommand)
+      - PATH="$CARGO_HOME/bin:$PATH" npx tauri build --no-bundle -- --locked
+      - install -Dm755 target/release/stintory /app/bin/stintory
+      - ln -s stintory /app/bin/de.stintory.Stintory
+      # install_bridge finds it next to the app and copies it to the data
+      # directory, where Steam can start it
+      - install -Dm644 sy-bridge.exe /app/bin/sy-bridge.exe
+      - install -Dm644 apps/desktop/flatpak/de.stintory.Stintory.desktop
+        /app/share/applications/de.stintory.Stintory.desktop
+      - install -Dm644 apps/desktop/flatpak/de.stintory.Stintory.metainfo.xml
+        /app/share/metainfo/de.stintory.Stintory.metainfo.xml
+      - install -Dm644 apps/desktop/icons/32x32.png
+        /app/share/icons/hicolor/32x32/apps/de.stintory.Stintory.png
+      - install -Dm644 apps/desktop/icons/128x128.png
+        /app/share/icons/hicolor/128x128/apps/de.stintory.Stintory.png
+      - install -Dm644 apps/desktop/icons/128x128@2x.png
+        /app/share/icons/hicolor/256x256/apps/de.stintory.Stintory.png
+      - install -Dm644 apps/desktop/icons/icon.png
+        /app/share/icons/hicolor/512x512/apps/de.stintory.Stintory.png
+    sources:
+      - type: dir
+        path: ../../..
+        skip:
+          - .git
+          - target
+          - node_modules
+          - web/node_modules
+          - web/build
+          - web/.svelte-kit
+          - telemetry_examples
+          - sdks
+          - .stintory-dev
+          - .idea
+      # cross-built by scripts/build-flatpak.sh
+      - type: file
+        path: ../../../target/flatpak/sy-bridge.exe

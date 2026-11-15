@@ -29,7 +29,7 @@ use crate::commands::{compare_loaded, comparison_laps, session_detail};
 
 /// Must equal `identifier` in tauri.conf.json: Tauri keeps the app's data
 /// in `<platform data directory>/<identifier>`.
-const IDENTIFIER: &str = "de.stintory.desktop";
+const IDENTIFIER: &str = "de.stintory.Stintory";
 
 /// Most laps compared at once (as in the app).
 const MAX_LAPS: usize = 8;
@@ -158,12 +158,17 @@ pub fn run() -> i32 {
     0
 }
 
-/// How an assistant starts this mode: the program (the AppImage itself, not
-/// its temporary mount) and its arguments.
+/// How an assistant starts this mode: the program and its arguments. The
+/// Flatpak's program exists only inside the sandbox, so there it's
+/// `flatpak run <app id> mcp`.
 pub(crate) fn launch_command() -> Option<(String, Vec<String>)> {
-    let exe = std::env::var_os("APPIMAGE")
-        .map(PathBuf::from)
-        .or_else(|| std::env::current_exe().ok())?;
+    if let Some(id) = crate::flatpak_id() {
+        return Some((
+            "flatpak".to_owned(),
+            vec!["run".to_owned(), id, "mcp".to_owned()],
+        ));
+    }
+    let exe = std::env::current_exe().ok()?;
     Some((exe.display().to_string(), vec!["mcp".to_owned()]))
 }
 

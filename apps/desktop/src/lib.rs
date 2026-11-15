@@ -7,8 +7,6 @@
 //! Tauri's `invoke`. They implement the same API shape as sy-server's REST
 //! API, see `web/src/lib/api/`.
 
-#[cfg(target_os = "linux")]
-mod appimage;
 mod commands;
 mod mcp;
 mod recording;
@@ -27,6 +25,11 @@ use crate::state::AppState;
 /// Environment variable to override the data directory (useful for development).
 pub(crate) const DATA_DIR_ENV: &str = "STINTORY_DATA_DIR";
 
+/// The app id when running as a Flatpak (`$FLATPAK_ID`).
+pub(crate) fn flatpak_id() -> Option<String> {
+    std::env::var("FLATPAK_ID").ok().filter(|id| !id.is_empty())
+}
+
 /// Runs the MCP server for AI assistants on stdin/stdout (`stintory mcp`,
 /// see [`mcp`]); returns the exit code.
 pub fn run_mcp() -> i32 {
@@ -40,10 +43,6 @@ pub fn run() {
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
-
-    // before the window opens: the compositor looks the icon up when it maps
-    #[cfg(target_os = "linux")]
-    appimage::integrate();
 
     let mut builder = tauri::Builder::default();
     // A second start shows the running app's window instead (it may be

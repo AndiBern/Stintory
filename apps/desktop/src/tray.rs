@@ -67,7 +67,13 @@ pub fn enable(app: &AppHandle) -> Result<(), String> {
         MenuItem::with_id(app, MENU_QUIT, "Quit", true, None::<&str>).map_err(|e| e.to_string())?;
     let menu = Menu::with_items(app, &[&status_item, &separator, &show, &quit])
         .map_err(|e| e.to_string())?;
-    TrayIconBuilder::with_id(TRAY_ID)
+    let builder = TrayIconBuilder::with_id(TRAY_ID);
+    #[cfg(target_os = "linux")]
+    let builder = match flatpak_icon_dir() {
+        Some(dir) => builder.temp_dir_path(dir),
+        None => builder,
+    };
+    builder
         .icon(icon)
         .tooltip("Stintory")
         .menu(&menu)
@@ -246,9 +252,25 @@ pub fn show_main_window(app: &AppHandle) {
     }
 }
 
+/// AppIndicator hands the panel the icon as a file path. In the Flatpak the
+/// default folder (`$XDG_RUNTIME_DIR/tray-icon`) exists only inside the
+/// sandbox; `$XDG_RUNTIME_DIR/app/$FLATPAK_ID` is shared with the host at
+/// the same path.
+#[cfg(target_os = "linux")]
+fn flatpak_icon_dir() -> Option<std::path::PathBuf> {
+    let id = crate::flatpak_id()?;
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")?;
+    Some(
+        std::path::Path::new(&runtime)
+            .join("app")
+            .join(id)
+            .join("tray-icon"),
+    )
+}
+
 /// The tray library (libappindicator-sys) loads one of these at runtime and
-/// panics if neither exists. The deb and rpm depend on it and the AppImage
-/// ships it (added by the Tauri bundler); a self-built binary may lack it.
+/// panics if neither exists. The Flatpak ships it; a self-built binary may
+/// lack it.
 #[cfg(target_os = "linux")]
 #[allow(unsafe_code)] // dlopen, see SAFETY comment
 fn appindicator_available() -> bool {

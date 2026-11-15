@@ -6,8 +6,7 @@
 # release, then Publish release). It builds from that tag and
 #
 # - attaches the desktop app to the release: the Windows installer (NSIS)
-#   and the Linux packages (AppImage, deb, rpm, built in the Ubuntu 24.04
-#   container of scripts/build-linux-packages.sh);
+#   and the Linux Flatpak (scripts/build-flatpak.sh);
 # - pushes the server image to the repository's packages
 #   (ghcr.io/<owner>/stintory-server, tagged with the version and latest).
 #
@@ -66,25 +65,26 @@ jobs:
         run: gh release upload "$TAG" target/release/bundle/nsis/*-setup.exe --clobber
 
   linux:
-    name: Linux packages
+    name: Linux Flatpak
     needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
         with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run build:desktop:linux:docker
+          submodules: true # apps/desktop/flatpak/shared-modules
+      # in the repo, so the target goes to the toolchain of rust-toolchain.toml
+      - run: rustup target add x86_64-pc-windows-gnu
+      - name: Install flatpak-builder and MinGW
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder gcc-mingw-w64-x86-64
+          # Ubuntu's AppArmor stops bubblewrap from creating the build sandbox
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: npm run build:desktop:linux -- --disable-rofiles-fuse
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          bundle=target/linux-packages/target/release/bundle
-          gh release upload "$TAG" \
-            "$bundle"/appimage/*.AppImage "$bundle"/deb/*.deb "$bundle"/rpm/*.rpm \
-            --clobber
+        run: gh release upload "$TAG" target/flatpak/*.flatpak --clobber
 
   server:
     name: Server image

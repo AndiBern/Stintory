@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+SPDX-FileCopyrightText: 2026 The Stintory Contributors
+SPDX-License-Identifier: MIT
+-->
+<component type="desktop-application">
+  <id>de.stintory.Stintory</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <name>Stintory</name>
+  <summary>Record and compare your sim racing laps</summary>
+  <description>
+    <p>
+      Stintory records every session and lap while you drive and lets you
+      review and compare them: traces over distance, a time delta, a track
+      map and corner by corner insights. Your laps stay on your computer,
+      with optional sync to a server you host yourself.
+    </p>
+    <p>
+      Supported games: iRacing (import of .ibt files), F1 25 and Le Mans
+      Ultimate (in Proton through the Proton bridge).
+    </p>
+  </description>
+  <launchable type="desktop-id">de.stintory.Stintory.desktop</launchable>
+  <url type="homepage">https://github.com/AndiBern/Stintory</url>
+  <url type="bugtracker">https://github.com/AndiBern/Stintory/issues</url>
+  <content_rating type="oars-1.1"/>
+</component>
