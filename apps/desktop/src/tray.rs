@@ -292,9 +292,11 @@ mod tests {
             [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
         };
         // center of the dot: radius 14.08, ring to 17.92 → center at 46.08
-        assert_eq!(px(46, 46), [0xef, 0x44, 0x44, 255]);
+        let [r, g, b] = DOT;
+        assert_eq!(px(46, 46), [r, g, b, 255]);
         // the ring
-        assert_eq!(px(46, 62), [0x18, 0x18, 0x1b, 255]);
+        let [r, g, b] = DOT_RING;
+        assert_eq!(px(46, 62), [r, g, b, 255]);
         // far from the dot
         assert_eq!(px(5, 5), [10, 20, 30, 255]);
     }
