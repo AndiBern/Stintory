@@ -32,6 +32,10 @@ All three games are checked with real recordings. The desktop app runs on Window
 - Game telemetry interfaces (incl. data not used yet), competitors and sources: [docs/RESEARCH.md](docs/RESEARCH.md)
 - Building from source and contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 
+## AI disclosure
+
+Stintory is developed with the help of AI coding assistants, as is current state of the art in software development. Large parts of the code and documentation were written with them. Deciding what gets built, reviewing and testing the changes, and checking every game against real recordings before it counts as supported are done by me.
+
 ## License
 
 - Apps (desktop client, server, web UI): [AGPL-3.0-or-later](LICENSE)
