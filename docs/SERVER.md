@@ -25,6 +25,20 @@ cp docker/.env.example docker/.env
 docker compose -f docker/compose.yml --env-file docker/.env up -d --build
 ```
 
+This builds the server from source. To use the prebuilt image instead, swap
+the `build:` block in `docker/compose.yml` for the commented-out
+`image: ghcr.io/andibern/stintory-server:latest` line, then start without
+`--build`:
+
+```sh
+docker compose -f docker/compose.yml --env-file docker/.env pull
+docker compose -f docker/compose.yml --env-file docker/.env up -d
+```
+
+Each release is also tagged with its version (`:0.4.0`, `:0.4`). The app only
+syncs with a server of exactly its own version, so pin a version tag if you
+don't want the server to move ahead of your app on the next `pull`.
+
 The server listens on `127.0.0.1:8080`. Point your reverse proxy at it, for
 example with Caddy:
 

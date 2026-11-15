@@ -6,16 +6,24 @@
 #   cp docker/.env.example docker/.env   # then fill in the values
 #   docker compose -f docker/compose.yml up -d --build
 #
+# or, with the prebuilt image (see the server service below):
+#
+#   docker compose -f docker/compose.yml pull
+#   docker compose -f docker/compose.yml up -d
+#
 # The server listens on 127.0.0.1:8080; put your reverse proxy (TLS) in front.
 
 name: stintory
 
 services:
   server:
+    # Built from source. To use the prebuilt image instead, remove these four
+    # lines, uncomment the image line below and start without --build.
     build:
       context: ..
       dockerfile: docker/Dockerfile
     image: stintory-server:latest
+    # image: ghcr.io/andibern/stintory-server:latest
     restart: unless-stopped
     environment:
       STINTORY_DATABASE_URL: postgres://stintory:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres/stintory
