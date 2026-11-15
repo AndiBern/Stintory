@@ -12,7 +12,7 @@ name: stintory-dev
 
 services:
   postgres:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: stintory
       POSTGRES_PASSWORD: stintory
@@ -20,7 +20,7 @@ services:
     ports:
       - "127.0.0.1:55432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U stintory"]
       interval: 2s
