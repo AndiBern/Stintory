@@ -172,10 +172,10 @@ fn tray_icon(app: &AppHandle, recording: bool) -> Option<Image<'static>> {
     Some(Image::new_owned(rgba, width, height))
 }
 
-/// Red, like the stopwatch hand in the logo.
+/// Red, like the live sector in the logo.
 const DOT: [u8; 3] = [0xef, 0x44, 0x44];
-/// The logo's background, so the dot stands out from the red hand.
-const DOT_RING: [u8; 3] = [0x18, 0x18, 0x1b];
+/// The logo's background, so the dot stands out from the white dial.
+const DOT_RING: [u8; 3] = [0x23, 0x23, 0x28];
 
 /// Paints a red dot with a dark ring into the bottom right corner of an
 /// RGBA image (straight alpha), anti-aliased.

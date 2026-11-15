@@ -90,7 +90,10 @@
 
 <div class="flex h-screen bg-zinc-950 text-zinc-100">
 	<nav class="flex w-52 shrink-0 flex-col gap-1 border-r border-zinc-800 p-3" aria-label="Main">
-		<div class="mb-4 px-2 text-lg font-semibold tracking-tight">Stintory</div>
+		<div class="mb-4 flex items-center gap-2 px-2 text-lg font-semibold tracking-tight">
+			<img src={favicon} alt="" class="size-6 shrink-0" />
+			Stintory
+		</div>
 		{#if !account || auth.me || !auth.reachable}
 			{#each nav as item (item.href)}
 				<a
