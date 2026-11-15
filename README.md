@@ -1,10 +1,10 @@
-# Stintory
+# <img src="apps/desktop/icons/icon.svg" alt="" width="32" height="32"> Stintory
+
+[![CI](https://github.com/AndiBern/Stintory/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/AndiBern/Stintory/actions/workflows/ci.yml?query=branch%3Amain)
 
 Record, review and compare your sim racing lap times. **Your data stays yours.** Everything is stored locally, with optional sync to a server you host yourself.
 
 Most lap analysis tools send your telemetry to the vendor's servers so you can compare yourself with everyone else. Stintory sends nothing to any company: it stores your laps on your computer, and if you want to share them with friends or a team, you do that through your own server.
-
-> **Status:** the first version with all core features is done (v0.2.0). Stintory is now growing through new features and refinements of the existing ones. See [docs/ARCHITECTURE.md §11](docs/ARCHITECTURE.md#11-status) for what works and the known gaps.
 
 ## Features
 
@@ -22,7 +22,7 @@ Most lap analysis tools send your telemetry to the vendor's servers so you can c
 | F1 25 (incl. 2026 Season Pack) | UDP: Windows, Linux (Proton), from PlayStation/Xbox or another PC | [docs/games/f1.md](docs/games/f1.md) |
 | Le Mans Ultimate | Windows (shared memory; turn on *Enable Plugins* in the game); Linux (Proton) through the Proton bridge | [docs/games/lmu.md](docs/games/lmu.md), [docs/games/proton.md](docs/games/proton.md) |
 
-All three games are checked with real recordings. The desktop app runs on Windows and Linux. On Linux it does everything the Windows app does except recording iRacing live (iRacing doesn't support Proton; `.ibt` import works). It records F1 25, and Le Mans Ultimate running in Proton with the help of `sy-bridge.exe`, a small helper that runs next to the game ([docs/games/proton.md](docs/games/proton.md)). More games may follow by demand.
+The desktop app runs on Windows and Linux. If those games support Linux recording should also work on Linux. Games that share telemetry via UDP (like F1) should work out of the box. Games that used shared memory require the help of `sy-bridge.exe`, a small helper that runs next to the game ([docs/games/proton.md](docs/games/proton.md)). More games may follow by demand. Game requests and discussion in [Supported Games and Platforms](https://github.com/AndiBern/Stintory/issues/1)
 
 ## Documentation
 
