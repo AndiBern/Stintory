@@ -268,19 +268,45 @@ fn spectating_records_nothing() {
 #[test]
 fn udp_to_store_and_replay() {
     use std::net::UdpSocket;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
+    use std::time::Instant;
 
     use sy_capture::pipeline::{SharedStore, SpoolSource};
     use sy_capture::spool::SpoolWriter;
     use sy_source_f1::{UdpConfig, UdpSource};
     use sy_store::Store;
 
-    let mut source = UdpSource::bind(&UdpConfig {
-        listen: "127.0.0.1:0".parse().unwrap(),
-        forward: Vec::new(),
-    })
-    .unwrap();
-    let to = source.local_addr().unwrap();
+    /// Counts the records the pipeline took, so the game can wait for it.
+    struct Counted {
+        udp: UdpSource,
+        taken: Arc<AtomicUsize>,
+    }
+
+    impl RawSource for Counted {
+        fn game(&self) -> GameId {
+            self.udp.game()
+        }
+
+        fn next_record(&mut self, timeout: Duration) -> Result<Option<RawRecord>, SourceError> {
+            let r = self.udp.next_record(timeout)?;
+            if r.is_some() {
+                self.taken.fetch_add(1, Ordering::Relaxed);
+            }
+            Ok(r)
+        }
+    }
+
+    let taken = Arc::new(AtomicUsize::new(0));
+    let mut source = Counted {
+        udp: UdpSource::bind(&UdpConfig {
+            listen: "127.0.0.1:0".parse().unwrap(),
+            forward: Vec::new(),
+        })
+        .unwrap(),
+        taken: taken.clone(),
+    };
+    let to = source.udp.local_addr().unwrap();
     let game = std::thread::spawn(move || {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         let mut g = SimGame::new(Format::F2026);
@@ -294,11 +320,25 @@ fn udp_to_store_and_replay() {
             }
         }
         packets.push(g.event(b"SEND", &[]));
-        for (i, p) in packets.iter().enumerate() {
+        // The game sends far faster than real time here, and the receive
+        // buffer holds only some dozen packets: keep at most a few in flight
+        // (a slow disk under the spool would drop packets otherwise).
+        const IN_FLIGHT: usize = 8;
+        let mut kept = 0_usize;
+        for p in &packets {
+            let since = Instant::now();
+            while kept.saturating_sub(taken.load(Ordering::Relaxed)) >= IN_FLIGHT {
+                // a pipeline that stopped taking records fails the asserts
+                // below instead of hanging the test
+                if since.elapsed() > Duration::from_secs(10) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_micros(100));
+            }
             socket.send_to(p, to).unwrap();
-            if i % 50 == 0 {
-                // don't overrun the receive buffer
-                std::thread::sleep(Duration::from_millis(2));
+            // the source drops what it doesn't keep without a record
+            if player_only(p).is_some() {
+                kept += 1;
             }
         }
     });
