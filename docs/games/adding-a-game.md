@@ -9,7 +9,7 @@ Read [CONTRIBUTING.md](../../CONTRIBUTING.md) first. Two of its rules decide whe
 
 Only *read* official interfaces. Never inject into the game process (anti-cheat, [§13](../ARCHITECTURE.md#13-risks)).
 
-Open an issue (or comment in [Supported Games and Platforms](https://github.com/AndiBern/Stintory/issues/1)) before starting, so work isn't done twice.
+Open an issue (or comment in [Supported Games and Platforms](https://github.com/AndiBern/Stintory/discussions/2)) before starting, so work isn't done twice.
 
 ## Overview
 

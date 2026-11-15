@@ -22,7 +22,7 @@ Most lap analysis tools send your telemetry to the vendor's servers so you can c
 | F1 25 (incl. 2026 Season Pack) | UDP: Windows, Linux (Proton), from PlayStation/Xbox or another PC | [docs/games/f1.md](docs/games/f1.md) |
 | Le Mans Ultimate | Windows (shared memory; turn on *Enable Plugins* in the game); Linux (Proton) through the Proton bridge | [docs/games/lmu.md](docs/games/lmu.md), [docs/games/proton.md](docs/games/proton.md) |
 
-The desktop app runs on Windows and Linux. If those games support Linux recording should also work on Linux. Games that share telemetry via UDP (like F1) should work out of the box. Games that used shared memory require the help of `sy-bridge.exe`, a small helper that runs next to the game ([docs/games/proton.md](docs/games/proton.md)). More games may follow by demand. Game requests and discussion in [Supported Games and Platforms](https://github.com/AndiBern/Stintory/issues/1)
+The desktop app runs on Windows and Linux. If those games support Linux recording should also work on Linux. Games that share telemetry via UDP (like F1) should work out of the box. Games that used shared memory require the help of `sy-bridge.exe`, a small helper that runs next to the game ([docs/games/proton.md](docs/games/proton.md)). More games may follow by demand. Game requests and discussion in [Supported Games and Platforms](https://github.com/AndiBern/Stintory/discussions/2)
 
 ## Documentation
 
