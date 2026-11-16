@@ -4,7 +4,8 @@
 	Track map that follows the reference car: it stays in the centre, the
 	other laps' cars move around it (placed by distance or by time, see
 	compare-view.ts). Each lap's line in its colour, an overview of the whole
-	track in the corner.
+	track in the corner. Split, every lap gets its own frame that follows its
+	car; the controls and the overview stay in the first (the reference).
 -->
 <script lang="ts">
 	import type { CompareData, Corner } from '#lib/api/index.ts';
@@ -44,13 +45,30 @@
 	const ZOOM_MIN = 0.3;
 	const ZOOM_MAX = 30;
 
-	let canvas: HTMLCanvasElement | undefined = $state();
-	let width = $state(0);
+	let canvases: (HTMLCanvasElement | undefined)[] = $state([]);
+	let widths: number[] = $state([]);
 	/** pixels per metre */
 	let zoom = $state(3);
 	let headingUp = $state(false);
+	/** one frame per lap instead of all laps on one map */
+	let splitWanted = $state(false);
 
 	const hasMap = $derived(data.laps.some((l) => l.channels.pos_x && l.channels.pos_y));
+	const split = $derived(splitWanted && data.laps.length > 1);
+
+	/**
+	 * What each frame shows: the lap whose car it follows and the laps drawn
+	 * in it. The first frame has the controls and the overview.
+	 */
+	interface Frame {
+		focus: number;
+		laps: number[];
+	}
+	const frames: Frame[] = $derived(
+		split
+			? data.laps.map((_, k) => ({ focus: k, laps: [k] }))
+			: [{ focus: 0, laps: data.laps.map((_, k) => k) }]
+	);
 
 	/** Bounds of the reference line for the overview. */
 	const bounds = $derived.by(() => {
@@ -78,15 +96,16 @@
 
 	/** Ctrl/⌘ + wheel zooms; the plain wheel keeps scrolling the page. */
 	$effect(() => {
-		if (!canvas) return;
-		const el = canvas;
+		const els = canvases.slice(0, frames.length).filter((c) => c !== undefined);
 		const onWheel = (e: WheelEvent) => {
 			if (!e.ctrlKey && !e.metaKey) return;
 			e.preventDefault();
 			zoomBy(Math.exp(-e.deltaY * 0.002));
 		};
-		el.addEventListener('wheel', onWheel, { passive: false });
-		return () => el.removeEventListener('wheel', onWheel);
+		for (const el of els) el.addEventListener('wheel', onWheel, { passive: false });
+		return () => {
+			for (const el of els) el.removeEventListener('wheel', onWheel);
+		};
 	});
 
 	function token(name: string, fallback: string): string {
@@ -137,32 +156,53 @@
 		ctx.restore();
 	}
 
-	$effect(() => {
-		if (!canvas || !hasMap || width === 0) return;
+	interface Colors {
+		surface: string;
+		page: string;
+		muted: string;
+		grid: string;
+	}
+
+	/**
+	 * One frame: centred on the focus lap's car, with the lines and cars of
+	 * `frame.laps`; the overview only where `overview` is set.
+	 */
+	function drawFrame(
+		canvas: HTMLCanvasElement,
+		width: number,
+		frame: Frame,
+		overview: boolean,
+		{ surface, page, muted, grid }: Colors
+	) {
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
 		const dpr = window.devicePixelRatio || 1;
 		canvas.width = width * dpr;
 		canvas.height = HEIGHT * dpr;
-		const surface = token('--color-zinc-900', '#212125');
-		const page = token('--color-zinc-950', '#161619');
-		const muted = token('--color-zinc-400', '#9f9fa9');
-		const grid = token('--color-zinc-800', '#2e2e33');
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.fillStyle = surface;
 		ctx.fillRect(0, 0, width, HEIGHT);
 
 		const ref = data.laps[0];
-		const centre = positionAt(ref, cursor);
-		if (!centre) return;
+		const focusLap = data.laps[frame.focus];
+		const focusIndex = carIndex(data, frame.focus, cursor, mode);
+		const centre = focusIndex === null ? null : positionAt(focusLap, focusIndex);
+		if (focusIndex === null || !centre) {
+			ctx.font = '12px ui-sans-serif, system-ui, sans-serif';
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillStyle = muted;
+			ctx.fillText('No position here', width / 2, HEIGHT / 2);
+			return;
+		}
 		const heading = headingUp
-			? (headingAt(ref, cursor, data.stepM, 8) ?? Math.PI / 2)
+			? (headingAt(focusLap, focusIndex, data.stepM, 8) ?? Math.PI / 2)
 			: Math.PI / 2;
 		const rotation = Math.PI / 2 - heading;
 		const px = 1 / zoom; // one screen pixel in metres
 
-		// world (x east, y north) → screen: centre on the reference car
+		// world (x east, y north) → screen: centre on the focus car
 		ctx.save();
 		ctx.translate(width / 2, HEIGHT / 2);
 		ctx.scale(zoom, -zoom);
@@ -172,7 +212,7 @@
 		// lines: the others first, the reference on top
 		ctx.lineCap = 'round';
 		ctx.lineJoin = 'round';
-		for (let k = data.laps.length - 1; k >= 0; k--) {
+		for (const k of [...frame.laps].reverse()) {
 			const lap = data.laps[k];
 			if (!lap.channels.pos_x || !lap.channels.pos_y) continue;
 			polyline(ctx, lap.channels.pos_x, lap.channels.pos_y);
@@ -183,10 +223,10 @@
 		}
 		ctx.globalAlpha = 1;
 
-		// start/finish line across the reference line
+		// start/finish line across the focus lap's line
 		const start = firstIndex(data);
-		const s = positionAt(ref, start);
-		const sh = headingAt(ref, start, data.stepM, 8);
+		const s = positionAt(focusLap, start);
+		const sh = headingAt(focusLap, start, data.stepM, 8);
 		if (s && sh !== null) {
 			const nx = Math.cos(sh + Math.PI / 2) * 8;
 			const ny = Math.sin(sh + Math.PI / 2) * 8;
@@ -216,8 +256,8 @@
 		};
 		for (const c of corners) {
 			const i = Math.round(c.apexM / data.stepM);
-			const p = positionAt(ref, i);
-			const h = headingAt(ref, i, data.stepM, 8);
+			const p = positionAt(focusLap, i);
+			const h = headingAt(focusLap, i, data.stepM, 8);
 			if (!p || h === null) continue;
 			// left of the driving direction is outside in a right-hander
 			const out = h + (c.direction === 'right' ? Math.PI / 2 : -Math.PI / 2);
@@ -243,14 +283,16 @@
 		ctx.translate(-centre.x, -centre.y);
 
 		// cars: the reference first, the others on top of it
-		data.laps.forEach((lap, k) => {
+		for (const k of frame.laps) {
+			const lap = data.laps[k];
 			const i = carIndex(data, k, cursor, mode);
-			if (i === null) return;
+			if (i === null) continue;
 			const p = positionAt(lap, i);
 			const h = headingAt(lap, i, data.stepM);
 			if (p && h !== null) car(ctx, p, h, lapColor(k), surface, px);
-		});
+		}
 		ctx.restore();
+		if (!overview) return;
 
 		// overview of the whole track, bottom right, with the visible area
 		const ow = Math.min(200, width * 0.3);
@@ -331,94 +373,141 @@
 			}
 			ctx.restore();
 		}
+	}
+
+	$effect(() => {
+		if (!hasMap) return;
+		const colors: Colors = {
+			surface: token('--color-zinc-900', '#212125'),
+			page: token('--color-zinc-950', '#161619'),
+			muted: token('--color-zinc-400', '#9f9fa9'),
+			grid: token('--color-zinc-800', '#2e2e33')
+		};
+		frames.forEach((frame, f) => {
+			const canvas = canvases[f];
+			const width = widths[f] ?? 0;
+			if (canvas && width > 0) drawFrame(canvas, width, frame, f === 0, colors);
+		});
 	});
 
 	const control =
 		'rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 aria-pressed:bg-zinc-700 aria-pressed:text-zinc-100';
 </script>
 
-<div bind:clientWidth={width} class="relative overflow-hidden rounded border border-zinc-800">
-	{#if hasMap}
-		<canvas
-			bind:this={canvas}
-			class="block"
-			style:width="{width}px"
-			style:height="{HEIGHT}px"
-			aria-label="Track map following the reference lap"
-		></canvas>
+{#if hasMap}
+	<div class={['grid gap-2', split && 'lg:grid-cols-2']}>
+		{#each frames as frame, f (frame.focus)}
+			<div
+				bind:clientWidth={widths[f]}
+				class="relative overflow-hidden rounded border border-zinc-800"
+			>
+				<canvas
+					bind:this={canvases[f]}
+					class="block"
+					style:width="{widths[f] ?? 0}px"
+					style:height="{HEIGHT}px"
+					aria-label={split
+						? `Track map following ${labels[frame.focus]}`
+						: 'Track map following the reference lap'}
+				></canvas>
 
-		<!-- the gap of every lap to the reference -->
-		<ul
-			class="absolute top-3 left-3 rounded border border-zinc-800 bg-zinc-950/85 px-3 py-2 text-xs"
-			aria-label="Gaps to the reference"
-		>
-			{#each data.laps as lap, k (lap.lapId)}
-				<li class="flex items-center gap-2 py-0.5">
-					<span class="inline-block h-0.5 w-4 rounded" style:background={lapColor(k)}></span>
-					<span class="text-zinc-400">{labels[k]}</span>
-					<span class="ml-auto pl-3 font-mono text-zinc-100 tabular-nums"
-						>{gapText(data, k, cursor, mode)}</span
+				<!-- the gap of every lap in this frame to the reference -->
+				<ul
+					class="absolute top-3 left-3 rounded border border-zinc-800 bg-zinc-950/85 px-3 py-2 text-xs"
+					aria-label="Gaps to the reference"
+				>
+					{#each frame.laps as k (data.laps[k].lapId)}
+						<li class="flex items-center gap-2 py-0.5">
+							<span class="inline-block h-0.5 w-4 rounded" style:background={lapColor(k)}></span>
+							<span class="text-zinc-400">{labels[k]}</span>
+							<span class="ml-auto pl-3 font-mono text-zinc-100 tabular-nums"
+								>{gapText(data, k, cursor, mode)}</span
+							>
+						</li>
+					{/each}
+				</ul>
+
+				{#if f === 0}
+					<!-- view controls, for all frames -->
+					<div
+						class="absolute top-3 right-3 flex flex-col items-end gap-1.5 text-xs"
+						role="toolbar"
+						aria-label="Map"
 					>
-				</li>
-			{/each}
-		</ul>
-
-		<!-- view controls -->
-		<div
-			class="absolute top-3 right-3 flex flex-col items-end gap-1.5 text-xs"
-			role="toolbar"
-			aria-label="Map"
-		>
-			<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
-				<span class="px-2 py-1 text-zinc-500">Cars by</span>
-				<button
-					type="button"
-					class={control}
-					aria-pressed={mode === 'distance'}
-					title="Every car at the same distance as the reference: compare lines"
-					onclick={() => (mode = 'distance')}>Distance</button
-				>
-				<button
-					type="button"
-					class={control}
-					aria-pressed={mode === 'time'}
-					title="Every car where it was after the same lap time: see the gaps"
-					onclick={() => (mode = 'time')}>Time</button
-				>
+						{#if data.laps.length > 1}
+							<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
+								<span class="px-2 py-1 text-zinc-500">Laps</span>
+								<button
+									type="button"
+									class={control}
+									aria-pressed={!split}
+									title="All laps on one map, following the reference"
+									onclick={() => (splitWanted = false)}>One map</button
+								>
+								<button
+									type="button"
+									class={control}
+									aria-pressed={split}
+									title="Every lap in its own frame, following its car"
+									onclick={() => (splitWanted = true)}>Own frames</button
+								>
+							</div>
+						{/if}
+						<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
+							<span class="px-2 py-1 text-zinc-500">Cars by</span>
+							<button
+								type="button"
+								class={control}
+								aria-pressed={mode === 'distance'}
+								title="Every car at the same distance as the reference: compare lines"
+								onclick={() => (mode = 'distance')}>Distance</button
+							>
+							<button
+								type="button"
+								class={control}
+								aria-pressed={mode === 'time'}
+								title="Every car where it was after the same lap time: see the gaps"
+								onclick={() => (mode = 'time')}>Time</button
+							>
+						</div>
+						<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
+							<button
+								type="button"
+								class={control}
+								aria-pressed={!headingUp}
+								onclick={() => (headingUp = false)}>North up</button
+							>
+							<button
+								type="button"
+								class={control}
+								aria-pressed={headingUp}
+								onclick={() => (headingUp = true)}>Heading up</button
+							>
+						</div>
+						<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
+							<button
+								type="button"
+								class={control}
+								aria-label="Zoom out"
+								disabled={zoom <= ZOOM_MIN}
+								onclick={() => zoomBy(1 / 1.5)}>−</button
+							>
+							<button
+								type="button"
+								class={control}
+								aria-label="Zoom in"
+								disabled={zoom >= ZOOM_MAX}
+								onclick={() => zoomBy(1.5)}>+</button
+							>
+						</div>
+						<span class="text-zinc-500">Ctrl + scroll to zoom</span>
+					</div>
+				{/if}
 			</div>
-			<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
-				<button
-					type="button"
-					class={control}
-					aria-pressed={!headingUp}
-					onclick={() => (headingUp = false)}>North up</button
-				>
-				<button
-					type="button"
-					class={control}
-					aria-pressed={headingUp}
-					onclick={() => (headingUp = true)}>Heading up</button
-				>
-			</div>
-			<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
-				<button
-					type="button"
-					class={control}
-					aria-label="Zoom out"
-					disabled={zoom <= ZOOM_MIN}
-					onclick={() => zoomBy(1 / 1.5)}>−</button
-				>
-				<button
-					type="button"
-					class={control}
-					aria-label="Zoom in"
-					disabled={zoom >= ZOOM_MAX}
-					onclick={() => zoomBy(1.5)}>+</button
-				>
-			</div>
-			<span class="text-zinc-500">Ctrl + scroll to zoom</span>
-		</div>
-	{:else}
-		<p class="p-4 text-sm text-zinc-500">No position data for a track map.</p>
-	{/if}
-</div>
+		{/each}
+	</div>
+{:else}
+	<p class="rounded border border-zinc-800 p-4 text-sm text-zinc-500">
+		No position data for a track map.
+	</p>
+{/if}
