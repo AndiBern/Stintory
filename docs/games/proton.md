@@ -188,8 +188,13 @@ flatpak run de.stintory.Stintory
 In the Flatpak the data directory is
 `~/.var/app/de.stintory.Stintory/data/de.stintory.Stintory/`, and the
 launch option points at the `sy-bridge.exe` there. Steam installed as a
-Flatpak (`com.valvesoftware.Steam`) can't see that folder; this hasn't been
-tried yet.
+Flatpak (`com.valvesoftware.Steam`) can't see that folder;
+
+The Flatpak has no access to the user's files: *Import…* opens any file
+through the file dialog (the portal shares it with the app), but files
+dragged onto the window arrive with their host path, which the sandbox
+can't see, so dropping doesn't import. The app then says to use
+*Import…*.
 
 A development build of the app finds the cross-built `sy-bridge.exe` in
 `target/` on its own; `STINTORY_BRIDGE_EXE=/path/to/sy-bridge.exe` points
