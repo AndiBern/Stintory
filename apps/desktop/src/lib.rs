@@ -7,8 +7,6 @@
 //! Tauri's `invoke`. They implement the same API shape as sy-server's REST
 //! API, see `web/src/lib/api/`.
 
-#[cfg(target_os = "linux")]
-mod appimage;
 mod commands;
 mod mcp;
 mod recording;
@@ -27,6 +25,31 @@ use crate::state::AppState;
 /// Environment variable to override the data directory (useful for development).
 pub(crate) const DATA_DIR_ENV: &str = "STINTORY_DATA_DIR";
 
+/// The app id when running as a Flatpak (`$FLATPAK_ID`).
+pub(crate) fn flatpak_id() -> Option<String> {
+    std::env::var("FLATPAK_ID").ok().filter(|id| !id.is_empty())
+}
+
+/// With NVIDIA's driver, WebKitGTK's DMA-BUF renderer breaks the Wayland
+/// connection ("Error 71 (Protocol error) dispatching to Wayland display")
+/// and the window never opens. So it's turned off there, unless
+/// `WEBKIT_DISABLE_DMABUF_RENDERER` is already set; other GPUs keep it.
+/// Returns whether it was turned off. Must run before any other thread
+/// exists.
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)] // set_var, see SAFETY comment
+fn disable_dmabuf_on_nvidia() -> bool {
+    const VAR: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
+    // the kernel driver's entry, visible inside the Flatpak too
+    let nvidia = std::path::Path::new("/proc/driver/nvidia/version").exists();
+    if !nvidia || std::env::var_os(VAR).is_some() {
+        return false;
+    }
+    // SAFETY: called first thing in `run`, while the process has one thread
+    unsafe { std::env::set_var(VAR, "1") };
+    true
+}
+
 /// Runs the MCP server for AI assistants on stdin/stdout (`stintory mcp`,
 /// see [`mcp`]); returns the exit code.
 pub fn run_mcp() -> i32 {
@@ -35,15 +58,17 @@ pub fn run_mcp() -> i32 {
 
 /// Starts the desktop app.
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    let dmabuf_off = disable_dmabuf_on_nvidia();
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )
         .init();
-
-    // before the window opens: the compositor looks the icon up when it maps
     #[cfg(target_os = "linux")]
-    appimage::integrate();
+    if dmabuf_off {
+        tracing::info!("NVIDIA driver: WebKit's DMA-BUF renderer turned off");
+    }
 
     let mut builder = tauri::Builder::default();
     // A second start shows the running app's window instead (it may be

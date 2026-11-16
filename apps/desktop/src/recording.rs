@@ -401,8 +401,9 @@ impl BridgeCapture {
 pub const BRIDGE_EXE: &str = "sy-bridge.exe";
 
 /// Puts `sy-bridge.exe` at a fixed place in the data directory, so the
-/// Steam launch option keeps working across updates (an AppImage runs from
-/// a new temporary mount every time). Looks for it in the app's resources,
+/// Steam launch option keeps working across updates (the Flatpak's own
+/// files are only visible inside its sandbox; its data directory is a
+/// normal folder under `~/.var/app`). Looks for it in the app's resources,
 /// next to the app, in the Windows cross build (development), or at
 /// `$STINTORY_BRIDGE_EXE`; keeps an earlier copy if none is found.
 pub fn install_bridge(resource_dir: Option<&Path>, data_dir: &Path) -> Result<PathBuf, String> {
@@ -853,14 +854,16 @@ mod tests {
 
     #[test]
     fn launch_options_survive_the_shell_and_shlex() {
-        let exe = Path::new("/home/me/.local/share/de.stintory.desktop/proton/sy-bridge.exe");
+        let exe = Path::new(
+            "/home/me/.var/app/de.stintory.Stintory/data/de.stintory.Stintory/proton/sy-bridge.exe",
+        );
         assert_eq!(
             launch_option(exe, 20790).unwrap(),
-            "PROTON_REMOTE_DEBUG_CMD=/home/me/.local/share/de.stintory.desktop/proton/sy-bridge.exe %command%"
+            "PROTON_REMOTE_DEBUG_CMD=/home/me/.var/app/de.stintory.Stintory/data/de.stintory.Stintory/proton/sy-bridge.exe %command%"
         );
         assert_eq!(
             launch_option(exe, 20800).unwrap(),
-            "PROTON_REMOTE_DEBUG_CMD=\"/home/me/.local/share/de.stintory.desktop/proton/sy-bridge.exe --port 20800\" %command%"
+            "PROTON_REMOTE_DEBUG_CMD=\"/home/me/.var/app/de.stintory.Stintory/data/de.stintory.Stintory/proton/sy-bridge.exe --port 20800\" %command%"
         );
         assert_eq!(
             launch_option(Path::new("/home/Max Mustermann/sy-bridge.exe"), 20790).unwrap(),

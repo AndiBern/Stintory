@@ -271,6 +271,21 @@ pub async fn import_files(
             bad.display()
         )));
     }
+    // A file dropped onto the Flatpak's window arrives with its path on the
+    // host, which the sandbox doesn't see; files picked in the dialog are
+    // shared with it through the portal.
+    if let Some(missing) = paths.iter().find(|p| !p.exists()) {
+        let hint = if crate::flatpak_id().is_some() {
+            " Stintory runs as a Flatpak and can't open files dropped from outside \
+             its sandbox: use \"Import…\" instead."
+        } else {
+            ""
+        };
+        return Err(CommandError::BadRequest(format!(
+            "can't find {}.{hint}",
+            missing.display()
+        )));
+    }
     let files = paths.len() as u32;
     let (raws, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths
         .into_iter()

@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: 2026 The Stintory Contributors
+# SPDX-License-Identifier: AGPL-3.0-or-later
+[Desktop Entry]
+Type=Application
+Name=Stintory
+Comment=Record and compare your sim racing laps
+Exec=de.stintory.Stintory
+Icon=de.stintory.Stintory
+Terminal=false
+Categories=Utility;
+Keywords=telemetry;racing;lap;iRacing;F1;Le Mans Ultimate;
+StartupWMClass=de.stintory.Stintory

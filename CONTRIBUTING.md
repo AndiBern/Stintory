@@ -64,7 +64,12 @@ cargo test --workspace                  # Rust tests
 npm run check -w web && npm run lint -w web && npm run test:unit -w web -- --run
 npm run dev:desktop                     # run the desktop app with hot reload
 npm run build:bridge                    # sy-bridge.exe for Proton (needs MinGW-w64, docs/games/proton.md)
+npm run build:desktop:linux             # the Linux Flatpak (needs flatpak-builder, docs/games/proton.md)
 ```
+
+The Flatpak build uses Flathub's shared modules as a git submodule
+(`apps/desktop/flatpak/shared-modules`); the build script fetches it when
+it's missing.
 
 ## Pull requests
 
