@@ -7,13 +7,16 @@ import {
 	carIndex,
 	firstIndex,
 	gapText,
+	gearAt,
 	headingAt,
 	indexAtTime,
 	lastIndex,
+	pedalAt,
 	positionAt,
 	rebaseDeltas,
 	sectionOf,
 	sectionTime,
+	steeringAt,
 	valueAt
 } from './compare-view.ts';
 import { formatDeltaS, formatGear, formatKm } from './compare-panels.ts';
@@ -109,5 +112,40 @@ describe('sections', () => {
 		const s = { start: 1, end: 4 };
 		expect(sectionTime(data.laps[0], s)).toBe(3);
 		expect(sectionTime(data.laps[1], s)).toBe(1.5);
+	});
+});
+
+describe('steeringAt', () => {
+	it('reads the wheel angle in degrees, else the input in percent', () => {
+		const angle = { ...lap([0, 1]), channels: { steer: [-Math.PI / 2, Math.PI / 4] } };
+		expect(steeringAt(angle, 0)).toEqual({ text: '−90°', turn: -90 });
+		expect(steeringAt(angle, 1)?.text).toBe('45°');
+		const input = { ...lap([0, 1]), channels: { steer_norm: [0.5, null] } };
+		expect(steeringAt(input, 0)).toEqual({ text: '50%', turn: 90 });
+		expect(steeringAt(input, 1)).toBeNull();
+	});
+});
+
+describe('gearAt', () => {
+	it('takes the nearest grid point', () => {
+		const l = { ...lap([0, 1, 2]), channels: { gear: [2, 3, null] } };
+		expect(gearAt(l, 0.4)).toBe(2);
+		expect(gearAt(l, 0.6)).toBe(3);
+		expect(gearAt(l, 2)).toBeNull();
+		expect(gearAt(lap([0]), 0)).toBeNull();
+	});
+});
+
+describe('pedalAt', () => {
+	it('is the pedal in whole percent, within 0–100', () => {
+		const l = {
+			...lap([0, 1, 2]),
+			channels: { throttle: [0.5, 1.02, null], brake: [0.123, 0, 0] }
+		};
+		expect(pedalAt(l, 'throttle', 0)).toBe(50);
+		expect(pedalAt(l, 'throttle', 1)).toBe(100);
+		expect(pedalAt(l, 'throttle', 2)).toBeNull();
+		expect(pedalAt(l, 'brake', 0)).toBe(12);
+		expect(pedalAt(l, 'clutch', 0)).toBeNull();
 	});
 });

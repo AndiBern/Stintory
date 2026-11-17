@@ -173,3 +173,44 @@ export function sectionTime(lap: LapTrace, s: Section): number | null {
 	const b = valueAt(lap.channels.t, s.end);
 	return a == null || b == null ? null : b - a;
 }
+
+/**
+ * Lock assumed for games that report only the steering input (F1, -1 … 1),
+ * to turn the wheel icon; the text shows the input in percent.
+ */
+const NORM_LOCK_DEG = 180;
+
+export interface SteeringReading {
+	/** e.g. `−45°`, or `−30%` for the input */
+	text: string;
+	/** how far the wheel is turned, degrees clockwise */
+	turn: number;
+}
+
+/** Steering of a lap at a fractional index: the wheel angle, else the input. */
+export function steeringAt(lap: LapTrace, index: number): SteeringReading | null {
+	const signed = (v: number, unit: string) => {
+		const r = Math.round(v);
+		return `${r < 0 ? '−' : ''}${Math.abs(r)}${unit}`;
+	};
+	const rad = valueAt(lap.channels.steer, index);
+	if (rad != null) {
+		const deg = (rad * 180) / Math.PI;
+		return { text: signed(deg, '°'), turn: deg };
+	}
+	const norm = valueAt(lap.channels.steer_norm, index);
+	if (norm != null) return { text: signed(norm * 100, '%'), turn: norm * NORM_LOCK_DEG };
+	return null;
+}
+
+/** Gear of a lap at the grid point nearest a fractional index (not interpolated). */
+export function gearAt(lap: LapTrace, index: number): number | null {
+	const g = lap.channels.gear?.[Math.round(index)];
+	return g == null ? null : Math.round(g);
+}
+
+/** A pedal (throttle, brake: 0–1) of a lap at a fractional index, in whole percent. */
+export function pedalAt(lap: LapTrace, channel: string, index: number): number | null {
+	const v = valueAt(lap.channels[channel], index);
+	return v == null ? null : Math.round(Math.min(1, Math.max(0, v)) * 100);
+}
