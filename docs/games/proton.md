@@ -122,11 +122,22 @@ lets it detach). Without `--port` it listens on `127.0.0.1:20790`.
 
 ## Other shared-memory bridges (Le Mans Ultimate)
 
-Tools like simshmbridge (`lmushm` + `lmubridge.exe`) or DataLink (a map
-`LMU_Data`) take a different route: before the game starts they create the
+Tools like [simshmbridge](https://github.com/Spacefreak18/simshmbridge)
+(`lmushm` + `lmubridge.exe`) or
+[DataLink](https://github.com/LukasLichten/Datalink) (a map `LMU_Data`)
+take a different route: before the game starts they create the
 file `/dev/shm/LMU_Data` and, inside the prefix, a mapping named `LMU_Data`
 backed by that file. The game then writes into the file's pages, and native
-Linux programs read them directly; nothing is copied.
+Linux programs read them directly; nothing is copied. The file is named
+after the game's mapping, so every such bridge puts it at the same path.
+[simd](https://github.com/Spacefreak18/simapi/tree/master/simd) (part of
+simapi) can take over simshmbridge's Linux side: it creates the file
+itself, starts `lmubridge.exe` in the game's prefix when the game is
+started with `SIMD_BRIDGE_EXE=/path/to/lmubridge.exe %command%`, and stops
+it when the game exits.
+
+Checked with simshmbridge and the real game (Nov 2026): recorded through
+*Another shared-memory bridge*.
 
 For users who run such a bridge anyway, *Settings → Games → Le Mans
 Ultimate → Read the game through* can be switched to *Another shared-memory
@@ -142,9 +153,9 @@ for iRacing. Differences to the Proton bridge:
   game uses its own mapping and the file stays empty. The app says so when
   the game runs (its REST API answers) but has never written into the file.
 - The file stays when the game exits (simshmbridge keeps it until `lmushm`
-  is stopped). The app only starts recording when the telemetry moves, and
-  ends a recording once the data stops changing and the REST API no longer
-  answers.
+  is stopped, simd until simd exits). The app only starts recording when
+  the telemetry moves, and ends a recording once the data stops changing
+  and the REST API no longer answers.
 - The file must hold at least 324,824 bytes (simshmbridge makes it 505,000
   bytes; DataLink needs a map `{ "name": "LMU_Data", "size": 505000 }` in
   its config, it has no preset for LMU).
@@ -245,7 +256,3 @@ it at another one.
   data arrived at the full rate, but a recording can't tell events from
   the polling fallback).
 - The delay between the game and the app (not recorded anywhere).
-- Reading `/dev/shm/LMU_Data` from another shared-memory bridge: checked
-  only with a file written like the game would
-  (`crates/sy-source-lmu/tests/shm.rs`), not yet with simshmbridge or
-  DataLink and the real game.

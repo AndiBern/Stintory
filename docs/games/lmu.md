@@ -38,9 +38,10 @@ Recording runs on Windows, and on Linux when the game runs in Proton:
 there the Proton bridge (`sy-bridge.exe`, started with the game by a Steam
 launch option) reads the shared memory inside the game's prefix and passes
 it on (docs/games/proton.md). Instead of the bridge, Stintory can also read
-`/dev/shm/LMU_Data` when another shared-memory bridge (simshmbridge,
-DataLink) puts the game's memory there (docs/games/proton.md, *Other
-shared-memory bridges*). Other telemetry apps keep working: the
+`/dev/shm/LMU_Data` when another shared-memory bridge
+([simshmbridge](https://github.com/Spacefreak18/simshmbridge),
+[DataLink](https://github.com/LukasLichten/Datalink)) puts the game's
+memory there (docs/games/proton.md, *Other shared-memory bridges*). Other telemetry apps keep working: the
 shared memory has any number of readers.
 
 ## Reading the shared memory
@@ -253,8 +254,6 @@ another method.
   100 Hz sample once, but a spool file doesn't show whether the reader
   waited on the events or polled.
 - Linux through the Proton bridge (docs/games/proton.md).
-- Linux from `/dev/shm` through another shared-memory bridge: checked only
-  with a file written like the game would (`crates/sy-source-lmu/tests/shm.rs`).
 - Full-course yellow (`mGamePhase` 6; not reproduced offline).
 - Whether `mLapInvalidated` is ever set.
 - Rain (`mRaining`, the surface types), the tyre wear over a long stint.
