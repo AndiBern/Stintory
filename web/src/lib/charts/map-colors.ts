@@ -55,10 +55,13 @@ const RAD_TO_DEG = 180 / Math.PI;
 /** The grey midpoint of the diverging scales and "off". */
 const NEUTRAL = '#71717a';
 
+/** Full throttle and full brake, on the map and in the pedal readouts. */
+export const PEDAL_COLORS = { throttle: '#3dff6e', brake: '#ff3434' };
+
 const RAMPS = {
 	speed: ['#000000', '#104281', '#3987e5', '#cde2fb'],
-	throttle: ['#000000', '#3dff6e'],
-	brake: ['#000000', '#ff3434'],
+	throttle: ['#000000', PEDAL_COLORS.throttle],
+	brake: ['#000000', PEDAL_COLORS.brake],
 	gear: ['#3d3480', '#9085e9', '#ece9ff'],
 	// left / gaining … right / losing
 	diverging: ['#3987e5', NEUTRAL, '#e5484d']

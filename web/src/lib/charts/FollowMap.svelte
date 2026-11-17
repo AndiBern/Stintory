@@ -16,13 +16,17 @@
 		carIndex,
 		firstIndex,
 		gapText,
+		gearAt,
 		headingAt,
+		pedalAt,
 		positionAt,
+		steeringAt,
 		type OffsetMode,
 		type Point,
 		type Section
 	} from './compare-view.ts';
-	import { colorOptions, lineColoring, type ColorBy } from './map-colors.ts';
+	import { colorOptions, lineColoring, PEDAL_COLORS, type ColorBy } from './map-colors.ts';
+	import { formatGear } from './compare-panels.ts';
 
 	let {
 		data,
@@ -64,6 +68,17 @@
 
 	const hasMap = $derived(data.laps.some((l) => l.channels.pos_x && l.channels.pos_y));
 	const split = $derived(splitWanted && data.laps.length > 1);
+	/** steering wheel and gear in a frame with one lap, if any lap has them */
+	const hasSteering = $derived(
+		data.laps.some((l) =>
+			[l.channels.steer, l.channels.steer_norm].some((c) => c?.some((v) => v != null))
+		)
+	);
+	const hasGear = $derived(data.laps.some((l) => l.channels.gear?.some((v) => v != null)));
+	const hasThrottle = $derived(data.laps.some((l) => l.channels.throttle?.some((v) => v != null)));
+	const hasBrake = $derived(data.laps.some((l) => l.channels.brake?.some((v) => v != null)));
+	const hasReadout = $derived(hasSteering || hasGear || hasThrottle || hasBrake);
+	const percent = (v: number | null) => (v === null ? '–' : `${v}%`);
 
 	/**
 	 * What each frame shows: the lap whose car it follows and the laps drawn
@@ -481,6 +496,90 @@
 		'rounded px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 aria-pressed:bg-zinc-700 aria-pressed:text-zinc-100';
 </script>
 
+<!-- a steering wheel turned like the real one; the mark at the top in the lap colour
+     (bolder when small) -->
+{#snippet wheelIcon(turn: number, mark: string, cls: string, small = false)}
+	<svg
+		viewBox="0 0 48 48"
+		class="shrink-0 text-zinc-500 {cls}"
+		style:transform="rotate({turn}deg)"
+		aria-hidden="true"
+	>
+		<circle
+			cx="24"
+			cy="24"
+			r="21"
+			fill="none"
+			stroke="currentColor"
+			stroke-width={small ? 6 : 3.5}
+		/>
+		<path
+			d={small ? 'M5 26.5H16M32 26.5h11M24 33v10' : 'M4.5 26.5H10M38 26.5h5.5M24 38.5v5'}
+			stroke="currentColor"
+			stroke-width={small ? 6 : 4}
+			stroke-linecap="round"
+		/>
+		<path d={small ? 'M24 0v10' : 'M24 1.5v6'} stroke={mark} stroke-width={small ? 8 : 4} />
+	</svg>
+{/snippet}
+
+<!-- a pedal filling up from the bottom: throttle tall and narrow, brake wide -->
+{#snippet pedalIcon(kind: 'throttle' | 'brake', value: number | null, cls: string)}
+	{@const r = kind === 'throttle' ? { x: 4.5, y: 1, w: 7, h: 14 } : { x: 1.5, y: 3.5, w: 13, h: 9 }}
+	{@const fill = ((value ?? 0) / 100) * r.h}
+	<svg viewBox="0 0 16 16" class="shrink-0 {cls}" aria-hidden="true">
+		<rect x={r.x} y={r.y + r.h - fill} width={r.w} height={fill} fill={PEDAL_COLORS[kind]} />
+		<rect
+			x={r.x}
+			y={r.y}
+			width={r.w}
+			height={r.h}
+			rx="1.5"
+			fill="none"
+			stroke={PEDAL_COLORS[kind]}
+			stroke-width="1.5"
+		/>
+	</svg>
+{/snippet}
+
+<!-- a pedal as a bar filling up, the percentage below -->
+{#snippet pedalBar(label: string, value: number | null, color: string)}
+	<div class="flex flex-col items-center gap-1" role="img" aria-label="{label} {percent(value)}">
+		<div class="relative h-10 w-2.5 overflow-hidden rounded-sm bg-zinc-800">
+			<div
+				class="absolute inset-x-0 bottom-0"
+				style:height="{value ?? 0}%"
+				style:background={color}
+			></div>
+		</div>
+		<span
+			class="w-8 text-center font-mono text-[10px] text-zinc-100 tabular-nums"
+			aria-hidden="true">{percent(value)}</span
+		>
+	</div>
+{/snippet}
+
+<!-- gear: a shift pattern -->
+{#snippet shiftIcon(cls: string)}
+	<svg
+		viewBox="0 0 24 24"
+		class="shrink-0 text-zinc-400 {cls}"
+		fill="none"
+		stroke="currentColor"
+		stroke-width="2"
+		stroke-linecap="round"
+		aria-hidden="true"
+	>
+		<path d="M6 6v12M12 6v12M18 6v12M6 12h12" />
+		<circle cx="6" cy="5" r="1.5" fill="currentColor" />
+		<circle cx="12" cy="5" r="1.5" fill="currentColor" />
+		<circle cx="18" cy="5" r="1.5" fill="currentColor" />
+		<circle cx="6" cy="19" r="1.5" fill="currentColor" />
+		<circle cx="12" cy="19" r="1.5" fill="currentColor" />
+		<circle cx="18" cy="19" r="1.5" fill="currentColor" />
+	</svg>
+{/snippet}
+
 {#if hasMap}
 	<div class={['grid gap-2', split && 'lg:grid-cols-2']}>
 		{#each frames as frame, f (frame.focus)}
@@ -498,21 +597,116 @@
 						: 'Track map following the reference lap'}
 				></canvas>
 
-				<!-- the gap of every lap in this frame to the reference -->
-				<ul
-					class="absolute top-3 left-3 rounded border border-zinc-800 bg-zinc-950/85 px-3 py-2 text-xs"
-					aria-label="Gaps to the reference"
-				>
-					{#each frame.laps as k (data.laps[k].lapId)}
-						<li class="flex items-center gap-2 py-0.5">
-							<span class="inline-block h-0.5 w-4 rounded" style:background={lapColor(k)}></span>
-							<span class="text-zinc-400">{labels[k]}</span>
-							<span class="ml-auto pl-3 font-mono text-zinc-100 tabular-nums"
-								>{gapText(data, k, cursor, mode)}</span
-							>
-						</li>
-					{/each}
-				</ul>
+				<!-- the gap of every lap in this frame to the reference, with its steering
+				     wheel and gear on the same line; with one lap, those in a bigger box below -->
+				<div class="absolute top-3 left-3 flex flex-col items-start gap-2 text-xs">
+					<ul
+						class="rounded border border-zinc-800 bg-zinc-950/85 px-3 py-2"
+						aria-label="Gaps to the reference"
+					>
+						{#each frame.laps as k (data.laps[k].lapId)}
+							<li class="flex items-center gap-2 py-0.5">
+								<span class="inline-block h-0.5 w-4 rounded" style:background={lapColor(k)}></span>
+								<span class="text-zinc-400">{labels[k]}</span>
+								<span class="ml-auto pl-3 font-mono text-zinc-100 tabular-nums"
+									>{gapText(data, k, cursor, mode)}</span
+								>
+								{#if frame.laps.length > 1 && hasReadout}
+									{@const i = carIndex(data, k, cursor, mode)}
+									{@const steering = i === null ? null : steeringAt(data.laps[k], i)}
+									{@const gear = i === null ? null : gearAt(data.laps[k], i)}
+									{@const throttle = i === null ? null : pedalAt(data.laps[k], 'throttle', i)}
+									{@const brake = i === null ? null : pedalAt(data.laps[k], 'brake', i)}
+									{#if hasSteering}
+										{@render wheelIcon(steering?.turn ?? 0, lapColor(k), 'ml-2 h-4 w-4', true)}
+										<span
+											class="w-9 text-right font-mono text-zinc-100 tabular-nums"
+											aria-label="Steering {steering?.text ?? 'unknown'}"
+											>{steering?.text ?? '–'}</span
+										>
+									{/if}
+									{#if hasGear}
+										{@render shiftIcon('ml-1 h-4 w-4')}
+										<span
+											class="w-3 font-mono text-zinc-100 tabular-nums"
+											aria-label="Gear {gear === null ? 'unknown' : formatGear(gear)}"
+											>{gear === null ? '–' : formatGear(gear)}</span
+										>
+									{/if}
+									{#if hasThrottle}
+										{@render pedalIcon('throttle', throttle, 'ml-1 h-4 w-4')}
+										<span
+											class="w-8 text-right font-mono text-zinc-100 tabular-nums"
+											aria-label="Throttle {percent(throttle)}">{percent(throttle)}</span
+										>
+									{/if}
+									{#if hasBrake}
+										{@render pedalIcon('brake', brake, 'ml-1 h-4 w-4')}
+										<span
+											class="w-8 text-right font-mono text-zinc-100 tabular-nums"
+											aria-label="Brake {percent(brake)}">{percent(brake)}</span
+										>
+									{/if}
+								{/if}
+							</li>
+						{/each}
+					</ul>
+					{#if frame.laps.length === 1 && hasReadout}
+						{@const lap = data.laps[frame.focus]}
+						{@const i = carIndex(data, frame.focus, cursor, mode)}
+						{@const steering = i === null ? null : steeringAt(lap, i)}
+						{@const gear = i === null ? null : gearAt(lap, i)}
+						{@const throttle = i === null ? null : pedalAt(lap, 'throttle', i)}
+						{@const brake = i === null ? null : pedalAt(lap, 'brake', i)}
+						<div
+							class="flex items-center gap-4 rounded border border-zinc-800 bg-zinc-950/85 px-3 py-2"
+							role="group"
+							aria-label="Steering, gear and pedals"
+						>
+							{#if hasSteering}
+								<div
+									class="relative h-14 w-14"
+									role="img"
+									aria-label="Steering {steering?.text ?? 'unknown'}"
+								>
+									{@render wheelIcon(steering?.turn ?? 0, lapColor(frame.focus), 'h-full w-full')}
+									<span
+										class="absolute inset-0 flex items-center justify-center font-mono text-[10px] text-zinc-100 tabular-nums"
+										aria-hidden="true">{steering?.text ?? '–'}</span
+									>
+								</div>
+							{/if}
+							{#if hasGear || hasThrottle || hasBrake}
+								<!-- gear, below it the pedals filling up -->
+								<div class="flex flex-col items-center gap-1.5">
+									{#if hasGear}
+										<div
+											class="flex items-center gap-1.5"
+											role="img"
+											aria-label="Gear {gear === null ? 'unknown' : formatGear(gear)}"
+										>
+											{@render shiftIcon('h-5 w-5')}
+											<span
+												class="font-mono text-base text-zinc-100 tabular-nums"
+												aria-hidden="true">{gear === null ? '–' : formatGear(gear)}</span
+											>
+										</div>
+									{/if}
+									{#if hasThrottle || hasBrake}
+										<div class="flex gap-1">
+											{#if hasThrottle}
+												{@render pedalBar('Throttle', throttle, PEDAL_COLORS.throttle)}
+											{/if}
+											{#if hasBrake}
+												{@render pedalBar('Brake', brake, PEDAL_COLORS.brake)}
+											{/if}
+										</div>
+									{/if}
+								</div>
+							{/if}
+						</div>
+					{/if}
+				</div>
 
 				{#if f === 0 && coloring}
 					{@const legend = coloring.legend}
