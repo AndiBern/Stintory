@@ -6,6 +6,8 @@
 	compare-view.ts). Each lap's line in its colour, an overview of the whole
 	track in the corner. Split, every lap gets its own frame that follows its
 	car; the controls and the overview stay in the first (the reference).
+	The lines can show a telemetry value instead of the lap colour
+	(map-colors.ts), with a legend in the first frame.
 -->
 <script lang="ts">
 	import type { CompareData, Corner } from '#lib/api/index.ts';
@@ -20,6 +22,7 @@
 		type Point,
 		type Section
 	} from './compare-view.ts';
+	import { colorOptions, lineColoring, type ColorBy } from './map-colors.ts';
 
 	let {
 		data,
@@ -52,6 +55,12 @@
 	let headingUp = $state(false);
 	/** one frame per lap instead of all laps on one map */
 	let splitWanted = $state(false);
+	let colorWanted = $state<ColorBy>('lap');
+
+	const colorChoices = $derived(colorOptions(data));
+	/** back to the lap colour when the laps no longer have the chosen value */
+	const colorBy = $derived(colorChoices.some((o) => o.key === colorWanted) ? colorWanted : 'lap');
+	const coloring = $derived(lineColoring(data, colorBy));
 
 	const hasMap = $derived(data.laps.some((l) => l.channels.pos_x && l.channels.pos_y));
 	const split = $derived(splitWanted && data.laps.length > 1);
@@ -156,11 +165,64 @@
 		ctx.restore();
 	}
 
+	/**
+	 * A line coloured by value: consecutive segments of the same bin in one
+	 * stroke, only those near the visible area (`centre`, radius `r`).
+	 */
+	function coloredLine(
+		ctx: CanvasRenderingContext2D,
+		xs: (number | null)[],
+		ys: (number | null)[],
+		bins: Int16Array,
+		palette: string[],
+		centre: Point,
+		r: number
+	) {
+		const r2 = r * r;
+		const near = (x: number, y: number) => (x - centre.x) ** 2 + (y - centre.y) ** 2 < r2;
+		let color = -1;
+		let open = false;
+		const flush = () => {
+			if (!open) return;
+			ctx.strokeStyle = palette[color];
+			ctx.stroke();
+			open = false;
+		};
+		for (let i = 0; i < xs.length - 1; i++) {
+			const c = bins[i];
+			const x0 = xs[i],
+				y0 = ys[i],
+				x1 = xs[i + 1],
+				y1 = ys[i + 1];
+			if (c < 0 || x0 == null || y0 == null || x1 == null || y1 == null) {
+				flush();
+				continue;
+			}
+			if (!near(x0, y0) && !near(x1, y1)) {
+				flush();
+				continue;
+			}
+			if (open && c === color) {
+				ctx.lineTo(x1, y1);
+				continue;
+			}
+			flush();
+			ctx.beginPath();
+			ctx.moveTo(x0, y0);
+			ctx.lineTo(x1, y1);
+			color = c;
+			open = true;
+		}
+		flush();
+	}
+
 	interface Colors {
 		surface: string;
 		page: string;
 		muted: string;
 		grid: string;
+		/** under lines coloured by value; laps without the value stay this grey */
+		casing: string;
 	}
 
 	/**
@@ -172,7 +234,7 @@
 		width: number,
 		frame: Frame,
 		overview: boolean,
-		{ surface, page, muted, grid }: Colors
+		{ surface, page, muted, grid, casing }: Colors
 	) {
 		const ctx = canvas.getContext('2d');
 		if (!ctx) return;
@@ -212,16 +274,40 @@
 		// lines: the others first, the reference on top
 		ctx.lineCap = 'round';
 		ctx.lineJoin = 'round';
+		// the visible area as a circle around the centre, for the coloured lines
+		const reach = (Math.hypot(width, HEIGHT) / 2 + 20) / zoom;
 		for (const k of [...frame.laps].reverse()) {
 			const lap = data.laps[k];
-			if (!lap.channels.pos_x || !lap.channels.pos_y) continue;
-			polyline(ctx, lap.channels.pos_x, lap.channels.pos_y);
-			ctx.strokeStyle = lapColor(k);
-			ctx.globalAlpha = k === 0 ? 0.9 : 0.75;
-			ctx.lineWidth = (k === 0 ? 2.5 : 2) * px;
+			const xs = lap.channels.pos_x;
+			const ys = lap.channels.pos_y;
+			if (!xs || !ys) continue;
+			polyline(ctx, xs, ys);
+			if (!coloring) {
+				ctx.strokeStyle = lapColor(k);
+				ctx.globalAlpha = k === 0 ? 0.9 : 0.75;
+				ctx.lineWidth = (k === 0 ? 2.5 : 2) * px;
+				ctx.stroke();
+				ctx.globalAlpha = 1;
+				continue;
+			}
+			// coloured by value: wider in a frame of its own, on a grey casing
+			// so that dark values (no throttle: black) stay visible; dashed for a
+			// lap without the value
+			const w = frame.laps.length === 1 ? 4 : k === 0 ? 3 : 2.5;
+			const bins = coloring.bins[k];
+			ctx.strokeStyle = casing;
+			ctx.lineWidth = (w + 2) * px;
+			if (!bins) {
+				ctx.setLineDash([8 * px, 6 * px]);
+				ctx.lineCap = 'butt';
+			}
 			ctx.stroke();
+			ctx.setLineDash([]);
+			ctx.lineCap = 'round';
+			if (!bins) continue;
+			ctx.lineWidth = w * px;
+			coloredLine(ctx, xs, ys, bins, coloring.palette, centre, reach);
 		}
-		ctx.globalAlpha = 1;
 
 		// start/finish line across the focus lap's line
 		const start = firstIndex(data);
@@ -381,7 +467,8 @@
 			surface: token('--color-zinc-900', '#212125'),
 			page: token('--color-zinc-950', '#161619'),
 			muted: token('--color-zinc-400', '#9f9fa9'),
-			grid: token('--color-zinc-800', '#2e2e33')
+			grid: token('--color-zinc-800', '#2e2e33'),
+			casing: token('--color-zinc-700', '#3f3f46')
 		};
 		frames.forEach((frame, f) => {
 			const canvas = canvases[f];
@@ -427,6 +514,45 @@
 					{/each}
 				</ul>
 
+				{#if f === 0 && coloring}
+					{@const legend = coloring.legend}
+					<!-- what the line colours mean -->
+					<div
+						class="absolute bottom-3 left-3 w-56 max-w-[calc(100%-1.5rem)] rounded border border-zinc-800 bg-zinc-950/85 px-3 py-2 text-xs"
+						role="group"
+						aria-label="Line colours"
+					>
+						<p class="mb-1.5 text-zinc-400">{legend.title}</p>
+						{#if legend.kind === 'ramp'}
+							<div class="h-2 rounded-sm" style:background={legend.gradient}></div>
+							<div class="mt-1 flex justify-between font-mono text-zinc-100 tabular-nums">
+								<span>{legend.min}</span><span>{legend.max}</span>
+							</div>
+							{#if legend.minNote || legend.maxNote}
+								<div class="flex justify-between text-zinc-500">
+									<span>{legend.minNote}</span><span>{legend.maxNote}</span>
+								</div>
+							{/if}
+						{:else}
+							<div class="flex flex-wrap gap-x-2.5 gap-y-1">
+								{#each legend.items as item (item.label)}
+									<span class="flex items-center gap-1">
+										<span class="inline-block h-2 w-3 rounded-sm" style:background={item.color}
+										></span>
+										<span class="text-zinc-300">{item.label}</span>
+									</span>
+								{/each}
+							</div>
+						{/if}
+						{#if coloring.missing.length > 0}
+							<p class="mt-1.5 text-amber-300">
+								No data in {coloring.missing.map((k) => labels[k]).join(', ')} (older recording?), drawn
+								grey dashed
+							</p>
+						{/if}
+					</div>
+				{/if}
+
 				{#if f === 0}
 					<!-- view controls, for all frames -->
 					<div
@@ -453,6 +579,17 @@
 								>
 							</div>
 						{/if}
+						<label class="flex items-center rounded border border-zinc-800 bg-zinc-950/85 p-0.5">
+							<span class="px-2 py-1 text-zinc-500">Colour</span>
+							<select
+								class="rounded bg-transparent px-1 py-1 text-xs text-zinc-100 hover:bg-zinc-800 focus:outline-none focus-visible:ring-1 focus-visible:ring-zinc-500"
+								bind:value={() => colorBy, (v) => (colorWanted = v)}
+							>
+								{#each colorChoices as option (option.key)}
+									<option class="bg-zinc-900" value={option.key}>{option.label}</option>
+								{/each}
+							</select>
+						</label>
 						<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
 							<span class="px-2 py-1 text-zinc-500">Cars by</span>
 							<button
