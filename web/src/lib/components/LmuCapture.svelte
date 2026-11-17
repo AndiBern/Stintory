@@ -2,13 +2,14 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script lang="ts">
 	import { untrack } from 'svelte';
-	import { api, type Settings } from '#lib/api/index.ts';
+	import { api, type LmuSource, type Settings } from '#lib/api/index.ts';
 	import { errorText } from '#lib/app-state.svelte.ts';
 
 	let { settings, onsaved }: { settings: Settings; onsaved: () => void } = $props();
 
 	const client = api();
 	let enabled = $state(untrack(() => settings.lmuCapture.enabled));
+	let source = $state<LmuSource>(untrack(() => settings.lmuCapture.source ?? 'protonBridge'));
 	// the game's state changes while the page is open: refresh it
 	let status = $state(untrack(() => settings.lmuStatus));
 	let hint = $state(untrack(() => settings.lmuHint));
@@ -29,12 +30,13 @@
 		return () => clearInterval(timer);
 	});
 
-	async function toggle(value: boolean) {
+	async function save(next: { enabled: boolean; source: LmuSource }) {
 		busy = true;
 		error = null;
 		try {
-			await client.setLmuCapture({ enabled: value });
-			enabled = value;
+			await client.setLmuCapture(next);
+			enabled = next.enabled;
+			source = next.source;
 			onsaved();
 		} catch (e) {
 			error = errorText(e);
@@ -48,8 +50,10 @@
 	<h2 class="mb-1 font-medium">Le Mans Ultimate</h2>
 	{#if settings.lmuAvailable}
 		<p class="mb-3 text-sm text-zinc-400">
-			Stintory reads the game's own shared memory{#if settings.bridgeAvailable}&#32; through the
-				Proton bridge: start the game with the launch option under
+			Stintory reads the game's own shared memory{#if settings.bridgeAvailable && source === 'sharedMemory'}&#32;from
+				<code>/dev/shm/LMU_Data</code>, which another shared-memory bridge (e.g. simshmbridge or
+				DataLink) has to create before the game starts{:else if settings.bridgeAvailable}&#32;through
+				the Proton bridge: start the game with the launch option under
 				<em>Proton bridge</em> below{/if}. In Le Mans Ultimate turn on
 			<em>Settings → Gameplay → Enable Plugins</em> once and restart the game; no plugin needs to be installed.
 			Recording starts when you drive out of the garage.
@@ -71,10 +75,33 @@
 				type="checkbox"
 				checked={enabled}
 				disabled={busy}
-				onchange={(e) => toggle(e.currentTarget.checked)}
+				onchange={(e) => save({ enabled: e.currentTarget.checked, source })}
 			/>
 			Record Le Mans Ultimate
 		</label>
+		{#if settings.bridgeAvailable}
+			<fieldset class="mt-3 text-sm" disabled={busy || !enabled}>
+				<legend class="mb-1 text-zinc-400">Read the game through</legend>
+				<label class="flex items-center gap-2">
+					<input
+						type="radio"
+						name="lmu-source"
+						checked={source === 'protonBridge'}
+						onchange={() => save({ enabled, source: 'protonBridge' })}
+					/>
+					Stintory's Proton bridge (recommended)
+				</label>
+				<label class="flex items-center gap-2">
+					<input
+						type="radio"
+						name="lmu-source"
+						checked={source === 'sharedMemory'}
+						onchange={() => save({ enabled, source: 'sharedMemory' })}
+					/>
+					Another shared-memory bridge (<code>/dev/shm/LMU_Data</code>)
+				</label>
+			</fieldset>
+		{/if}
 		{#if error}<p class="mt-2 text-sm text-red-400" role="alert">{error}</p>{/if}
 	{:else}
 		<p class="text-sm text-zinc-400">

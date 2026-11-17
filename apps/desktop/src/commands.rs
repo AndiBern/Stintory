@@ -556,7 +556,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
                 f1_listening: None,
                 f1_error: None,
                 lmu_capture: store.setting(LMU_CAPTURE)?.unwrap_or_default(),
-                // on Linux through the Proton bridge
+                // on Linux through the Proton bridge or from /dev/shm
                 lmu_available: true,
                 lmu_status: None,
                 lmu_hint: None,
@@ -572,7 +572,12 @@ pub async fn get_settings(state: State<'_, AppState>) -> CmdResult<Settings> {
         .map(|mut s| {
             (s.f1_listening, s.f1_error) = state.f1.status();
             if s.bridge_available {
-                (s.lmu_status, s.lmu_hint) = state.bridge.lmu_status();
+                (s.lmu_status, s.lmu_hint) =
+                    if s.lmu_capture.source == sy_model::api::LmuSource::SharedMemory {
+                        state.lmu.status()
+                    } else {
+                        state.bridge.lmu_status()
+                    };
                 (s.bridge_status, s.bridge_error) = state.bridge.status();
                 if let Some(exe) = state.bridge.exe() {
                     match crate::recording::launch_option(&exe, s.proton_bridge.port) {

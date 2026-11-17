@@ -17,6 +17,10 @@ thiserror.workspace = true
 time.workspace = true
 tracing.workspace = true
 
+# mapping /dev/shm/LMU_Data (Linux, other shared-memory bridges)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = [
   "Win32_Foundation",
@@ -24,6 +28,9 @@ windows = { version = "0.62", features = [
   "Win32_System_Memory",
   "Win32_System_Threading",
 ] }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

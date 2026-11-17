@@ -658,12 +658,30 @@ impl Default for ProtonBridgeSettings {
 pub struct LmuCaptureSettings {
     /// Record when the game runs
     pub enabled: bool,
+    /// Linux: where the game's shared memory comes from
+    #[serde(default)]
+    pub source: LmuSource,
 }
 
 impl Default for LmuCaptureSettings {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            source: LmuSource::default(),
+        }
     }
+}
+
+/// Where the Linux app reads Le Mans Ultimate from (the game runs in Proton).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LmuSource {
+    /// Stintory's Proton bridge (`sy-bridge.exe` in the game's prefix)
+    #[default]
+    ProtonBridge,
+    /// `/dev/shm/LMU_Data`, put there by another shared-memory bridge
+    /// (simshmbridge, DataLink)
+    SharedMemory,
 }
 
 /// A program and its arguments that start the desktop app's MCP server.
