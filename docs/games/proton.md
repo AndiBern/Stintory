@@ -120,9 +120,6 @@ lets it detach). Without `--port` it listens on `127.0.0.1:20790`.
   the same protocol version; otherwise both say which `sy-bridge.exe` to
   use.
 
-Games: Le Mans Ultimate, and iRacing should it run in Proton (not tested;
-iRacing doesn't support Proton).
-
 ## Troubleshooting
 
 - *"Waiting for a game started with the bridge"* while the game runs: the
