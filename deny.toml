@@ -84,6 +84,10 @@ ignore = [
   { id = "RUSTSEC-2026-0370", reason = "zvariant via zbus (keyring, tauri-plugin-opener), unmaintained only" },
   { id = "RUSTSEC-2026-0371", reason = "zbus_names via zbus (keyring, tauri-plugin-opener), unmaintained only" },
   { id = "RUSTSEC-2026-0372", reason = "zvariant_derive via zbus (keyring, tauri-plugin-opener), unmaintained only" },
+  # "unmaintained" notice for chrono (all versions, no fixed release). We do
+  # not use it directly; arrow-array and parquet depend on it non-optionally
+  # (already on the latest arrow/parquet). Goes away when arrow moves off it.
+  { id = "RUSTSEC-2026-0543", reason = "chrono via arrow-array/parquet, unmaintained only" },
   # Marvin attack: timing side channel that recovers an RSA *private* key from
   # decryption/signing. We use `rsa` only through webauthn-rs to *verify*
   # RS256 passkey signatures with public keys; the server holds no RSA private
