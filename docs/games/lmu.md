@@ -37,7 +37,11 @@ in the sidebar and under *Settings → Games → Le Mans Ultimate*.
 Recording runs on Windows, and on Linux when the game runs in Proton:
 there the Proton bridge (`sy-bridge.exe`, started with the game by a Steam
 launch option) reads the shared memory inside the game's prefix and passes
-it on (docs/games/proton.md). Other telemetry apps keep working: the
+it on (docs/games/proton.md). Instead of the bridge, Stintory can also read
+`/dev/shm/LMU_Data` when another shared-memory bridge
+([simshmbridge](https://github.com/Spacefreak18/simshmbridge),
+[DataLink](https://github.com/LukasLichten/Datalink)) puts the game's
+memory there (docs/games/proton.md, *Other shared-memory bridges*). Other telemetry apps keep working: the
 shared memory has any number of readers.
 
 ## Reading the shared memory

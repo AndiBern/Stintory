@@ -5664,8 +5664,10 @@ dependencies = [
 name = "sy-source-lmu"
 version = "0.5.0"
 dependencies = [
+ "libc",
  "serde_json",
  "sy-model",
+ "tempfile",
  "thiserror 2.0.21",
  "time",
  "tracing",

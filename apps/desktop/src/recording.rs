@@ -3,8 +3,9 @@
 
 //! Background work: crash recovery at startup and the live recording
 //! supervisors (docs/ARCHITECTURE.md §5): iRacing and Le Mans Ultimate (Windows,
-//! shared memory; on Linux through the Proton bridge) and F1 25 (every
-//! platform, UDP).
+//! shared memory; on Linux through the Proton bridge, or for LMU from
+//! `/dev/shm` when another shared-memory bridge puts it there) and F1 25
+//! (every platform, UDP).
 
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -286,8 +287,8 @@ impl LmuCapture {
         self.generation.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// (status, hint) for the settings page (Windows; on Linux see
-    /// [`BridgeCapture::lmu_status`]).
+    /// (status, hint) for the settings page (Windows, and Linux reading
+    /// `/dev/shm`; through the bridge see [`BridgeCapture::lmu_status`]).
     pub fn status(&self) -> (Option<String>, Option<String>) {
         self.status
             .lock()
@@ -295,7 +296,6 @@ impl LmuCapture {
             .clone()
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
     fn set_status(&self, status: &str, hint: Option<&str>) {
         *self.status.lock().unwrap_or_else(|e| e.into_inner()) =
             (Some(status.to_owned()), hint.map(str::to_owned));
@@ -319,6 +319,55 @@ fn lmu_state_text(state: GameState) -> (&'static str, Option<&'static str>) {
             None,
         ),
         GameState::Driving => ("Recording Le Mans Ultimate.", None),
+    }
+}
+
+/// What to tell the user about LMU read by this app: (status, hint).
+#[cfg(windows)]
+fn lmu_probe_text(probe: sy_source_lmu::Probe) -> (&'static str, Option<&'static str>) {
+    use sy_source_lmu::Probe;
+    lmu_state_text(match probe {
+        Probe::NotRunning => GameState::NotRunning,
+        // (Linux only)
+        Probe::NoSharedMemory | Probe::Unlinked => GameState::NoSharedMemory,
+        Probe::UnknownLayout => GameState::UnknownLayout,
+        Probe::Idle => GameState::Idle,
+        Probe::Driving => GameState::Driving,
+    })
+}
+
+/// What to tell the user about LMU read from `/dev/shm`: (status, hint).
+#[cfg(not(windows))]
+fn lmu_probe_text(probe: sy_source_lmu::Probe) -> (&'static str, Option<&'static str>) {
+    use sy_source_lmu::Probe;
+    match probe {
+        Probe::NotRunning => (
+            "Waiting for Le Mans Ultimate (reading /dev/shm/LMU_Data).",
+            None,
+        ),
+        Probe::NoSharedMemory => (
+            "Le Mans Ultimate is running, but /dev/shm/LMU_Data doesn't exist.",
+            Some(
+                "Start your shared-memory bridge (e.g. simshmbridge's lmushm and lmubridge.exe, or DataLink with a map LMU_Data) before the game, then restart the game.",
+            ),
+        ),
+        Probe::Unlinked => (
+            "Le Mans Ultimate is running, but doesn't write into /dev/shm/LMU_Data.",
+            Some(
+                "The shared-memory bridge has to run in the game's prefix before the game starts: restart the game with the bridge running. Also check Settings → Gameplay → Enable Plugins in the game.",
+            ),
+        ),
+        Probe::UnknownLayout => (
+            "/dev/shm/LMU_Data is smaller than Le Mans Ultimate's shared memory.",
+            Some(
+                "Make your shared-memory bridge create LMU_Data with at least 324824 bytes, or update Stintory if the game changed its layout.",
+            ),
+        ),
+        Probe::Idle => (
+            "Reading /dev/shm/LMU_Data; recording starts on track.",
+            None,
+        ),
+        Probe::Driving => ("Recording Le Mans Ultimate.", None),
     }
 }
 
@@ -585,7 +634,8 @@ fn wait_for_change(ctx: &Context, settings: &AtomicU64, generation: u64, max: Du
 }
 
 /// Starts the live recording supervisors: F1 25 on every platform, iRacing
-/// and Le Mans Ultimate on Windows, the Proton bridge on Linux.
+/// and Le Mans Ultimate on Windows, the Proton bridge (and LMU from
+/// `/dev/shm`) on Linux.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_supervisor(
     app: AppHandle,
@@ -625,7 +675,11 @@ pub fn spawn_supervisor(
     }
     #[cfg(not(windows))]
     {
-        drop(lmu);
+        let lmu_ctx = ctx.clone();
+        std::thread::Builder::new()
+            .name("recorder-lmu".into())
+            .spawn(move || supervise_lmu(lmu_ctx, lmu))
+            .expect("spawn LMU recorder thread");
         std::thread::Builder::new()
             .name("recorder-bridge".into())
             .spawn(move || supervise_bridge(ctx, bridge))
@@ -667,7 +721,7 @@ fn supervise_bridge(ctx: Context, bridge: Arc<BridgeCapture>) {
             continue;
         }
         let mut games = vec![GameId::Iracing];
-        if lmu.enabled {
+        if lmu.enabled && lmu.source == sy_model::api::LmuSource::ProtonBridge {
             games.push(GameId::Lmu);
         }
         let addr = SocketAddr::from((std::net::Ipv4Addr::LOCALHOST, settings.port));
@@ -734,8 +788,8 @@ fn supervise_bridge(ctx: Context, bridge: Arc<BridgeCapture>) {
 }
 
 /// Records Le Mans Ultimate while the player drives; tells the user when
-/// the game runs without its shared memory.
-#[cfg(windows)]
+/// the game runs without its shared memory. On Linux only when it is read
+/// from `/dev/shm` (otherwise the Proton bridge reads it).
 fn supervise_lmu(ctx: Context, lmu: Arc<LmuCapture>) {
     use sy_source_lmu::{LiveSource, Probe};
 
@@ -759,27 +813,27 @@ fn supervise_lmu(ctx: Context, lmu: Arc<LmuCapture>) {
             wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(3600));
             continue;
         }
-        let state = match LiveSource::probe() {
-            Probe::NotRunning => GameState::NotRunning,
-            Probe::NoSharedMemory => GameState::NoSharedMemory,
-            Probe::UnknownLayout => GameState::UnknownLayout,
-            Probe::Idle => GameState::Idle,
-            Probe::Driving => GameState::Driving,
-        };
-        let (status, hint) = lmu_state_text(state);
+        if cfg!(not(windows)) && settings.source != sy_model::api::LmuSource::SharedMemory {
+            // the Proton bridge reads it (and sets the hint)
+            lmu.set_status("Read through the Proton bridge.", None);
+            wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(3600));
+            continue;
+        }
+        let probe = LiveSource::probe();
+        let (status, hint) = lmu_probe_text(probe);
         lmu.set_status(status, hint);
         ctx.reporter.hint(hint);
-        match state {
-            GameState::NotRunning | GameState::NoSharedMemory => {
+        match probe {
+            Probe::NotRunning | Probe::NoSharedMemory | Probe::Unlinked => {
                 wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(2));
             }
-            GameState::UnknownLayout => {
+            Probe::UnknownLayout => {
                 wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(10));
             }
-            GameState::Idle => {
+            Probe::Idle => {
                 wait_for_change(&ctx, &lmu.generation, generation, Duration::from_secs(1));
             }
-            GameState::Driving => {
+            Probe::Driving => {
                 tracing::info!("Le Mans Ultimate: player on track, recording");
                 let mut source = LiveSource::new();
                 let driving = source.driving();

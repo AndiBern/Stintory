@@ -386,7 +386,7 @@ The MVP is complete (version 0.2.0, November 2026): the core features of §2 wor
 
 | Area | What works |
 |---|---|
-| Capture | iRacing live (Windows) and `.ibt` import (everywhere). F1 25 incl. the 2026 Season Pack format over UDP (Windows, Linux, consoles/other PCs, forwarding to other apps). LMU from the shared memory (Windows, and Linux through `sy-bridge.exe`). Raw spool with crash recovery, player-only filtering before the spool. All three games checked with real recordings, which are golden tests (docs/games/) |
+| Capture | iRacing live (Windows) and `.ibt` import (everywhere). F1 25 incl. the 2026 Season Pack format over UDP (Windows, Linux, consoles/other PCs, forwarding to other apps). LMU from the shared memory (Windows, and Linux through `sy-bridge.exe` or from `/dev/shm` when another shared-memory bridge puts it there). Raw spool with crash recovery, player-only filtering before the spool. All three games checked with real recordings, which are golden tests (docs/games/) |
 | Analysis | Distance resampling, delta, track map, game sectors, corner insights (§6.5) |
 | Desktop app | Sessions, session detail, lap view, compare with synced traces and map, reference laps (own, imported, shared), `.stintory` + CSV export/import, settings for every game, Proton bridge setup, MCP over stdio (`stintory mcp`), close to tray, single instance |
 | Server | Docker image; accounts with password, TOTP + recovery codes and passkeys; admin page and CLI reset; device login from the desktop app; sync of own data; teams, invites and sharing; web UI with the same views as the desktop app; reference laps across users; MCP endpoint with OAuth 2.1 (docs/SERVER.md) |

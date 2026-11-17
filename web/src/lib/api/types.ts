@@ -289,7 +289,7 @@ export interface Settings {
 	f1Error: string | null;
 	/** Recording Le Mans Ultimate (shared memory) */
 	lmuCapture: LmuCaptureSettings;
-	/** Le Mans Ultimate can be recorded on this platform (Windows; Linux through the Proton bridge) */
+	/** Le Mans Ultimate can be recorded on this platform (Windows; Linux through the Proton bridge or /dev/shm) */
 	lmuAvailable: boolean;
 	/** What the app sees of Le Mans Ultimate right now */
 	lmuStatus: string | null;
@@ -319,7 +319,15 @@ export interface ProtonBridgeSettings {
 /** Settings for recording Le Mans Ultimate. */
 export interface LmuCaptureSettings {
 	enabled: boolean;
+	/** Linux: where the game's shared memory comes from */
+	source: LmuSource;
 }
+
+/**
+ * Where the Linux app reads Le Mans Ultimate from: Stintory's Proton bridge,
+ * or `/dev/shm/LMU_Data` put there by another shared-memory bridge.
+ */
+export type LmuSource = 'protonBridge' | 'sharedMemory';
 
 /** Settings for recording F1 25 (UDP telemetry). */
 export interface F1CaptureSettings {

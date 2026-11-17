@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
-//! Live data from LMU's shared memory `LMU_Data` (Windows only).
+//! Live data from LMU's shared memory `LMU_Data`.
 //!
 //! Source: `SharedMemoryInterface.hpp` from the LMU install (see
 //! [`crate::layout`]). The protocol it describes:
@@ -24,26 +24,25 @@
 //! The player's telemetry is `telemInfo[playerVehicleIdx]`; its slot id must
 //! match the player's scoring entry (`mIsPlayer`), otherwise the slots are
 //! searched by id.
+//!
+//! Where the memory comes from depends on the platform:
+//!
+//! - Windows (and `sy-bridge.exe` in Wine): the named mapping, with the
+//!   events and the lock (`live/win.rs`);
+//! - Linux: the file `/dev/shm/LMU_Data` that another shared-memory bridge
+//!   backs the game's mapping with (`live/posix.rs`). There are no events
+//!   and no lock, so we poll and check each copy; and since the file stays
+//!   when the game exits, we ask the REST API whether the game still runs.
 
-#![allow(unsafe_code)] // FFI and reading shared memory; see SAFETY comments
+#![allow(unsafe_code)] // reading shared memory; see SAFETY comments
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering, fence};
+use std::sync::atomic::{AtomicBool, Ordering, fence};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sy_model::GameId;
 use sy_model::capture::{RawRecord, RawSource, SourceError};
-use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
-use windows::Win32::System::Memory::{
-    CreateFileMappingW, FILE_MAP_ALL_ACCESS, FILE_MAP_READ, MEMORY_BASIC_INFORMATION,
-    MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, OpenFileMappingW, PAGE_READWRITE, UnmapViewOfFile,
-    VirtualQuery,
-};
-use windows::Win32::System::Threading::{
-    CreateEventW, OpenEventW, SYNCHRONIZATION_SYNCHRONIZE, SetEvent, WaitForSingleObject,
-};
-use windows::core::w;
 
 use crate::layout::{
     MAX_VEHICLES, OBJECT_SIZE, OFF_GAME_VERSION, OFF_SCORING_INFO, OFF_TELEM_INFO, OFF_TELEMETRY,
@@ -55,59 +54,46 @@ use crate::records::{
 };
 use crate::rest::{REST_ADDR, SetupPoller, game_running};
 
+#[cfg(unix)]
+#[path = "live/posix.rs"]
+mod sys;
+#[cfg(windows)]
+#[path = "live/win.rs"]
+mod sys;
+
+#[cfg(unix)]
+pub use sys::SHM_PATH;
+use sys::{Events, Lock, Target, View};
+
+/// No new data for this long: on Linux, check whether the game still runs.
+const STALE_AFTER: Duration = Duration::from_secs(3);
+/// How often to ask the REST API while the data is stale.
+const STALE_CHECK_EVERY: Duration = Duration::from_secs(2);
+
 /// What [`LiveSource::probe`] found.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Probe {
     /// LMU isn't running.
     NotRunning,
     /// LMU runs, but there is no shared memory: *Enable Plugins* is off (or
-    /// the game was not restarted after turning it on).
+    /// the game was not restarted after turning it on). On Linux also: the
+    /// other bridge didn't create `/dev/shm/LMU_Data`.
     NoSharedMemory,
     /// The shared memory is smaller than this version of Stintory knows:
-    /// the game's layout changed.
+    /// the game's layout changed (on Linux also: the other bridge made the
+    /// file too small).
     UnknownLayout,
+    /// Linux: LMU runs and `/dev/shm/LMU_Data` exists, but the game doesn't
+    /// write into it: the other bridge started after the game, or
+    /// *Enable Plugins* is off.
+    Unlinked,
     /// The shared memory exists, the player isn't driving.
     Idle,
     /// The player is driving.
     Driving,
 }
 
-/// A read-only view of a named mapping.
-struct View {
-    mapping: HANDLE,
-    view: MEMORY_MAPPED_VIEW_ADDRESS,
-    len: usize,
-}
-
 impl View {
-    fn open_lmu_data() -> Option<Self> {
-        // SAFETY: plain Win32 calls with valid, static, NUL-terminated names.
-        unsafe {
-            let mapping = OpenFileMappingW(FILE_MAP_READ.0, false, w!("LMU_Data")).ok()?;
-            let view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
-            if view.Value.is_null() {
-                let _ = CloseHandle(mapping);
-                return None;
-            }
-            let mut info = MEMORY_BASIC_INFORMATION::default();
-            let written = VirtualQuery(
-                Some(view.Value),
-                &mut info,
-                size_of::<MEMORY_BASIC_INFORMATION>(),
-            );
-            if written == 0 {
-                let _ = UnmapViewOfFile(view);
-                let _ = CloseHandle(mapping);
-                return None;
-            }
-            Some(Self {
-                mapping,
-                view,
-                len: info.RegionSize,
-            })
-        }
-    }
-
     /// Copies `len` bytes at `offset`.
     fn copy(&self, offset: usize, len: usize) -> Option<Vec<u8>> {
         let end = offset.checked_add(len)?;
@@ -120,174 +106,10 @@ impl View {
         // region. The game may write concurrently unless we hold its lock;
         // without the lock callers check the data afterwards.
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                (self.view.Value as *const u8).add(offset),
-                out.as_mut_ptr(),
-                len,
-            );
+            std::ptr::copy_nonoverlapping(self.ptr().add(offset), out.as_mut_ptr(), len);
         }
         fence(Ordering::Acquire);
         Some(out)
-    }
-}
-
-impl Drop for View {
-    fn drop(&mut self) {
-        // SAFETY: created in `open_lmu_data`, released once.
-        unsafe {
-            let _ = UnmapViewOfFile(self.view);
-            let _ = CloseHandle(self.mapping);
-        }
-    }
-}
-
-/// The game's lock around writing the shared memory.
-struct Lock {
-    mapping: HANDLE,
-    view: MEMORY_MAPPED_VIEW_ADDRESS,
-    event: HANDLE,
-}
-
-impl Lock {
-    fn open() -> Option<Self> {
-        // SAFETY: Win32 calls with valid static names; the mapping is the
-        // size of two LONGs, as in SharedMemoryLock::Init.
-        unsafe {
-            let mapping = CreateFileMappingW(
-                INVALID_HANDLE_VALUE,
-                None,
-                PAGE_READWRITE,
-                0,
-                8,
-                w!("LMU_SharedMemoryLockData"),
-            )
-            .ok()?;
-            let view = MapViewOfFile(mapping, FILE_MAP_ALL_ACCESS, 0, 0, 8);
-            if view.Value.is_null() {
-                let _ = CloseHandle(mapping);
-                return None;
-            }
-            let Ok(event) = CreateEventW(None, false, false, w!("LMU_SharedMemoryLockEvent"))
-            else {
-                let _ = UnmapViewOfFile(view);
-                let _ = CloseHandle(mapping);
-                return None;
-            };
-            Some(Self {
-                mapping,
-                view,
-                event,
-            })
-        }
-    }
-
-    fn waiters(&self) -> &AtomicI32 {
-        // SAFETY: the view is 8 bytes, page aligned, and lives as long as
-        // self; other processes access it with interlocked operations only.
-        unsafe { AtomicI32::from_ptr(self.view.Value as *mut i32) }
-    }
-
-    fn busy(&self) -> &AtomicI32 {
-        // SAFETY: as in `waiters`; `busy` is the second LONG.
-        unsafe { AtomicI32::from_ptr((self.view.Value as *mut i32).add(1)) }
-    }
-
-    fn try_acquire(&self) -> bool {
-        self.busy()
-            .compare_exchange(0, 1, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-    }
-
-    /// Takes the lock, waiting at most `timeout`.
-    fn acquire(&self, timeout: Duration) -> bool {
-        for _ in 0..4000 {
-            if self.try_acquire() {
-                return true;
-            }
-            std::hint::spin_loop();
-        }
-        let start = Instant::now();
-        self.waiters().fetch_add(1, Ordering::SeqCst);
-        let acquired = loop {
-            if self.try_acquire() {
-                break true;
-            }
-            let left = timeout.saturating_sub(start.elapsed());
-            if left.is_zero() {
-                break false;
-            }
-            let ms = u32::try_from(left.as_millis().max(1)).unwrap_or(u32::MAX);
-            // SAFETY: valid event handle owned by self.
-            unsafe {
-                WaitForSingleObject(self.event, ms);
-            }
-        };
-        self.waiters().fetch_sub(1, Ordering::SeqCst);
-        acquired
-    }
-
-    fn release(&self) {
-        self.busy().store(0, Ordering::SeqCst);
-        if self.waiters().load(Ordering::SeqCst) > 0 {
-            // SAFETY: valid event handle owned by self.
-            unsafe {
-                let _ = SetEvent(self.event);
-            }
-        }
-    }
-}
-
-impl Drop for Lock {
-    fn drop(&mut self) {
-        // SAFETY: created in `open`, released once.
-        unsafe {
-            let _ = UnmapViewOfFile(self.view);
-            let _ = CloseHandle(self.event);
-            let _ = CloseHandle(self.mapping);
-        }
-    }
-}
-
-/// `LMU_Data_HoldEvent` and `LMU_Data_DataEvent`.
-struct Events {
-    hold: HANDLE,
-    data: HANDLE,
-}
-
-impl Events {
-    fn open() -> Option<Self> {
-        // SAFETY: Win32 calls with valid static names.
-        unsafe {
-            let hold =
-                OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, false, w!("LMU_Data_HoldEvent")).ok()?;
-            match OpenEventW(SYNCHRONIZATION_SYNCHRONIZE, false, w!("LMU_Data_DataEvent")) {
-                Ok(data) => Some(Self { hold, data }),
-                Err(_) => {
-                    let _ = CloseHandle(hold);
-                    None
-                }
-            }
-        }
-    }
-
-    /// Waits for the next frame (hold, then data), at most `timeout` each.
-    fn wait(&self, timeout: Duration) -> bool {
-        let ms = u32::try_from(timeout.as_millis()).unwrap_or(u32::MAX);
-        // SAFETY: valid event handles owned by self.
-        unsafe {
-            WaitForSingleObject(self.hold, ms) == WAIT_OBJECT_0
-                && WaitForSingleObject(self.data, ms) == WAIT_OBJECT_0
-        }
-    }
-}
-
-impl Drop for Events {
-    fn drop(&mut self) {
-        // SAFETY: created in `open`, released once.
-        unsafe {
-            let _ = CloseHandle(self.hold);
-            let _ = CloseHandle(self.data);
-        }
     }
 }
 
@@ -310,8 +132,8 @@ struct Snapshot {
 }
 
 impl Connection {
-    fn open() -> Option<Self> {
-        let view = View::open_lmu_data()?;
+    fn open(target: &Target) -> Option<Self> {
+        let view = View::open(target)?;
         if view.len < OBJECT_SIZE {
             tracing::warn!(
                 size = view.len,
@@ -333,7 +155,7 @@ impl Connection {
             Some(e) => {
                 e.wait(timeout);
             }
-            None => std::thread::sleep(Duration::from_millis(10).min(timeout)),
+            None => std::thread::sleep(sys::POLL.min(timeout)),
         }
     }
 
@@ -388,12 +210,15 @@ impl Connection {
             }
             telemetry = index.and_then(|i| v.copy(at(i), TELEM_SIZE).map(|t| (i, t)));
         }
-        if self.lock.is_none()
-            && let Some((i, t)) = &telemetry
-        {
-            // no lock: the copy is only good if the time didn't move
-            let again = v.copy(OFF_TELEM_INFO + i * TELEM_SIZE, TELEM_SIZE)?;
-            if elapsed_time(&again) != elapsed_time(t) {
+        if self.lock.is_none() {
+            // no lock: the game may have written while we copied; the copy
+            // is only good if a second one is the same
+            if let Some((i, t)) = &telemetry
+                && v.copy(OFF_TELEM_INFO + i * TELEM_SIZE, TELEM_SIZE)? != *t
+            {
+                return None;
+            }
+            if v.copy(OFF_SCORING_INFO, SCORING_INFO_SIZE)? != info {
                 return None;
             }
         }
@@ -406,9 +231,66 @@ impl Connection {
     }
 }
 
+/// Whether LMU runs (its REST API answers).
+fn lmu_running() -> bool {
+    game_running(REST_ADDR, Duration::from_millis(300))
+}
+
+/// Whether the player's telemetry moves on within a few frames.
+fn advancing(c: &Connection, first: &Snapshot) -> bool {
+    let et = |s: &Snapshot| s.telemetry.as_deref().map(elapsed_time);
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(200) {
+        std::thread::sleep(sys::POLL * 5);
+        if let Some(s) = c.snapshot(None)
+            && et(&s).is_some()
+            && et(&s) != et(first)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+fn probe(target: &Target) -> Probe {
+    let view = View::open(target);
+    if view.as_ref().is_some_and(|v| v.len < OBJECT_SIZE) {
+        return Probe::UnknownLayout;
+    }
+    if sys::OUTLIVES_GAME {
+        // the file may be left over from an earlier session
+        if !lmu_running() {
+            return Probe::NotRunning;
+        }
+        if view.is_none() {
+            return Probe::NoSharedMemory;
+        }
+    }
+    drop(view);
+    match Connection::open(target) {
+        Some(c) => match c.snapshot(None) {
+            // the game writes its version first thing; a file it doesn't
+            // write into stays zero
+            Some(s) if sys::OUTLIVES_GAME && s.game_version == 0 => Probe::Unlinked,
+            Some(s) if in_realtime(&s.info) && s.telemetry.is_some() => {
+                if sys::OUTLIVES_GAME && !advancing(&c, &s) {
+                    // left over from an earlier session (or paused)
+                    Probe::Idle
+                } else {
+                    Probe::Driving
+                }
+            }
+            _ => Probe::Idle,
+        },
+        None if lmu_running() => Probe::NoSharedMemory,
+        None => Probe::NotRunning,
+    }
+}
+
 /// [`RawSource`] reading LMU's shared memory, plus the car setup from the
 /// REST API.
 pub struct LiveSource {
+    target: Target,
     conn: Option<Connection>,
     pending: VecDeque<RawRecord>,
     last_scoring: Option<Vec<u8>>,
@@ -416,11 +298,18 @@ pub struct LiveSource {
     player_slot: Option<i32>,
     driving: Arc<AtomicBool>,
     setup: Option<SetupPoller>,
+    /// When the data last changed
+    last_change: Instant,
+    /// When we last asked the REST API whether the game runs
+    last_check: Option<Instant>,
+    /// The game is gone (Linux: the data in the file is stale)
+    gone: bool,
 }
 
 impl std::fmt::Debug for LiveSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LiveSource")
+            .field("target", &self.target)
             .field("connected", &self.conn.is_some())
             .finish_non_exhaustive()
     }
@@ -435,7 +324,12 @@ impl Default for LiveSource {
 impl LiveSource {
     /// Creates a source; it connects lazily.
     pub fn new() -> Self {
+        Self::with_target(Target::default())
+    }
+
+    fn with_target(target: Target) -> Self {
         Self {
+            target,
             conn: None,
             pending: VecDeque::new(),
             last_scoring: None,
@@ -443,22 +337,15 @@ impl LiveSource {
             player_slot: None,
             driving: Arc::default(),
             setup: None,
+            last_change: Instant::now(),
+            last_check: None,
+            gone: false,
         }
     }
 
     /// Whether LMU runs and the player drives.
     pub fn probe() -> Probe {
-        if View::open_lmu_data().is_some_and(|v| v.len < OBJECT_SIZE) {
-            return Probe::UnknownLayout;
-        }
-        match Connection::open() {
-            Some(c) => match c.snapshot(None) {
-                Some(s) if in_realtime(&s.info) && s.telemetry.is_some() => Probe::Driving,
-                _ => Probe::Idle,
-            },
-            None if game_running(REST_ADDR, Duration::from_millis(300)) => Probe::NoSharedMemory,
-            None => Probe::NotRunning,
-        }
+        probe(&Target::default())
     }
 
     /// True while the player drives (updated with every read). The recording
@@ -467,9 +354,29 @@ impl LiveSource {
         self.driving.clone()
     }
 
+    /// Linux: no new data for a while and the game doesn't answer anymore.
+    fn stale(&mut self) -> bool {
+        if !sys::OUTLIVES_GAME || self.last_change.elapsed() < STALE_AFTER {
+            self.gone = false;
+            return false;
+        }
+        if !self.gone
+            && self
+                .last_check
+                .is_none_or(|t| t.elapsed() >= STALE_CHECK_EVERY)
+        {
+            self.last_check = Some(Instant::now());
+            self.gone = !lmu_running();
+            if self.gone {
+                tracing::info!("Le Mans Ultimate is gone; its shared memory is stale");
+            }
+        }
+        self.gone
+    }
+
     fn poll(&mut self, timeout: Duration) {
         if self.conn.is_none() {
-            self.conn = Connection::open();
+            self.conn = Connection::open(&self.target);
             if self.conn.is_none() {
                 self.driving.store(false, Ordering::Relaxed);
                 std::thread::sleep(timeout.min(Duration::from_secs(1)));
@@ -490,8 +397,7 @@ impl LiveSource {
             .unwrap_or_default()
             .as_millis() as i64;
         let realtime = in_realtime(&snap.info);
-        self.driving
-            .store(realtime && snap.telemetry.is_some(), Ordering::Relaxed);
+        let mut driving = realtime && snap.telemetry.is_some();
 
         if let Some(player) = &snap.player_scoring {
             self.player_slot = Some(slot_id(player));
@@ -499,6 +405,7 @@ impl LiveSource {
             // the receive time differs every time; compare the rest
             if self.last_scoring.as_deref() != Some(&record.payload[8..]) {
                 self.last_scoring = Some(record.payload[8..].to_vec());
+                self.last_change = Instant::now();
                 self.pending.push_back(record);
             }
         }
@@ -506,9 +413,27 @@ impl LiveSource {
             let et = elapsed_time(&t);
             if self.last_et != Some(et) {
                 self.last_et = Some(et);
+                self.last_change = Instant::now();
                 self.pending.push_back(telemetry_record(&t));
             }
         }
+        if self.stale() {
+            driving = false;
+        }
+        self.driving.store(driving, Ordering::Relaxed);
+    }
+}
+
+#[cfg(unix)]
+impl LiveSource {
+    /// A source reading another file than [`SHM_PATH`].
+    pub fn at(path: impl Into<std::path::PathBuf>) -> Self {
+        Self::with_target(Target(path.into()))
+    }
+
+    /// [`LiveSource::probe`] for another file than [`SHM_PATH`].
+    pub fn probe_at(path: impl Into<std::path::PathBuf>) -> Probe {
+        probe(&Target(path.into()))
     }
 }
 

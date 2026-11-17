@@ -120,6 +120,58 @@ lets it detach). Without `--port` it listens on `127.0.0.1:20790`.
   the same protocol version; otherwise both say which `sy-bridge.exe` to
   use.
 
+## Other shared-memory bridges (Le Mans Ultimate)
+
+Tools like [simshmbridge](https://github.com/Spacefreak18/simshmbridge)
+(`lmushm` + `lmubridge.exe`) or
+[DataLink](https://github.com/LukasLichten/Datalink) (a map `LMU_Data`)
+take a different route: before the game starts they create the
+file `/dev/shm/LMU_Data` and, inside the prefix, a mapping named `LMU_Data`
+backed by that file. The game then writes into the file's pages, and native
+Linux programs read them directly; nothing is copied. The file is named
+after the game's mapping, so every such bridge puts it at the same path.
+[simd](https://github.com/Spacefreak18/simapi/tree/master/simd) (part of
+simapi) can take over simshmbridge's Linux side: it creates the file
+itself, starts `lmubridge.exe` in the game's prefix when the game is
+started with `SIMD_BRIDGE_EXE=/path/to/lmubridge.exe %command%`, and stops
+it when the game exits.
+
+Checked with simshmbridge and the real game (Nov 2026): recorded through
+*Another shared-memory bridge*.
+
+For users who run such a bridge anyway, *Settings → Games → Le Mans
+Ultimate → Read the game through* can be switched to *Another shared-memory
+bridge*. The app then reads `/dev/shm/LMU_Data` itself
+(`crates/sy-source-lmu/src/live/posix.rs`), with the same code that turns
+the memory into records on Windows (`live.rs`), and asks `sy-bridge` only
+for iRacing. Differences to the Proton bridge:
+
+- Only the memory reaches Linux, not the game's events and lock. The app
+  polls every 2 ms and keeps a copy only when a second copy right after it
+  is the same; the game writes about 100 times a second.
+- The other bridge has to be in place before the game starts, otherwise the
+  game uses its own mapping and the file stays empty. The app says so when
+  the game runs (its REST API answers) but has never written into the file.
+- The file stays when the game exits (simshmbridge keeps it until `lmushm`
+  is stopped, simd until simd exits). The app only starts recording when
+  the telemetry moves, and ends a recording once the data stops changing
+  and the REST API no longer answers.
+- The file must hold at least 324,824 bytes (simshmbridge makes it 505,000
+  bytes; DataLink needs a map `{ "name": "LMU_Data", "size": 505000 }` in
+  its config, it has no preset for LMU).
+- In the Flatpak, `/dev/shm` is the host's (`--device=shm`).
+
+Without the game and without another bridge,
+
+```sh
+cargo run -p sy-source-lmu --example fake_lmu_shm -- 2 4
+```
+
+writes `/dev/shm/LMU_Data` the way the game does through such a bridge
+(an out-lap and two laps, four times faster than real time) and answers on
+the REST port, so a running Stintory with this setting records it. Like
+`lmushm`, it leaves the file behind (`rm /dev/shm/LMU_Data`).
+
 ## Troubleshooting
 
 - *"Waiting for a game started with the bridge"* while the game runs: the

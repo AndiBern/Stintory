@@ -38,7 +38,8 @@ impl Game for Lmu {
         use sy_source_lmu::Probe;
         match sy_source_lmu::LiveSource::probe() {
             Probe::NotRunning => GameState::NotRunning,
-            Probe::NoSharedMemory => GameState::NoSharedMemory,
+            // (Unlinked: Linux only)
+            Probe::NoSharedMemory | Probe::Unlinked => GameState::NoSharedMemory,
             Probe::UnknownLayout => GameState::UnknownLayout,
             Probe::Idle => GameState::Idle,
             Probe::Driving => GameState::Driving,

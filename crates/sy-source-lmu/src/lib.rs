@@ -11,7 +11,9 @@
 //!
 //! - [`layout`]: the layout of the shared memory `LMU_Data`
 //! - [`records`]: the player-only records that are spooled, and parsing them
-//! - `live` (Windows only): reading the shared memory ([`LiveSource`])
+//! - `live` (Windows and Linux): reading the shared memory ([`LiveSource`]);
+//!   on Linux the file `/dev/shm/LMU_Data` another shared-memory bridge
+//!   backs the game's mapping with
 //! - [`rest`]: the game's local REST API (GET only): is the game running,
 //!   the car setup
 //! - [`decoder`]: raw records → `SourceEvent`s ([`LmuDecoder`])
@@ -19,12 +21,12 @@
 
 pub mod decoder;
 pub mod layout;
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 pub mod live;
 pub mod records;
 pub mod rest;
 pub mod sim;
 
 pub use decoder::LmuDecoder;
-#[cfg(windows)]
+#[cfg(any(windows, unix))]
 pub use live::{LiveSource, Probe};

@@ -27,6 +27,8 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
+  # Le Mans Ultimate from /dev/shm/LMU_Data (other shared-memory bridges)
+  - --device=shm
   # F1 25 over UDP, the Proton bridge and LMU's REST API on 127.0.0.1,
   # sync, and the browser login's redirect to 127.0.0.1
   - --share=network
