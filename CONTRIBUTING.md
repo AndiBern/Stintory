@@ -22,15 +22,7 @@ Your contribution to a file is licensed under that file's license. Every source 
 
 Library crates (`MIT OR Apache-2.0`) must never depend on AGPL crates. CI checks this.
 
-## Developer Certificate of Origin (DCO)
-
-We use the [Developer Certificate of Origin](https://developercertificate.org/) instead of a CLA. Sign off every commit:
-
-```sh
-git commit -s -m "Your message"
-```
-
-This adds a `Signed-off-by: Your Name <you@example.com>` line, which certifies that you wrote the change or have the right to submit it under the project's licenses.
+There is no CLA and no commit sign-off. By opening a pull request you confirm that you wrote the change or have the right to submit it under the licenses above. The pull request template asks you to tick this.
 
 ## Clean-room rule for game parsers
 

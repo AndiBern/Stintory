@@ -411,7 +411,7 @@ Rules:
 <!-- REUSE-IgnoreStart -->
 - Every source file has an SPDX header (`// SPDX-License-Identifier: AGPL-3.0-or-later` or `MIT OR Apache-2.0`). Each crate sets `license` in `Cargo.toml`. `reuse lint` runs in CI.
 <!-- REUSE-IgnoreEnd -->
-- Contributions under the **DCO** (`Signed-off-by:` in commits), no CLA. Contributions to a crate are licensed under that crate's license.
+- No CLA and no DCO sign-off: contributions are licensed under the license of the files they touch (inbound = outbound). The PR template has a checkbox for this and for the clean-room rule.
 - Third-party dependencies must be AGPL-3-compatible (MIT, Apache-2.0, BSD, ISC, MPL-2.0, Zlib…). `cargo deny` keeps an allow-list. GPL-2.0-only is not allowed, because it's incompatible with Apache-2.0.
 - Branding: game names are used only descriptively ("supports iRacing"). No game logos, and no game names in the product name.
 
