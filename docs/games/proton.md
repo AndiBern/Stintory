@@ -172,6 +172,21 @@ writes `/dev/shm/LMU_Data` the way the game does through such a bridge
 the REST port, so a running Stintory with this setting records it. Like
 `lmushm`, it leaves the file behind (`rm /dev/shm/LMU_Data`).
 
+### Dashboards and other telemetry apps
+
+The Proton bridge sends only the player's car, and only to Stintory, so
+other apps (dashboards, overlays, etc.) can't use it. To run such apps next to Stintory, use one of
+the bridges above instead and switch Stintory to *Another shared-memory
+bridge*. The game then writes all of its data into `/dev/shm/LMU_Data`,
+which any number of native Linux programs can read at the same time.
+Stintory still records only the player's car from it
+(docs/ARCHITECTURE.md §5.2), and Le Mans Ultimate no longer needs the
+`sy-bridge` launch option.
+
+Windows apps started inside the game's Proton prefix with the same Proton
+version see the game's `LMU_Data` directly, just like `sy-bridge.exe`, and
+need neither.
+
 ## Troubleshooting
 
 - *"Waiting for a game started with the bridge"* while the game runs: the
