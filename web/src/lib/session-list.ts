@@ -5,7 +5,7 @@
 
 import type { SessionSummary } from './api/index.ts';
 import { GAMES, SESSION_TYPES } from './format.ts';
-import { loadText, saveText } from './view-prefs.ts';
+import { loadFlag, loadText, saveFlag, saveText } from './view-prefs.ts';
 
 /**
  * Whose sessions: the user's own (recorded or imported), the copies of sessions
@@ -34,7 +34,8 @@ export const NO_FILTER: SessionFilter = {
 	to: ''
 };
 
-export type SortKey = 'date' | 'track' | 'car' | 'type' | 'laps' | 'best';
+export const SORT_KEYS = ['date', 'track', 'car', 'type', 'laps', 'best'] as const;
+export type SortKey = (typeof SORT_KEYS)[number];
 
 export interface Sort {
 	key: SortKey;
@@ -80,6 +81,45 @@ export function saveFilter(f: SessionFilter): void {
 	for (const k of Object.keys(NO_FILTER) as (keyof SessionFilter)[]) {
 		saveText(FILTER_KEY + k, f[k]);
 	}
+}
+
+export const PAGE_SIZES = [25, 50, 100] as const;
+export const DEFAULT_PAGE_SIZE = 50;
+
+/** What the sessions table shows: filter, sort order, page and page size. */
+export interface SessionsView {
+	filter: SessionFilter;
+	sort: Sort;
+	/** 1-based; one past the end shows the last page (see `paginate`) */
+	page: number;
+	size: number;
+}
+
+const VIEW_KEY = 'sessions.';
+const isSortKey = (v: string) => (SORT_KEYS as readonly string[]).includes(v);
+const isPageSize = (v: string) => PAGE_SIZES.some((n) => String(n) === v);
+const isPage = (v: string) => /^[1-9]\d{0,5}$/.test(v);
+
+/** The table as it was left on the last visit, checked value by value. */
+export function loadView(): SessionsView {
+	return {
+		filter: loadFilter(),
+		sort: {
+			key: loadText(VIEW_KEY + 'sort.key', DEFAULT_SORT.key, isSortKey) as SortKey,
+			descending: loadFlag(VIEW_KEY + 'sort.descending', DEFAULT_SORT.descending)
+		},
+		page: Number(loadText(VIEW_KEY + 'page', '1', isPage)),
+		size: Number(loadText(VIEW_KEY + 'size', String(DEFAULT_PAGE_SIZE), isPageSize))
+	};
+}
+
+/** Remembers the table for the next visit. */
+export function saveView(v: SessionsView): void {
+	saveFilter(v.filter);
+	saveText(VIEW_KEY + 'sort.key', v.sort.key);
+	saveFlag(VIEW_KEY + 'sort.descending', v.sort.descending);
+	saveText(VIEW_KEY + 'page', String(v.page));
+	saveText(VIEW_KEY + 'size', String(v.size));
 }
 
 /**
@@ -170,9 +210,6 @@ export function nextSort(current: Sort, key: SortKey): Sort {
 	if (current.key === key) return { key, descending: !current.descending };
 	return { key, descending: key === 'date' || key === 'laps' };
 }
-
-export const PAGE_SIZES = [25, 50, 100] as const;
-export const DEFAULT_PAGE_SIZE = 50;
 
 export interface Page<T> {
 	items: T[];

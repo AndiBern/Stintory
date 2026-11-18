@@ -10,11 +10,13 @@ import {
 	filterSessions,
 	isFiltered,
 	loadFilter,
+	loadView,
 	nextSort,
 	pageForRow,
 	pageNumbers,
 	paginate,
 	saveFilter,
+	saveView,
 	sortSessions,
 	withoutUnknownNames
 } from './session-list.ts';
@@ -233,6 +235,31 @@ describe('remembered filter', () => {
 		storage();
 		saveFilter({ ...NO_FILTER, from: '2026-11-18', to: '2026-11-01' });
 		expect(loadFilter()).toEqual({ ...NO_FILTER, from: '2026-11-18' });
+	});
+
+	it('brings back sort order, page and page size', () => {
+		storage();
+		expect(loadView()).toEqual({ filter: NO_FILTER, sort: DEFAULT_SORT, page: 1, size: 50 });
+		const v = {
+			filter: { ...NO_FILTER, game: 'lmu' },
+			sort: { key: 'best' as const, descending: false },
+			page: 3,
+			size: 100
+		};
+		saveView(v);
+		expect(loadView()).toEqual(v);
+	});
+
+	it('drops a sort order, page or page size the page could not have saved', () => {
+		const m = storage();
+		m.set('stintory.view.sessions.sort.key', 'constructor');
+		m.set('stintory.view.sessions.page', '-1');
+		m.set('stintory.view.sessions.size', '1000000');
+		expect(loadView()).toEqual({ filter: NO_FILTER, sort: DEFAULT_SORT, page: 1, size: 50 });
+		for (const page of ['0', '1.5', '1e3', ' 2', 'NaN', '9999999']) {
+			m.set('stintory.view.sessions.page', page);
+			expect(loadView().page).toBe(1);
+		}
 	});
 
 	it('forgets tracks and cars no session has', () => {

@@ -1,26 +1,10 @@
 <!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script module lang="ts">
-	import {
-		DEFAULT_PAGE_SIZE,
-		DEFAULT_SORT,
-		NO_FILTER,
-		loadFilter,
-		type SessionFilter,
-		type Sort,
-		type SortKey
-	} from '#lib/session-list.ts';
+	import { loadView, type SessionsView } from '#lib/session-list.ts';
 
-	/**
-	 * Sort order and page survive opening a session and coming back, the
-	 * filters also the next start.
-	 */
-	const view = $state<{ filter: SessionFilter; sort: Sort; page: number; size: number }>({
-		filter: loadFilter(),
-		sort: { ...DEFAULT_SORT },
-		page: 1,
-		size: DEFAULT_PAGE_SIZE
-	});
+	/** Filters, sort order, page and page size are remembered across visits. */
+	const view = $state<SessionsView>(loadView());
 </script>
 
 <script lang="ts">
@@ -47,13 +31,15 @@
 		filterSessions,
 		isFiltered,
 		isSharedCopy,
+		NO_FILTER,
 		nextSort,
 		PAGE_SIZES,
 		pageForRow,
 		pageNumbers,
 		paginate,
-		saveFilter,
+		saveView,
 		sortSessions,
+		type SortKey,
 		withoutUnknownNames
 	} from '#lib/session-list.ts';
 
@@ -78,11 +64,15 @@
 				if (!showOwner && view.filter.owner !== NO_FILTER.owner) {
 					view.filter.owner = NO_FILTER.owner;
 				}
+				// fewer pages than before (deleted, synced away): stay on the last one
+				// instead of jumping back once there are more again. Only with the list
+				// loaded, while it is empty every remembered page would become 1.
+				view.page = paged.page;
 			})
 			.catch(() => {}); // shown by the {#await} block
 	});
 
-	$effect(() => saveFilter(view.filter));
+	$effect(() => saveView(view));
 
 	const visible = $derived(sortSessions(filterSessions(list, view.filter), view.sort));
 	const paged = $derived(paginate(visible, view.page, view.size));
