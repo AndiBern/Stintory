@@ -28,6 +28,8 @@ export interface Panel {
 	stepped?: boolean;
 	/** fixed value range */
 	range?: [number, number];
+	/** whole values only (gear, modes, flags): one tick per value, labelled by `format` */
+	discrete?: boolean;
 	/** a value as the tooltip shows it */
 	format: (v: number) => string;
 }
@@ -54,6 +56,32 @@ export function formatDeltaS(v: number): string {
 
 function has(d: CompareData, channel: string): boolean {
 	return d.laps.some((l) => channel in l.channels);
+}
+
+/**
+ * True if a lap's channel is non-zero somewhere. Games send 0 for what the
+ * car doesn't have (F1 25: DRS on 2026 cars, ERS on F2 cars, active aero and
+ * overtake mode on cars before 2026).
+ */
+function used(d: CompareData, channel: string): boolean {
+	return d.laps.some((l) => l.channels[channel]?.some((v) => v != null && v !== 0));
+}
+
+const onOff = (v: number) => (v >= 0.5 ? 'on' : 'off');
+
+/** A stepped on/off chart of a flag channel. */
+function flagPanel(key: string, title: string, channel: string): Panel {
+	return {
+		key,
+		title,
+		unit: '',
+		height: 70,
+		stepped: true,
+		discrete: true,
+		lines: [{ channel, scale: (v) => v }],
+		range: [0, 1],
+		format: onOff
+	};
 }
 
 /** Diff to ref, speed, throttle, brake, gear and steering (those the laps have). */
@@ -103,6 +131,7 @@ export function mainPanels(d: CompareData): Panel[] {
 			unit: '',
 			height: 140,
 			stepped: true,
+			discrete: true,
 			lines: [{ channel: 'gear', scale: (v) => v }],
 			range: [lo - 0.4, hi + 0.4],
 			format: formatGear
@@ -161,17 +190,7 @@ export function morePanels(d: CompareData): Panel[] {
 		['abs_active', 'ABS active'],
 		['tc_active', 'TC active']
 	] as const)
-		if (has(d, channel))
-			list.push({
-				key: channel,
-				title,
-				unit: '',
-				height: 70,
-				stepped: true,
-				lines: [{ channel, scale: (v) => v }],
-				range: [0, 1],
-				format: (v) => (v >= 0.5 ? 'on' : 'off')
-			});
+		if (has(d, channel)) list.push(flagPanel(channel, title, channel));
 	// driver aid settings (TC solid, ABS dashed) and the motor map
 	const aids = [
 		{ channel: 'lmu.tc_level', scale: (v: number) => v, name: 'TC' },
@@ -197,6 +216,59 @@ export function morePanels(d: CompareData): Panel[] {
 			lines: [{ channel: 'lmu.motor_map', scale: (v) => v }],
 			format: fixed(0, '')
 		});
+	list.push(...f1Panels(d));
+	return list;
+}
+
+/**
+ * F1 25: ERS, DRS (cars before 2026, also F2), active aero and overtake mode
+ * (2026 cars). Each only if one of the laps' cars has it.
+ */
+function f1Panels(d: CompareData): Panel[] {
+	const list: Panel[] = [];
+	const cars2026 = used(d, 'f1.active_aero_mode') || used(d, 'f1.overtake_active');
+	if (used(d, 'f1.ers_deploy_mode') || used(d, 'f1.ers_power') || used(d, 'f1.ers_store')) {
+		// mode 3 is "overtake" before 2026 and "boost" with the 2026 cars
+		const top = !cars2026 ? 'overtake' : used(d, 'f1.drs') ? 'overtake/boost' : 'boost';
+		const modes = ['none', 'medium', 'hotlap', top];
+		if (has(d, 'f1.ers_deploy_mode'))
+			list.push({
+				key: 'ers_mode',
+				title: 'ERS mode',
+				unit: '',
+				height: 90,
+				stepped: true,
+				discrete: true,
+				lines: [{ channel: 'f1.ers_deploy_mode', scale: (v) => v }],
+				range: [-0.4, 3.4],
+				format: (v) => modes[Math.round(v)] ?? fixed(0, '')(v)
+			});
+		if (has(d, 'f1.ers_power'))
+			list.push({
+				key: 'ers_power',
+				title: 'ERS power',
+				unit: 'kW',
+				height: 110,
+				lines: [{ channel: 'f1.ers_power', scale: (v) => v / 1000 }],
+				format: fixed(0, 'kW')
+			});
+		// the store holds 4 MJ
+		if (has(d, 'f1.ers_store'))
+			list.push({
+				key: 'ers_store',
+				title: 'ERS store',
+				unit: 'MJ',
+				height: 110,
+				lines: [{ channel: 'f1.ers_store', scale: (v) => v / 1e6 }],
+				range: [0, 4],
+				format: fixed(2, 'MJ')
+			});
+	}
+	if (used(d, 'f1.drs')) list.push(flagPanel('drs', 'DRS', 'f1.drs'));
+	if (cars2026) {
+		list.push(flagPanel('straight_mode', 'Straight mode', 'f1.active_aero_mode'));
+		list.push(flagPanel('overtake', 'Overtake', 'f1.overtake_active'));
+	}
 	return list;
 }
 
