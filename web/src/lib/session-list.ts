@@ -151,20 +151,63 @@ export function isSharedCopy(s: SessionSummary): boolean {
 	return s.origin.kind === 'synced';
 }
 
+/** The session passes the filter. */
+export function matchesFilter(s: SessionSummary, f: SessionFilter): boolean {
+	if (f.owner !== 'all' && isSharedCopy(s) !== (f.owner === 'shared')) return false;
+	if (f.game && s.game !== f.game) return false;
+	if (f.track && s.trackName !== f.track) return false;
+	if (f.car && s.carName !== f.car) return false;
+	if (f.type && s.sessionType !== f.type) return false;
+	if (f.from || f.to) {
+		const day = localDay(s.startedAt);
+		if (f.from && day < f.from) return false;
+		if (f.to && day > f.to) return false;
+	}
+	return true;
+}
+
 export function filterSessions(list: SessionSummary[], f: SessionFilter): SessionSummary[] {
-	return list.filter((s) => {
-		if (f.owner !== 'all' && isSharedCopy(s) !== (f.owner === 'shared')) return false;
-		if (f.game && s.game !== f.game) return false;
-		if (f.track && s.trackName !== f.track) return false;
-		if (f.car && s.carName !== f.car) return false;
-		if (f.type && s.sessionType !== f.type) return false;
-		if (f.from || f.to) {
-			const day = localDay(s.startedAt);
-			if (f.from && day < f.from) return false;
-			if (f.to && day > f.to) return false;
-		}
-		return true;
-	});
+	return list.filter((s) => matchesFilter(s, f));
+}
+
+/** The start of the newest session, '' for none. */
+export function newestStart(list: SessionSummary[]): string {
+	let newest = '';
+	for (const s of list) {
+		if (!newest || Date.parse(s.startedAt) > Date.parse(newest)) newest = s.startedAt;
+	}
+	return newest;
+}
+
+/**
+ * Sessions that started after `seenUntil` and that the filter hides, but
+ * clearing the filters would show: the ones to point out after a restart or a
+ * recording while filtered.
+ */
+export function hiddenNewSessions(
+	list: SessionSummary[],
+	f: SessionFilter,
+	seenUntil: string
+): SessionSummary[] {
+	const after = Date.parse(seenUntil);
+	if (Number.isNaN(after)) return [];
+	return list.filter(
+		(s) => Date.parse(s.startedAt) > after && matchesFilter(s, NO_FILTER) && !matchesFilter(s, f)
+	);
+}
+
+const SEEN_KEY = 'sessions.seenUntil';
+const isTimestamp = (v: string) =>
+	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(v) &&
+	!Number.isNaN(Date.parse(v));
+
+/** The start of the newest session the user has seen, '' before the first visit. */
+export function loadSeenUntil(): string {
+	return loadText(SEEN_KEY, '', isTimestamp);
+}
+
+export function saveSeenUntil(startedAt: string): void {
+	saveText(SEEN_KEY, startedAt);
 }
 
 /**

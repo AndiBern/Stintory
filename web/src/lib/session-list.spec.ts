@@ -8,14 +8,18 @@ import {
 	NO_FILTER,
 	filterOptions,
 	filterSessions,
+	hiddenNewSessions,
 	isFiltered,
 	loadFilter,
+	loadSeenUntil,
 	loadView,
+	newestStart,
 	nextSort,
 	pageForRow,
 	pageNumbers,
 	paginate,
 	saveFilter,
+	saveSeenUntil,
 	saveView,
 	sortSessions,
 	withoutUnknownNames
@@ -264,5 +268,60 @@ describe('remembered filter', () => {
 		expect(withoutUnknownNames(f, list)).toEqual({ ...f, car: '' });
 		const known = { ...NO_FILTER, track: 'Monza' };
 		expect(withoutUnknownNames(known, list)).toBe(known);
+	});
+});
+
+describe('new sessions hidden by the filters', () => {
+	// b (Nov 3) is the newest, then c (Nov 2), then a (Nov 1)
+	const nov2 = new Date(2026, 10, 2, 0).toISOString();
+
+	it('finds the newest start', () => {
+		expect(newestStart(list)).toBe(list[1].startedAt);
+		expect(newestStart([])).toBe('');
+	});
+
+	it('lists sessions after the seen time that the filter hides', () => {
+		const spa = { ...NO_FILTER, track: 'Spa' };
+		expect(ids(hiddenNewSessions(list, spa, nov2))).toEqual(['b', 'c']);
+		expect(ids(hiddenNewSessions(list, spa, list[2].startedAt))).toEqual(['b']);
+		expect(hiddenNewSessions(list, spa, list[1].startedAt)).toEqual([]);
+	});
+
+	it('ignores new sessions the filter shows', () => {
+		expect(ids(hiddenNewSessions(list, { ...NO_FILTER, game: 'lmu' }, nov2))).toEqual(['c']);
+		expect(hiddenNewSessions(list, NO_FILTER, nov2)).toEqual([]);
+	});
+
+	it('ignores sessions clearing the filters would not show either', () => {
+		const shared = session('d', {
+			startedAt: new Date(2026, 10, 5).toISOString(),
+			origin: { kind: 'synced', server: 'https://example.org', owner: 'friend' }
+		});
+		expect(hiddenNewSessions([shared], { ...NO_FILTER, track: 'Monza' }, nov2)).toEqual([]);
+	});
+
+	it('finds nothing without a seen time', () => {
+		expect(hiddenNewSessions(list, { ...NO_FILTER, track: 'Spa' }, '')).toEqual([]);
+	});
+});
+
+describe('remembered seen time', () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	it('takes only timestamps', () => {
+		const m = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (k: string) => m.get(k) ?? null,
+			setItem: (k: string, v: string) => void m.set(k, v)
+		});
+		expect(loadSeenUntil()).toBe('');
+		for (const t of ['2026-11-10T18:00:00Z', '2026-11-10T18:00:00.123456789+01:00']) {
+			saveSeenUntil(t);
+			expect(loadSeenUntil()).toBe(t);
+		}
+		for (const bad of ['yesterday', '2026-11-10', '2026-13-10T18:00:00Z', '9'.repeat(20)]) {
+			saveSeenUntil(bad);
+			expect(loadSeenUntil()).toBe('');
+		}
 	});
 });

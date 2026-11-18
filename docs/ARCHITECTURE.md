@@ -231,7 +231,7 @@ Frontend gets resampled arrays (not raw) for comparison. These are computed on d
 ## 7. Client UI (desktop and server web UI share it)
 
 1. **Dashboard / Recorder status**: which games are detected, current session, last laps.
-2. **Sessions list**: filter by game/track/car/date/type; best lap; laps count; sharing badge; origin (own/imported/synced).
+2. **Sessions list**: filter by game/track/car/date/type, with a notice when new sessions are hidden by the filters; best lap; laps count; sharing badge; origin (own/imported/synced).
 3. **Session detail**: lap table (time, sectors, valid, flags, fuel, tires); select laps for comparison; share dialog; notes/tags.
 4. **Lap view / Compare**: stacked traces vs distance (speed, throttle/brake, steering, gear, RPM, delta). Track map with synced cursor. Zoom/pan synced across charts. Choose "reference" = own best / any lap / imported / lap shared with me.
 5. **Library of references**: laps from imports and laps shared with me (by users or teams) for the same track+car.
