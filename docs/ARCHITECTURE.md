@@ -116,7 +116,7 @@ Session       id (UUIDv7), game, game_version, track_key, layout_key, car_key,
               origin (own | imported:<bundle> | synced:<server>/<user>), sharing (see §9.2)
 Lap           id (UUIDv7), session_id, number, lap_time_ms, sector_times_ms[],
               valid (bool) + invalid_reason, flags (out_lap, in_lap, pit, flashback, incident),
-              tyre/fuel at start, blob_hash (sha256 of Parquet file), sample_rate_hz,
+              tire/fuel at start, blob_hash (sha256 of Parquet file), sample_rate_hz,
               sharing (see §9.2), notes, tags
 Track         game, track_key, layout_key, display_name, length_m, sector boundaries, outline (polyline)
 Car           game, car_key, display_name, class
@@ -146,8 +146,8 @@ Every adapter maps game data to **canonical channels in SI units**. It also keep
 | `fuel` | l (or kg for F1) | `FuelLevel` | `m_fuelInTank` | `mFuel` |
 | `brake_bias` | % front | `dcBrakeBias` | `m_frontBrakeBias` | 1−`mRearBrakeBias` |
 | `abs_active`, `tc_active` | bool | `BrakeABSactive` | – | `mABSActive`, `mTCActive` |
-| tyres `tyre_temp_{fl..rr}`, `tyre_press_*`, `brake_temp_*` | °C, kPa | where live | `m_tyresSurfaceTemperature`… | `mWheels[]` (K→°C) |
-| extras | | `iracing.*` e.g. shock defl, `dcTractionControl` | `f1.ers_*`, `f1.drs`, `f1.active_aero`, `f1.overtake` | `lmu.virtual_energy`, `lmu.battery`, `lmu.tc_level`, `lmu.abs_level`, `lmu.motor_map`, ride heights, per-wheel tyres/brakes |
+| tires `tyre_temp_{fl..rr}`, `tyre_press_*`, `brake_temp_*` | °C, kPa | where live | `m_tyresSurfaceTemperature`… | `mWheels[]` (K→°C) |
+| extras | | `iracing.*` e.g. shock defl, `dcTractionControl` | `f1.ers_*`, `f1.drs`, `f1.active_aero`, `f1.overtake` | `lmu.virtual_energy`, `lmu.battery`, `lmu.tc_level`, `lmu.abs_level`, `lmu.motor_map`, ride heights, per-wheel tires/brakes |
 
 Storage: samples at the **native rate** (iRacing 60 Hz, F1 = configured rate, LMU ~100 Hz). Resampling happens only in analysis. Estimated size: 60 Hz × ~40 channels × 4 B ≈ 10 KB/s raw, so a 90 s lap ≈ 0.9 MB raw and **~150–300 KB as Parquet+zstd**. One hour ≈ 6–10 MB. Fine for years of local data.
 
@@ -222,7 +222,7 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
 
 1. **Distance resampling**: resample each lap onto a fixed distance grid (e.g. every 1 m, or 0.5 m for short tracks) with linear interpolation (step for gear/booleans).
 2. **Time delta**: Δt(d) = t_A(d) − t_B(d). Also the delta's derivative to highlight where time is gained/lost.
-3. **Track map**: from `pos_x/y` (F1/LMU) or dead reckoning/GPS (iRacing). Store a smoothed outline per track (median of several clean laps) in `Track.outline`. Colour by delta/speed/throttle/brake.
+3. **Track map**: from `pos_x/y` (F1/LMU) or dead reckoning/GPS (iRacing). Store a smoothed outline per track (median of several clean laps) in `Track.outline`. Color by delta/speed/throttle/brake.
 4. **Sectors**: game sectors.
 5. **Corner insights** (local, no AI service; `sy_analysis::corners`): corners come from the reference lap's curvature `g_lat / speed²` (smoothed, radius < 250 m, same-direction bends < 30 m apart merged, a bend inside the next corner's braking zone belongs to that corner). Per corner and lap: braking point, peak pressure and release, lift, lowest speed and gear, throttle pick-up, full throttle, exit speed, and the time lost, split into entry (to the apex) and exit. The lap is split into one segment per corner (approach → next approach, wrapping around the line), so the times lost add up to the gap between the laps. Checked on the iRacing, F1 and LMU recordings (e.g. Hungaroring 14, Suzuka 18, Snetterton 300 11 corners). Shown in the compare view (corner list sorted by time lost, corner numbers on the map) and part of `CompareData`. AI assistants read it through the server's MCP endpoint (`/mcp`, docs/SERVER.md): OAuth 2.1 (own authorization server, client ID metadata documents or dynamic registration, PKCE, resource-bound access tokens, rotating refresh tokens with reuse detection) or read-only device tokens; tools for tracks, sessions, best laps, corner comparison and telemetry excerpts. Without a server, the desktop app serves the same tools from the local data: `stintory mcp` speaks MCP over stdio for assistants on the same computer (Settings → AI shows the command). The tools and the protocol live once in `sy-mcp` behind a small data trait.
 
@@ -232,7 +232,7 @@ Frontend gets resampled arrays (not raw) for comparison. These are computed on d
 
 1. **Dashboard / Recorder status**: which games are detected, current session, last laps.
 2. **Sessions list**: filter by game/track/car/date/type; best lap; laps count; sharing badge; origin (own/imported/synced).
-3. **Session detail**: lap table (time, sectors, valid, flags, fuel, tyres); select laps for comparison; share dialog; notes/tags.
+3. **Session detail**: lap table (time, sectors, valid, flags, fuel, tires); select laps for comparison; share dialog; notes/tags.
 4. **Lap view / Compare**: stacked traces vs distance (speed, throttle/brake, steering, gear, RPM, delta). Track map with synced cursor. Zoom/pan synced across charts. Choose "reference" = own best / any lap / imported / lap shared with me.
 5. **Library of references**: laps from imports and laps shared with me (by users or teams) for the same track+car.
 6. **Import/Export**: select sessions/laps → export bundle. Drag & drop `.stintory` / `.ibt` to import.

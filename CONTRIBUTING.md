@@ -65,5 +65,5 @@ it's missing.
 
 ## Pull requests
 
-- Keep PRs focused. Add tests for new behaviour.
+- Keep PRs focused. Add tests for new behavior.
 - `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings` and the frontend lint must pass.

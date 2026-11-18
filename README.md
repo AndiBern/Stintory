@@ -60,7 +60,7 @@ npm ci
 
 - Running a server: [docs/SERVER.md](docs/SERVER.md)
 - Architecture, design rules and status: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Per-game behaviour, verified against real recordings: [docs/games/](docs/games/)
+- Per-game behavior, verified against real recordings: [docs/games/](docs/games/)
 - Game telemetry interfaces (incl. data not used yet), competitors and sources: [docs/RESEARCH.md](docs/RESEARCH.md)
 - Building from source and contributing: [CONTRIBUTING.md](CONTRIBUTING.md)
 

@@ -116,8 +116,8 @@ Shared memory of a game in Proton is only visible inside its Wine prefix, so Lin
 Canonical channels work everywhere without changes. Game-specific extras need wiring:
 
 - `crates/sy-analysis/src/lib.rs`: the list of channels the compare view gets, if an extra should be compared.
-- `crates/sy-analysis/src/conditions.rs`: the channels for tyre temperature, wear, compounds, damage and weather, and compound names from the session info. The compiler asks for these once the `GameId` exists.
-- `web/src/lib/charts/compare-panels.ts`: chart panels for extras. `web/src/lib/lap-conditions.ts`: the game's tyre compound colours.
+- `crates/sy-analysis/src/conditions.rs`: the channels for tire temperature, wear, compounds, damage and weather, and compound names from the session info. The compiler asks for these once the `GameId` exists.
+- `web/src/lib/charts/compare-panels.ts`: chart panels for extras. `web/src/lib/lap-conditions.ts`: the game's tire compound colors.
 
 ## 8. Docs
 
