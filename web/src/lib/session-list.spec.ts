@@ -237,7 +237,7 @@ describe('remembered filter', () => {
 		expect(loadFilter()).toEqual({ ...NO_FILTER, from: '2026-11-18' });
 	});
 
-	it('brings back sort order, page and page size', () => {
+	it('brings back sort order and page size, but starts on page 1', () => {
 		storage();
 		expect(loadView()).toEqual({ filter: NO_FILTER, sort: DEFAULT_SORT, page: 1, size: 50 });
 		const v = {
@@ -247,18 +247,15 @@ describe('remembered filter', () => {
 			size: 100
 		};
 		saveView(v);
-		expect(loadView()).toEqual(v);
+		expect(loadView()).toEqual({ ...v, page: 1 });
 	});
 
-	it('drops a sort order, page or page size the page could not have saved', () => {
+	it('drops a sort order or page size the page could not have saved', () => {
 		const m = storage();
 		m.set('stintory.view.sessions.sort.key', 'constructor');
-		m.set('stintory.view.sessions.page', '-1');
-		m.set('stintory.view.sessions.size', '1000000');
-		expect(loadView()).toEqual({ filter: NO_FILTER, sort: DEFAULT_SORT, page: 1, size: 50 });
-		for (const page of ['0', '1.5', '1e3', ' 2', 'NaN', '9999999']) {
-			m.set('stintory.view.sessions.page', page);
-			expect(loadView().page).toBe(1);
+		for (const size of ['1000000', '0', '50.0', ' 25']) {
+			m.set('stintory.view.sessions.size', size);
+			expect(loadView()).toEqual({ filter: NO_FILTER, sort: DEFAULT_SORT, page: 1, size: 50 });
 		}
 	});
 

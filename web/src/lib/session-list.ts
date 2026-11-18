@@ -90,7 +90,10 @@ export const DEFAULT_PAGE_SIZE = 50;
 export interface SessionsView {
 	filter: SessionFilter;
 	sort: Sort;
-	/** 1-based; one past the end shows the last page (see `paginate`) */
+	/**
+	 * 1-based; one past the end shows the last page (see `paginate`). Not
+	 * stored: a new start begins on page 1.
+	 */
 	page: number;
 	size: number;
 }
@@ -98,7 +101,6 @@ export interface SessionsView {
 const VIEW_KEY = 'sessions.';
 const isSortKey = (v: string) => (SORT_KEYS as readonly string[]).includes(v);
 const isPageSize = (v: string) => PAGE_SIZES.some((n) => String(n) === v);
-const isPage = (v: string) => /^[1-9]\d{0,5}$/.test(v);
 
 /** The table as it was left on the last visit, checked value by value. */
 export function loadView(): SessionsView {
@@ -108,7 +110,7 @@ export function loadView(): SessionsView {
 			key: loadText(VIEW_KEY + 'sort.key', DEFAULT_SORT.key, isSortKey) as SortKey,
 			descending: loadFlag(VIEW_KEY + 'sort.descending', DEFAULT_SORT.descending)
 		},
-		page: Number(loadText(VIEW_KEY + 'page', '1', isPage)),
+		page: 1,
 		size: Number(loadText(VIEW_KEY + 'size', String(DEFAULT_PAGE_SIZE), isPageSize))
 	};
 }
@@ -118,7 +120,6 @@ export function saveView(v: SessionsView): void {
 	saveFilter(v.filter);
 	saveText(VIEW_KEY + 'sort.key', v.sort.key);
 	saveFlag(VIEW_KEY + 'sort.descending', v.sort.descending);
-	saveText(VIEW_KEY + 'page', String(v.page));
 	saveText(VIEW_KEY + 'size', String(v.size));
 }
 

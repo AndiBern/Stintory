@@ -3,7 +3,10 @@
 <script module lang="ts">
 	import { loadView, type SessionsView } from '#lib/session-list.ts';
 
-	/** Filters, sort order, page and page size are remembered across visits. */
+	/**
+	 * Filters, sort order and page size are remembered across visits. The page
+	 * only while the app is open: opening a session and coming back keeps it.
+	 */
 	const view = $state<SessionsView>(loadView());
 </script>
 
