@@ -6,6 +6,8 @@ Record, review and compare your sim racing lap times. **Your data stays yours.**
 
 Most lap analysis tools send your telemetry to the vendor's servers so you can compare yourself with everyone else. Stintory sends nothing to any company: it stores your laps on your computer, and if you want to share them with friends or a team, you do that through your own server.
 
+<img src="docs/images/comparison_one_map.png" width="720" alt="Lap comparison: corners where time is lost, the laps on the track map, time delta and speed">
+
 ## Features
 
 - **Automatic recording** of every session and lap while you drive, no clicks needed. Only your own car is recorded, never other drivers' data.
@@ -13,6 +15,8 @@ Most lap analysis tools send your telemetry to the vendor's servers so you can c
 - **Export and import** sessions and laps as `.stintory` files (and CSV), to move them to another computer or compare with laps from other people.
 - **Self-hosted server** (Docker) with accounts (password, TOTP, passkeys) and a web UI. It syncs your sessions between your computers and lets you share sessions and laps with other users, teams, or everyone on the server. Compare your laps with the ones others share with you, in the browser or the desktop app.
 - **AI assistants** (Claude and other MCP clients) can read your laps and the corner analysis to tell you where you lose time: from the desktop app on your computer (*Settings → AI*) or from your server ([docs/SERVER.md](docs/SERVER.md)). Stintory has no AI service of its own.
+
+<img src="docs/images/comparison_4way.png" width="720" alt="Four laps side by side on the track map, colored by throttle, with steering, gear and pedals for each car">
 
 ## Game support
 
