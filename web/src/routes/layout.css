@@ -10,6 +10,21 @@
 	--color-zinc-800: #2e2e33;
 	--color-zinc-900: #212125;
 	--color-zinc-950: #161619;
+
+	/* rows that just became visible light up briefly (sessions list: "Show") */
+	--animate-flash-new: flash-new 2s ease-out;
+	@keyframes flash-new {
+		0% {
+			background-color: transparent;
+		}
+		10%,
+		40% {
+			background-color: color-mix(in oklab, var(--color-sky-400) 22%, transparent);
+		}
+		100% {
+			background-color: transparent;
+		}
+	}
 }
 
 /* native controls (selects, date pickers, scrollbars) in the dark theme */

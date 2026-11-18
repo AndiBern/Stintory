@@ -61,9 +61,13 @@ test('points out new sessions the filters hide after a restart', async ({ page }
 	await expect(page.getByText('2 of 5 sessions')).toBeVisible();
 	await expect(notice(page)).toHaveText('1 new session hidden by the filters');
 
-	// Show clears the filters
+	// Show clears the filters and lights up the session it revealed for a moment
 	await page.getByRole('button', { name: 'Show', exact: true }).click();
 	await expect(notice(page)).toHaveCount(0);
+	const lit = page.locator('tbody tr.animate-flash-new');
+	await expect(lit).toHaveCount(1);
+	await expect(lit).toContainText('Spa');
+	await expect(lit).toHaveCount(0, { timeout: 4000 });
 	await expect(page.getByRole('combobox', { name: 'Track' })).toHaveValue('');
 	await expect(page.getByRole('button', { name: 'Clear filters' })).toHaveCount(0);
 	await expect(page.locator('tbody tr')).toHaveCount(5);

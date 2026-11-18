@@ -90,6 +90,22 @@
 		saveSeenUntil(newest);
 	}
 
+	/** Sessions that just became visible through "Show", lit up for a moment */
+	let flashed = $state<string[]>([]);
+	let flashTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function showHiddenNew() {
+		const ids = hiddenNew.map((s) => s.id);
+		view.filter = { ...NO_FILTER };
+		markSeen();
+		// the page with the first of them; with the default order that is page 1
+		const first = visible.findIndex((s) => ids.includes(s.id));
+		view.page = first < 0 ? 1 : pageForRow(first, view.size);
+		flashed = ids;
+		clearTimeout(flashTimer);
+		flashTimer = setTimeout(() => (flashed = []), 2000); // the length of animate-flash-new
+	}
+
 	// New sessions the filters show count as seen; hidden ones stay new until
 	// the notice is dismissed. The first visit starts with everything seen.
 	$effect(() => {
@@ -382,11 +398,7 @@
 						<button
 							type="button"
 							class="h-6 rounded border border-sky-800 px-2 hover:bg-sky-950"
-							onclick={() => {
-								view.filter = { ...NO_FILTER };
-								view.page = 1;
-								markSeen();
-							}}
+							onclick={showHiddenNew}
 						>
 							Show
 						</button>
@@ -473,6 +485,7 @@
 				{#each paged.items as s (s.id)}
 					<tr
 						class="cursor-pointer border-t border-zinc-800 hover:bg-zinc-900"
+						class:animate-flash-new={flashed.includes(s.id)}
 						onclick={() => open(s.id)}
 						onkeydown={(e) => e.key === 'Enter' && open(s.id)}
 						tabindex="0"
