@@ -57,7 +57,7 @@ shared memory has any number of readers.
   `ScoringInfoV01` (548) have their rFactor 2 sizes: LMU's additions
   (virtual energy, TC/ABS settings, motor map, …) went into the reserved
   space.
-- New frames are signalled by two events, `LMU_Data_HoldEvent` and then
+- New frames are signaled by two events, `LMU_Data_HoldEvent` and then
   `LMU_Data_DataEvent` (waiting in that order is the race-free way, says
   the header). Without them (older builds) we poll every 10 ms. The
   telemetry comes at 100 Hz (`mDeltaTime` 0.01 s; 50 Hz in the garage), the scoring at 5 Hz;
@@ -95,7 +95,7 @@ shared memory has any number of readers.
   torque/rpm/state, TC level/slip/cut, ABS level, motor map, migration,
   anti-roll bars, lift-and-coast, track-limits steps, lap invalidated,
   speed limiter, engine torque, water/oil temperature, ride heights and
-  downforce front/rear; per wheel (`_fl`, `_fr`, `_rl`, `_rr`) tyre tread
+  downforce front/rear; per wheel (`_fl`, `_fr`, `_rl`, `_rr`) tire tread
   temperature (average of the three zones), carcass temperature, pressure,
   wear (0 new; the game's `mWear` is what is left, 1 when new, although
   the header calls it wear), brake temperature (°C), ride height,
@@ -114,13 +114,13 @@ shared memory has any number of readers.
   average or a step ahead) come from the scoring, as `lmu.rain` and
   `lmu.track_wetness` in every sample, and in the session's weather
   ("rain 30 %, track wet 40 %" at Road Atlanta). `mDarkCloud` stayed 0 in
-  the rain. On a wet track the tyres' surface is 1 (wet) instead of 0.
+  the rain. On a wet track the tires' surface is 1 (wet) instead of 0.
 - The lap view shows virtual energy / battery, ABS and TC active, the TC
   and ABS levels and the motor map when a lap has them.
 - Session info (player only): session number and name, track length, lap
   and time limit, online or not, field size, fixed setup, track grip,
   track-limits rules, vehicle, model, class, championship (BoP year),
-  steering range, gears, fuel capacity, tyre compounds.
+  steering range, gears, fuel capacity, tire compounds.
 - Car setup: `GET /rest/garage/getPlayerGarageData` every 5 s, stored when
   it changed (exported only when chosen). The response (~40 KB) has one
   object per setting with the readable `stringValue`, an index `value`,
@@ -256,4 +256,4 @@ another method.
 - Linux through the Proton bridge (docs/games/proton.md).
 - Full-course yellow (`mGamePhase` 6; not reproduced offline).
 - Whether `mLapInvalidated` is ever set.
-- Rain (`mRaining`, the surface types), the tyre wear over a long stint.
+- Rain (`mRaining`, the surface types), the tire wear over a long stint.

@@ -1,4 +1,4 @@
-# iRacing – verified behaviour
+# iRacing – verified behavior
 
 Implementation: `crates/sy-source-iracing`. Sources: the official iRacing SDK 1.20 (`irsdk_defines.h`, `irsdk_utils.cpp`, `irsdk_diskclient.cpp`) plus analysis of our own `.ibt` recordings (Snetterton 300 / GR86, Summit Point / MX-5, Oschersleben GP / Ray FF1600, Winton National / MX-5 incl. a live recording on Windows, Nov 2026, sim build 2026.11.02.01). Everything below was checked against those recordings.
 
@@ -9,14 +9,14 @@ Implementation: `crates/sy-source-iracing`. Sources: the official iRacing SDK 1.
 - Variables are packed **without alignment** (e.g. `Speed` at offset 314), so all reads are unaligned.
 - 60 rows/s. `.ibt` files have ~280 variables.
 - **`.ibt` contains no `CarIdx*` arrays.** The only array is `SteeringWheelTorque_ST[6]`. The live data does have `CarIdx*` arrays; we zero other cars' entries before spooling.
-- **`.ibt` contains GPS**: `Lat`/`Lon` (double, degrees), `Alt` (m). We project to local metres around `WeekendInfo.TrackLatitude/TrackLongitude`. Those fields have a bogus unit "m" but contain degrees. That point is the **start/finish line** (the car crosses it at < 3 m from the origin).
+- **`.ibt` contains GPS**: `Lat`/`Lon` (double, degrees), `Alt` (m). We project to local meters around `WeekendInfo.TrackLatitude/TrackLongitude`. Those fields have a bogus unit "m" but contain degrees. That point is the **start/finish line** (the car crosses it at < 3 m from the origin).
 - **Live telemetry has no GPS** (a live recording had no track map; the same session's `.ibt` had one). Instead we integrate `VelocityX` (forward) and `VelocityY` (left), both m/s in the car frame, rotated by `YawNorth` (heading from north, clockwise): `east += (vx·sin h − vy·cos h)·dt`, `north += (vx·cos h + vy·sin h)·dt`.
   - Checked by replaying the Winton `.ibt` with `Lat`/`Lon` hidden: < 2 m drift over 7 minutes without resets.
   - The position is set to (0, 0) at every line crossing **on track**. That bounds the drift (< 4 m from GPS in every lap) and puts it in the same frame as the GPS position.
   - Before the first crossing on track (out-lap from the pits, joined mid-lap, after a tow) the position is unknown and left empty. The line crossing in the pit lane is ~25 m off the racing line, so it is no anchor.
-- Session info YAML is ISO-8859-1. It contains **all drivers** (names, ids, iRating, licence) and results. We keep only a whitelist (`session_info.rs`).
+- Session info YAML is ISO-8859-1. It contains **all drivers** (names, ids, iRating, license) and results. We keep only a whitelist (`session_info.rs`).
 
-## Lap behaviour
+## Lap behavior
 
 - `Lap` = lap being driven, `LapCompleted` = laps done. Both increment at the same row when crossing the line.
 - `LapLastLapTime` (official time of lap `LapCompleted`) updates **1–2.2 s after** the crossing.

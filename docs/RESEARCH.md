@@ -29,7 +29,7 @@ What Stintory actually does, checked with the real games, is in [games/](games/)
 ### 1.1 iRacing
 
 **Live telemetry (shared memory)**
-- Memory-mapped file `Local\IRSDKMemMapFileName`, plus an event `Local\IRSDKDataValidEvent` that is signalled for every new sample (60 Hz). You can block on the event instead of polling.
+- Memory-mapped file `Local\IRSDKMemMapFileName`, plus an event `Local\IRSDKDataValidEvent` that is signaled for every new sample (60 Hz). You can block on the event instead of polling.
 - Layout: a header (`irsdk_header`: version, status, tickRate, session info offset/length/update counter, number of variables, var-header offset, 4 rotating data buffers with `tickCount`) → variable header table (name, type, offset, count, unit, description) → data buffers. The variable set is **self-describing**: the client discovers names, types and units at runtime. No hardcoded struct.
 - Read safely: take the buffer with the highest `tickCount`, copy it, then check that `tickCount` didn't change during the copy.
 - **Session info** is a YAML string (WeekendInfo with TrackID/TrackName/TrackConfigName, DriverInfo with CarID/CarScreenName/UserID/CustID, SessionInfo with results, CarSetup). It has its own update counter and changes rarely.
@@ -50,7 +50,7 @@ What Stintory actually does, checked with the real games, is in [games/](games/)
 | Timing | `LapCurrentLapTime`, `LapLastLapTime`, `LapBestLapTime` (s), `LapDeltaToBestLap`/`OptimalLap`/`SessionBestLap` (+ `_OK` flags), `SessionTime` (double) |
 | Dynamics | `LatAccel`, `LongAccel`, `VertAccel` (m/s²), `Yaw`/`Pitch`/`Roll` (rad), `YawRate` etc. (rad/s), `VelocityX/Y/Z` (m/s, car frame), `YawNorth` |
 | 360 Hz (`_ST`, float[6] per 60 Hz tick) | shock deflection/velocity per corner, accelerations, rotation rates, velocities, `SteeringWheelTorque_ST` |
-| Tyres | carcass temps `LFtempCL/CM/CR`…, wear `LFwearL/M/R`…, `LFcoldPressure`… (some only update in the pits) |
+| Tires | carcass temps `LFtempCL/CM/CR`…, wear `LFwearL/M/R`…, `LFcoldPressure`… (some only update in the pits) |
 | Car controls | `dcBrakeBias`, `dcABS`, `dcTractionControl` … (`dc*` = in-car adjustments, car dependent), `BrakeABSactive` |
 | Fuel | `FuelLevel` (l), `FuelLevelPct`, `FuelUsePerHour` (kg/h) |
 | Session/flags | `SessionFlags` (bitfield), `SessionState`, `SessionNum`, `PlayerCarMyIncidentCount`, `PlayerCarPosition` |
@@ -89,14 +89,14 @@ uint8  playerCarIndex, secondaryPlayerCarIndex
 | 2 | Lap Data | 1399 B | Last/current lap time (ms), sector 1/2 times, gaps, **lapDistance**, totalDistance, position, lap number, pit status, sector, **currentLapInvalid**, penalties, warnings, driverStatus (out/in/flying lap) |
 | 3 | Event | 45 B | Session start/end, fastest lap, penalties, speed trap, start lights, **flashback** (frame id + session time), buttons, overtake, safety car, collision |
 | 4 | Participants | 1470 B | Names, team, race number, AI/human, platform, **yourTelemetry** (restricted/public) |
-| 5 | Car Setups | 1233 B | Wings, diff, camber/toe, suspension, ARBs, ride height, brake pressure/bias, tyre pressures, fuel load |
-| 6 | Car Telemetry | 1448 B | Speed (km/h), throttle, steer (-1..1), brake, clutch, gear, RPM, DRS, brake temps, tyre surface/inner temps, engine temp, tyre pressures, surface type |
-| 7 | Car Status | 1445 B | TC, ABS, fuel mix, brake bias, fuel in tank/capacity/remaining laps, max RPM, tyre compound (actual/visual), tyre age, ERS store/deploy mode/harvested/deployed, ICE & MGU-K power |
+| 5 | Car Setups | 1233 B | Wings, diff, camber/toe, suspension, ARBs, ride height, brake pressure/bias, tire pressures, fuel load |
+| 6 | Car Telemetry | 1448 B | Speed (km/h), throttle, steer (-1..1), brake, clutch, gear, RPM, DRS, brake temps, tire surface/inner temps, engine temp, tire pressures, surface type |
+| 7 | Car Status | 1445 B | TC, ABS, fuel mix, brake bias, fuel in tank/capacity/remaining laps, max RPM, tire compound (actual/visual), tire age, ERS store/deploy mode/harvested/deployed, ICE & MGU-K power |
 | 8 | Final Classification | 1134 B | Results, best lap, stints |
 | 9 | Lobby Info | 1062 B | Multiplayer lobby |
-| 10 | Car Damage | 1133 B | Tyre wear/damage/blisters, wing/floor/diffuser/sidepod damage, engine component wear |
-| 11 | Session History | 1460 B | Per car (cycled): up to 100 laps with lap + sector times and validity bits, tyre stints |
-| 12 | Tyre Sets | 231 B | Per car (cycled): 20 tyre sets with wear, life, delta |
+| 10 | Car Damage | 1133 B | Tire wear/damage/blisters, wing/floor/diffuser/sidepod damage, engine component wear |
+| 11 | Session History | 1460 B | Per car (cycled): up to 100 laps with lap + sector times and validity bits, tire stints |
+| 12 | Tyre Sets | 231 B | Per car (cycled): 20 tire sets with wear, life, delta |
 | 13 | Motion Ex | 273 B | **Player only**: suspension pos/vel/acc, wheel speed, slip ratio/angle, lat/long/vertical wheel forces, local velocity, angular velocity/acceleration, front wheel angle, aero heights, roll angles, chassis yaw/pitch, camber |
 | 14 | Time Trial | 104 B | Session best / personal best / rival lap + sectors + assists |
 | 15 | Lap Positions | 1231 B | Position of every car at the start of each lap |
@@ -107,7 +107,7 @@ uint8  playerCarIndex, secondaryPlayerCarIndex
 - **Flashbacks:** an Event `FLBK` with the frame/session time it rewinds to. The recorder must truncate the current lap's samples back to that time. Usually a lap with a flashback is marked as such.
 - Lap validity comes for free (`currentLapInvalid`, Session History valid bits).
 - Track/car identity: `trackId` enum (appendix), `formula`, `teamId`. Fine for cross-user comparison within F1 25.
-- Positions: world X/Y/Z in metres, so track maps come for free.
+- Positions: world X/Y/Z in meters, so track maps come for free.
 - UDP works over the network, so it works through Proton on Linux, and from consoles to a PC client.
 - Send rates per packet: from the official spec, in games/f1.md.
 - Implementation source: the **official EA specs** "Data Output from F1 25" (v3, May 2025) and "Data Output from F1 25: 2026 Season Pack" (v1.2, Sep 2026), PDFs from the EA forum (© EA; read, not copied; kept outside the repository). Before we had them, a copy of the header in `github.com/P403n1x87/f1-packets` `data/spec.h` served as read-only reference. Community parsers (`f1-game-library-models-25`, `f1-game-packet-parser`, `open-f1-parser`) are not used (ARCHITECTURE §12.2).
@@ -133,9 +133,9 @@ LMU runs on the rFactor 2 engine. Historically all tools used the third-party **
   - Aero/chassis: front/rear ride height, front wing height, 3rd-spring deflection, drag, downforce F/R
   - **Electronics (new, in-cockpit values):** `mTC`, `mTCSlip`, `mTCCut`, `mABS`, `mMotorMap`, `mMigration`, front/rear anti-sway, `mRegen`, `mTCActive`, `mABSActive`, `mRearBrakeBias`
   - Hybrid/energy: `mBatteryChargeFraction`, electric motor torque/RPM/temps/state, `mStateOfCharge`, **`mVirtualEnergy`**, `mLiftAndCoastProgress`
-  - Misc: tyre compound F/R (index + name), damage (`mDentSeverity`, last impact), gaps to car ahead/behind, `mTrackLimitsSteps`, vehicle model/class
-  - Per wheel (`mWheels[4]`): suspension deflection, ride height, brake temp/pressure, tyre load, grip fraction, pressure (kPa), 3-zone tread temp + carcass + inner layer temps (Kelvin), wear, camber, toe, lateral/longitudinal forces and patch velocities, surface type, flat/detached
-- **Synchronisation** (header version of 2026): the events `LMU_Data_HoldEvent` and `LMU_Data_DataEvent` signal a new frame (wait on hold, then data), and the game writes under a lock (`LMU_SharedMemoryLockData`: `waiters` + `busy`, event `LMU_SharedMemoryLockEvent`) that readers take while copying. Older builds have neither.
+  - Misc: tire compound F/R (index + name), damage (`mDentSeverity`, last impact), gaps to car ahead/behind, `mTrackLimitsSteps`, vehicle model/class
+  - Per wheel (`mWheels[4]`): suspension deflection, ride height, brake temp/pressure, tire load, grip fraction, pressure (kPa), 3-zone tread temp + carcass + inner layer temps (Kelvin), wear, camber, toe, lateral/longitudinal forces and patch velocities, surface type, flat/detached
+- **Synchronization** (header version of 2026): the events `LMU_Data_HoldEvent` and `LMU_Data_DataEvent` signal a new frame (wait on hold, then data), and the game writes under a lock (`LMU_SharedMemoryLockData`: `waiters` + `busy`, event `LMU_SharedMemoryLockEvent`) that readers take while copying. Older builds have neither.
 - **Lap distance** lives only in `VehicleScoring.mLapDist` (5 Hz). For high-rate distance you interpolate between scoring updates using `mElapsedTime` + speed, or compute arc length from `mPos` against a reference line. This is a common pitfall.
 - **REST API** `http://127.0.0.1:6397` (OpenAPI at `/swagger-schema.json`, ~178 paths). Useful GETs: `/rest/sessions`, `/rest/watch/standings`, `/rest/strategy/usage` (Virtual Energy per driver), `/rest/garage/getPlayerGarageData` (setup values), `/rest/garage/UIScreen/RepairAndRefuel`, `/rest/garage/UIScreen/TireManagement`. Use GET only, and stay well away from the 100+ mutating endpoints. Poll at 1–5 Hz, off the hot path.
 - Results XML files are written to `UserData\Log\Results` (path also exposed in `paths`). Useful for session summaries.
@@ -161,7 +161,7 @@ As of November 2026. Prices and supported games change often; check before relyi
 |---|---|---|---|---|
 | Sims | Primarily iRacing (a 2025 competitor comparison calls it iRacing-only; **verify** current list) | iRacing, LMU, AC, ACC, AC EVO, AMS2, Forza Motorsport, F1 2020–F1 25 (incl. consoles via UDP) | iRacing, ACC, F1 24/25, LMU (PC only) | iRacing, ACC, LMU, AC EVO, AC, AMS2, GT7 |
 | Capture | Desktop agent reading iRacing SDK | Desktop app; LMU via own plugin `TrackTitanRf2Plugin.dll` | Desktop app | Desktop app |
-| Analysis | Browser analyser: speed/throttle/brake/steering/gear/RPM traces vs distance, delta, line comparison, fuel/tyre stats, track map, ghost laps, **CSV export** | Traces (throttle/brake/speed/steering/gear), reference-lap comparison, AI tips, "coaching flows", real-time overlay | Live overlays + **real-time AI voice coach** ("Mansell"), turn-by-turn coach report, pro reference laps | Racing line/braking/throttle/gear overlay vs pro reference, "Auto Insights" (where time is lost), side-by-side video |
+| Analysis | Browser analyzer: speed/throttle/brake/steering/gear/RPM traces vs distance, delta, line comparison, fuel/tire stats, track map, ghost laps, **CSV export** | Traces (throttle/brake/speed/steering/gear), reference-lap comparison, AI tips, "coaching flows", real-time overlay | Live overlays + **real-time AI voice coach** ("Mansell"), turn-by-turn coach report, pro reference laps | Racing line/braking/throttle/gear overlay vs pro reference, "Auto Insights" (where time is lost), side-by-side video |
 | Sharing model | **Laps & setups shared with all members by default**, opt-out per category; teams | Central database; compare vs other users/pros | Central; pro reference laps | Central; pro reference laps |
 | Price | Free (last year of data), Pro ~€5/mo | Free tier + Pro/Premium | Subscription (~$18/mo) | ~£12/mo |
 

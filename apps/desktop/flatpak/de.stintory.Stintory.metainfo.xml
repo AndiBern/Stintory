@@ -24,6 +24,18 @@ SPDX-License-Identifier: MIT
       Ultimate (in Proton through the Proton bridge).
     </p>
   </description>
+  <!-- from the tag of the release (the Flatpak build fills in the version),
+       so each version shows its own screenshots -->
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/AndiBern/Stintory/v@VERSION@/docs/images/comparison_one_map.png</image>
+      <caption>Comparing two laps: where time is lost, corner by corner</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://raw.githubusercontent.com/AndiBern/Stintory/v@VERSION@/docs/images/comparison_4way.png</image>
+      <caption>Four laps side by side on the track map, colored by throttle</caption>
+    </screenshot>
+  </screenshots>
   <launchable type="desktop-id">de.stintory.Stintory.desktop</launchable>
   <url type="homepage">https://github.com/AndiBern/Stintory</url>
   <url type="bugtracker">https://github.com/AndiBern/Stintory/issues</url>
