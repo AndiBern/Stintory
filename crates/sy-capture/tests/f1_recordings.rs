@@ -217,6 +217,52 @@ fn jeddah_f2_2026_with_a_pause() {
     );
 }
 
+/// What the cars report of hybrid, DRS and 2026 aero (the comparison shows
+/// only charts with values): the game sends 0 for what a car doesn't have.
+/// Highest value of each over the timed laps: F1 2025 (Catalunya, 2026
+/// format), F1 26 (Suzuka), F2 2026 (Jeddah).
+#[test]
+fn hybrid_drs_and_active_aero_per_car() {
+    fn max(r: &Recorded, name: &str) -> f64 {
+        let mut m = f64::NEG_INFINITY;
+        for l in r.laps.iter().filter(|l| l.lap.number > 0) {
+            let v: Vec<f64> = match &l.telemetry.channel(name).expect(name).data {
+                ChannelData::F32(v) => v.iter().map(|&x| f64::from(x)).collect(),
+                ChannelData::F64(v) => v.clone(),
+                ChannelData::I32(v) => v.iter().map(|&x| f64::from(x)).collect(),
+                ChannelData::Bool(v) => v.iter().map(|&x| f64::from(u8::from(x))).collect(),
+            };
+            m = v.into_iter().fold(m, f64::max);
+        }
+        m
+    }
+    let (Some(f1_2025), Some(f1_26), Some(f2a), Some(f2b)) = (
+        recording(1_794_416_003),
+        recording(1_794_417_637),
+        recording(1_794_418_219),
+        recording(1_794_418_566),
+    ) else {
+        return;
+    };
+    let channels = [
+        "f1.drs",
+        "f1.ers_deploy_mode",
+        "f1.ers_power",
+        "f1.active_aero_mode",
+        "f1.overtake_active",
+    ];
+    // power in whole kW
+    let maxima = |r: Recorded| {
+        channels.map(|c| (max(&r, c) / if c == "f1.ers_power" { 1000.0 } else { 1.0 }).round())
+    };
+    // MGU-K up to 120 kW before 2026, more with the 2026 cars (Suzuka
+    // reaches 216 kW, Shanghai 315 kW); ERS mode 2 = hotlap (time trial)
+    assert_eq!(maxima(replay(&f1_2025)), [1.0, 2.0, 120.0, 0.0, 0.0]);
+    assert_eq!(maxima(replay(&f1_26)), [0.0, 2.0, 216.0, 1.0, 1.0]);
+    // F2 has DRS but no ERS
+    assert_eq!(maxima(replay_all(&[f2a, f2b])), [1.0, 0.0, 0.0, 0.0, 0.0]);
+}
+
 /// F2 2025 (Campos) at Austria, time trial.
 #[test]
 fn austria_f2_2025() {

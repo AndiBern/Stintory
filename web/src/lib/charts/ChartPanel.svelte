@@ -112,9 +112,9 @@
 						{
 							...axis,
 							size: 56,
-							// whole gears only (R, N, 1, 2, …)
-							...(p.key === 'gear' ? { incrs: [1, 2], space: 12 } : {}),
-							values: (_u, ticks) => ticks.map((t) => (p.key === 'gear' ? p.format(t) : String(t)))
+							// whole values only (gears R, N, 1, …; modes; on/off)
+							...(p.discrete ? { incrs: [1, 2], space: 12 } : {}),
+							values: (_u, ticks) => ticks.map((t) => (p.discrete ? p.format(t) : String(t)))
 						}
 					],
 					cursor: {

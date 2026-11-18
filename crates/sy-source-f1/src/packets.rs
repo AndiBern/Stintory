@@ -886,6 +886,8 @@ pub struct CarStatus {
     pub tyre_visual_compound: u8,
     /// Laps on this set of tyres
     pub tyre_age_laps: u8,
+    /// MGU-K power output, W (the recordings never show it negative)
+    pub mguk_power_w: f32,
     /// ERS energy store, joules
     pub ers_store_j: f32,
     /// ERS deploy mode 0 none, 1 medium, 2 hotlap, 3 overtake
@@ -910,7 +912,8 @@ impl CarStatus {
         let tyre_compound = r.u8();
         let tyre_visual_compound = r.u8();
         let tyre_age_laps = r.u8();
-        r.skip(1 + 4 + 4); // FIA flag, ICE and MGU-K power
+        r.skip(1 + 4); // FIA flag, ICE power
+        let mguk_power_w = r.f32();
         let ers_store_j = r.f32();
         let ers_deploy_mode = r.u8();
         r.skip(4 + 4); // harvested MGU-K, MGU-H
@@ -929,6 +932,7 @@ impl CarStatus {
             tyre_compound,
             tyre_visual_compound,
             tyre_age_laps,
+            mguk_power_w,
             ers_store_j,
             ers_deploy_mode,
             ers_deployed_lap_j,

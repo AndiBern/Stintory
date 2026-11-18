@@ -245,6 +245,9 @@ fn channels(format: Format) -> Vec<Ch> {
         ch("f1.ers_deploy_mode", Unit::None, I32, |i| {
             opt(i.s, |s| f64::from(s.ers_deploy_mode))
         }),
+        ch("f1.ers_power", Unit::Watt, F32, |i| {
+            opt(i.s, |s| f64::from(s.mguk_power_w))
+        }),
         ch("f1.ers_deployed_lap", Unit::Joule, F32, |i| {
             opt(i.s, |s| f64::from(s.ers_deployed_lap_j))
         }),

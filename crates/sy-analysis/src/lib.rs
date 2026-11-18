@@ -57,6 +57,13 @@ pub const COMPARE_CHANNELS: &[&str] = &[
     "lmu.tc_level",
     "lmu.abs_level",
     "lmu.motor_map",
+    // F1 25: hybrid, DRS and the 2026 active aero / overtake mode
+    "f1.ers_deploy_mode",
+    "f1.ers_power",
+    "f1.ers_store",
+    "f1.drs",
+    "f1.active_aero_mode",
+    "f1.overtake_active",
 ];
 
 /// Errors of the analysis.
