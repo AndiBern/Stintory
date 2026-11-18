@@ -4,7 +4,8 @@
 /** Filtering and sorting of the sessions table. */
 
 import type { SessionSummary } from './api/index.ts';
-import { SESSION_TYPES } from './format.ts';
+import { GAMES, SESSION_TYPES } from './format.ts';
+import { loadFlag, loadText, saveFlag, saveText } from './view-prefs.ts';
 
 /**
  * Whose sessions: the user's own (recorded or imported), the copies of sessions
@@ -33,7 +34,8 @@ export const NO_FILTER: SessionFilter = {
 	to: ''
 };
 
-export type SortKey = 'date' | 'track' | 'car' | 'type' | 'laps' | 'best';
+export const SORT_KEYS = ['date', 'track', 'car', 'type', 'laps', 'best'] as const;
+export type SortKey = (typeof SORT_KEYS)[number];
 
 export interface Sort {
 	key: SortKey;
@@ -41,6 +43,95 @@ export interface Sort {
 }
 
 export const DEFAULT_SORT: Sort = { key: 'date', descending: true };
+
+const OWNERS: OwnerFilter[] = ['mine', 'shared', 'all'];
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** `hasOwn`, not `in`: "toString" or "__proto__" are no game. */
+const anyOrKey = (names: Record<string, string>) => (v: string) =>
+	v === '' || Object.hasOwn(names, v);
+const anyOrDay = (v: string) => v === '' || (DAY.test(v) && !Number.isNaN(Date.parse(v)));
+
+/** What a stored filter value may be; anything else falls back to "any". */
+const VALID_FILTER: Record<keyof SessionFilter, (v: string) => boolean> = {
+	owner: (v) => (OWNERS as string[]).includes(v),
+	game: anyOrKey(GAMES),
+	// names of tracks and cars no session has are dropped by `withoutUnknownNames`
+	track: () => true,
+	car: () => true,
+	type: anyOrKey(SESSION_TYPES),
+	from: anyOrDay,
+	to: anyOrDay
+};
+
+const FILTER_KEY = 'sessions.filter.';
+
+/** The filter of the last visit, checked value by value. */
+export function loadFilter(): SessionFilter {
+	const f = { ...NO_FILTER };
+	for (const k of Object.keys(NO_FILTER) as (keyof SessionFilter)[]) {
+		(f[k] as string) = loadText(FILTER_KEY + k, NO_FILTER[k], VALID_FILTER[k]);
+	}
+	if (f.from && f.to && f.from > f.to) f.to = '';
+	return f;
+}
+
+/** Remembers the filter for the next visit. */
+export function saveFilter(f: SessionFilter): void {
+	for (const k of Object.keys(NO_FILTER) as (keyof SessionFilter)[]) {
+		saveText(FILTER_KEY + k, f[k]);
+	}
+}
+
+export const PAGE_SIZES = [25, 50, 100] as const;
+export const DEFAULT_PAGE_SIZE = 50;
+
+/** What the sessions table shows: filter, sort order, page and page size. */
+export interface SessionsView {
+	filter: SessionFilter;
+	sort: Sort;
+	/**
+	 * 1-based; one past the end shows the last page (see `paginate`). Not
+	 * stored: a new start begins on page 1.
+	 */
+	page: number;
+	size: number;
+}
+
+const VIEW_KEY = 'sessions.';
+const isSortKey = (v: string) => (SORT_KEYS as readonly string[]).includes(v);
+const isPageSize = (v: string) => PAGE_SIZES.some((n) => String(n) === v);
+
+/** The table as it was left on the last visit, checked value by value. */
+export function loadView(): SessionsView {
+	return {
+		filter: loadFilter(),
+		sort: {
+			key: loadText(VIEW_KEY + 'sort.key', DEFAULT_SORT.key, isSortKey) as SortKey,
+			descending: loadFlag(VIEW_KEY + 'sort.descending', DEFAULT_SORT.descending)
+		},
+		page: 1,
+		size: Number(loadText(VIEW_KEY + 'size', String(DEFAULT_PAGE_SIZE), isPageSize))
+	};
+}
+
+/** Remembers the table for the next visit. */
+export function saveView(v: SessionsView): void {
+	saveFilter(v.filter);
+	saveText(VIEW_KEY + 'sort.key', v.sort.key);
+	saveFlag(VIEW_KEY + 'sort.descending', v.sort.descending);
+	saveText(VIEW_KEY + 'size', String(v.size));
+}
+
+/**
+ * Drops a track or car no session has (any more), so a remembered filter
+ * never hides every session. Returns `f` itself when nothing changed.
+ */
+export function withoutUnknownNames(f: SessionFilter, list: SessionSummary[]): SessionFilter {
+	const track = f.track && !list.some((s) => s.trackName === f.track) ? '' : f.track;
+	const car = f.car && !list.some((s) => s.carName === f.car) ? '' : f.car;
+	return track === f.track && car === f.car ? f : { ...f, track, car };
+}
 
 /** The local calendar day of a timestamp, e.g. `2026-11-12`. */
 export function localDay(iso: string): string {
@@ -60,20 +151,63 @@ export function isSharedCopy(s: SessionSummary): boolean {
 	return s.origin.kind === 'synced';
 }
 
+/** The session passes the filter. */
+export function matchesFilter(s: SessionSummary, f: SessionFilter): boolean {
+	if (f.owner !== 'all' && isSharedCopy(s) !== (f.owner === 'shared')) return false;
+	if (f.game && s.game !== f.game) return false;
+	if (f.track && s.trackName !== f.track) return false;
+	if (f.car && s.carName !== f.car) return false;
+	if (f.type && s.sessionType !== f.type) return false;
+	if (f.from || f.to) {
+		const day = localDay(s.startedAt);
+		if (f.from && day < f.from) return false;
+		if (f.to && day > f.to) return false;
+	}
+	return true;
+}
+
 export function filterSessions(list: SessionSummary[], f: SessionFilter): SessionSummary[] {
-	return list.filter((s) => {
-		if (f.owner !== 'all' && isSharedCopy(s) !== (f.owner === 'shared')) return false;
-		if (f.game && s.game !== f.game) return false;
-		if (f.track && s.trackName !== f.track) return false;
-		if (f.car && s.carName !== f.car) return false;
-		if (f.type && s.sessionType !== f.type) return false;
-		if (f.from || f.to) {
-			const day = localDay(s.startedAt);
-			if (f.from && day < f.from) return false;
-			if (f.to && day > f.to) return false;
-		}
-		return true;
-	});
+	return list.filter((s) => matchesFilter(s, f));
+}
+
+/** The start of the newest session, '' for none. */
+export function newestStart(list: SessionSummary[]): string {
+	let newest = '';
+	for (const s of list) {
+		if (!newest || Date.parse(s.startedAt) > Date.parse(newest)) newest = s.startedAt;
+	}
+	return newest;
+}
+
+/**
+ * Sessions that started after `seenUntil` and that the filter hides, but
+ * clearing the filters would show: the ones to point out after a restart or a
+ * recording while filtered.
+ */
+export function hiddenNewSessions(
+	list: SessionSummary[],
+	f: SessionFilter,
+	seenUntil: string
+): SessionSummary[] {
+	const after = Date.parse(seenUntil);
+	if (Number.isNaN(after)) return [];
+	return list.filter(
+		(s) => Date.parse(s.startedAt) > after && matchesFilter(s, NO_FILTER) && !matchesFilter(s, f)
+	);
+}
+
+const SEEN_KEY = 'sessions.seenUntil';
+const isTimestamp = (v: string) =>
+	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.test(v) &&
+	!Number.isNaN(Date.parse(v));
+
+/** The start of the newest session the user has seen, '' before the first visit. */
+export function loadSeenUntil(): string {
+	return loadText(SEEN_KEY, '', isTimestamp);
+}
+
+export function saveSeenUntil(startedAt: string): void {
+	saveText(SEEN_KEY, startedAt);
 }
 
 /**
@@ -120,9 +254,6 @@ export function nextSort(current: Sort, key: SortKey): Sort {
 	if (current.key === key) return { key, descending: !current.descending };
 	return { key, descending: key === 'date' || key === 'laps' };
 }
-
-export const PAGE_SIZES = [25, 50, 100] as const;
-export const DEFAULT_PAGE_SIZE = 50;
 
 export interface Page<T> {
 	items: T[];

@@ -1,22 +1,15 @@
 <!-- SPDX-FileCopyrightText: 2026 The Stintory Contributors -->
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 <script module lang="ts">
-	import {
-		DEFAULT_PAGE_SIZE,
-		DEFAULT_SORT,
-		NO_FILTER,
-		type SessionFilter,
-		type Sort,
-		type SortKey
-	} from '#lib/session-list.ts';
+	import { loadSeenUntil, loadView, type SessionsView } from '#lib/session-list.ts';
 
-	/** Filters, sort order and page survive opening a session and coming back. */
-	const view = $state<{ filter: SessionFilter; sort: Sort; page: number; size: number }>({
-		filter: { ...NO_FILTER },
-		sort: { ...DEFAULT_SORT },
-		page: 1,
-		size: DEFAULT_PAGE_SIZE
-	});
+	/**
+	 * Filters, sort order and page size are remembered across visits. The page
+	 * only while the app is open: opening a session and coming back keeps it.
+	 */
+	const view = $state<SessionsView>(loadView());
+	/** The start of the newest session the user has seen, to point out new ones the filters hide */
+	const seen = $state({ until: loadSeenUntil() });
 </script>
 
 <script lang="ts">
@@ -25,6 +18,7 @@
 	import { resolve } from '$app/paths';
 	import { api, type SessionSummary } from '#lib/api/index.ts';
 	import { app, errorText, runImport } from '#lib/app-state.svelte.ts';
+	import Combobox from '#lib/components/Combobox.svelte';
 	import ExportDialog, { type ExportScope } from '#lib/components/ExportDialog.svelte';
 	import {
 		GAMES,
@@ -40,14 +34,21 @@
 	import {
 		filterOptions,
 		filterSessions,
+		hiddenNewSessions,
 		isFiltered,
 		isSharedCopy,
+		NO_FILTER,
+		newestStart,
 		nextSort,
 		PAGE_SIZES,
 		pageForRow,
 		pageNumbers,
 		paginate,
-		sortSessions
+		saveSeenUntil,
+		saveView,
+		sortSessions,
+		type SortKey,
+		withoutUnknownNames
 	} from '#lib/session-list.ts';
 
 	const client = api();
@@ -66,8 +67,52 @@
 			.then((l) => {
 				list = l;
 				selected = selected.filter((id) => l.some((s) => s.id === id));
+				view.filter = withoutUnknownNames(view.filter, l);
+				// without the owner filter on screen, a remembered "shared" could not be undone
+				if (!showOwner && view.filter.owner !== NO_FILTER.owner) {
+					view.filter.owner = NO_FILTER.owner;
+				}
+				// fewer pages than before (deleted, synced away): stay on the last one
+				// instead of jumping back once there are more again. Only with the list
+				// loaded, while it is empty every remembered page would become 1.
+				view.page = paged.page;
 			})
 			.catch(() => {}); // shown by the {#await} block
+	});
+
+	$effect(() => saveView(view));
+
+	const newest = $derived(newestStart(list));
+	const hiddenNew = $derived(seen.until ? hiddenNewSessions(list, view.filter, seen.until) : []);
+
+	function markSeen() {
+		seen.until = newest;
+		saveSeenUntil(newest);
+	}
+
+	/** Sessions that just became visible through "Show", lit up for a moment */
+	let flashed = $state<string[]>([]);
+	let flashTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function showHiddenNew() {
+		const ids = hiddenNew.map((s) => s.id);
+		view.filter = { ...NO_FILTER };
+		markSeen();
+		// the page with the first of them; with the default order that is page 1
+		const first = visible.findIndex((s) => ids.includes(s.id));
+		view.page = first < 0 ? 1 : pageForRow(first, view.size);
+		flashed = ids;
+		clearTimeout(flashTimer);
+		flashTimer = setTimeout(() => (flashed = []), 2000); // the length of animate-flash-new
+	}
+
+	// New sessions the filters show count as seen; hidden ones stay new until
+	// the notice is dismissed. The first visit starts with everything seen.
+	$effect(() => {
+		if (!newest || newest === seen.until) return;
+		if (!seen.until || (hiddenNew.length === 0 && Date.parse(newest) > Date.parse(seen.until))) {
+			markSeen();
+		}
 	});
 
 	const visible = $derived(sortSessions(filterSessions(list, view.filter), view.sort));
@@ -281,24 +326,26 @@
 					{/each}
 				</select>
 			</label>
-			<label class="flex flex-col gap-1">
-				Track
-				<select class="{control} max-w-56" bind:value={view.filter.track}>
-					<option value="">All tracks</option>
-					{#each withCurrent(options.tracks, view.filter.track) as name (name)}
-						<option value={name}>{name}</option>
-					{/each}
-				</select>
-			</label>
-			<label class="flex flex-col gap-1">
-				Car
-				<select class="{control} max-w-56" bind:value={view.filter.car}>
-					<option value="">All cars</option>
-					{#each withCurrent(options.cars, view.filter.car) as name (name)}
-						<option value={name}>{name}</option>
-					{/each}
-				</select>
-			</label>
+			<div class="w-56">
+				<Combobox
+					label="Track"
+					placeholder="All tracks"
+					class={control}
+					options={withCurrent(options.tracks, view.filter.track)}
+					bind:value={view.filter.track}
+					onchange={() => (view.page = 1)}
+				/>
+			</div>
+			<div class="w-56">
+				<Combobox
+					label="Car"
+					placeholder="All cars"
+					class={control}
+					options={withCurrent(options.cars, view.filter.car)}
+					bind:value={view.filter.car}
+					onchange={() => (view.page = 1)}
+				/>
+			</div>
 			<label class="flex flex-col gap-1">
 				Type
 				<select class={control} bind:value={view.filter.type}>
@@ -341,6 +388,32 @@
 					Clear filters
 				</button>
 				<span class="py-1.5 text-sm" role="status">{visible.length} of {list.length} sessions</span>
+				{#if hiddenNew.length > 0}
+					<span class="flex h-8 items-center gap-2 text-sm text-sky-300">
+						<span role="status">
+							{hiddenNew.length === 1
+								? '1 new session hidden by the filters'
+								: `${hiddenNew.length} new sessions hidden by the filters`}
+						</span>
+						<button
+							type="button"
+							class="h-6 rounded border border-sky-800 px-2 hover:bg-sky-950"
+							onclick={showHiddenNew}
+						>
+							Show
+						</button>
+						<button
+							type="button"
+							class="flex h-6 w-6 items-center justify-center rounded text-sky-300/70 hover:bg-sky-950 hover:text-sky-200"
+							aria-label="Dismiss"
+							onclick={markSeen}
+						>
+							<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+								<path d="M1 1l8 8M9 1l-8 8" class="stroke-current" stroke-width="1.5" />
+							</svg>
+						</button>
+					</span>
+				{/if}
 			{/if}
 		</form>
 
@@ -412,6 +485,7 @@
 				{#each paged.items as s (s.id)}
 					<tr
 						class="cursor-pointer border-t border-zinc-800 hover:bg-zinc-900"
+						class:animate-flash-new={flashed.includes(s.id)}
 						onclick={() => open(s.id)}
 						onkeydown={(e) => e.key === 'Enter' && open(s.id)}
 						tabindex="0"

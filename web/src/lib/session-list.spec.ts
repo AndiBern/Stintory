@@ -1,19 +1,28 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SessionSummary } from './api/index.ts';
 import {
 	DEFAULT_SORT,
 	NO_FILTER,
 	filterOptions,
 	filterSessions,
+	hiddenNewSessions,
 	isFiltered,
+	loadFilter,
+	loadSeenUntil,
+	loadView,
+	newestStart,
 	nextSort,
 	pageForRow,
 	pageNumbers,
 	paginate,
-	sortSessions
+	saveFilter,
+	saveSeenUntil,
+	saveView,
+	sortSessions,
+	withoutUnknownNames
 } from './session-list.ts';
 
 function session(id: string, over: Partial<SessionSummary>): SessionSummary {
@@ -180,5 +189,139 @@ describe('pageForRow', () => {
 		expect(pageForRow(0, 50)).toBe(1);
 		expect(pageForRow(50, 25)).toBe(3);
 		expect(pageForRow(75, 50)).toBe(2);
+	});
+});
+
+describe('remembered filter', () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	function storage(): Map<string, string> {
+		const m = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (k: string) => m.get(k) ?? null,
+			setItem: (k: string, v: string) => void m.set(k, v)
+		});
+		return m;
+	}
+
+	it('starts without a filter', () => {
+		storage();
+		expect(loadFilter()).toEqual(NO_FILTER);
+	});
+
+	it('comes back as it was saved', () => {
+		storage();
+		const f = {
+			owner: 'all' as const,
+			game: 'lmu',
+			track: 'Spa',
+			car: 'GT3',
+			type: 'race',
+			from: '2026-11-01',
+			to: '2026-11-18'
+		};
+		saveFilter(f);
+		expect(loadFilter()).toEqual(f);
+	});
+
+	it('drops values the page could not have saved', () => {
+		const m = storage();
+		saveFilter({ ...NO_FILTER, track: 'Spa' });
+		m.set('stintory.view.sessions.filter.owner', 'everyone');
+		m.set('stintory.view.sessions.filter.game', '__proto__');
+		m.set('stintory.view.sessions.filter.type', 'toString');
+		m.set('stintory.view.sessions.filter.from', '<img src=x onerror=alert(1)>');
+		m.set('stintory.view.sessions.filter.to', '2026-13-45');
+		expect(loadFilter()).toEqual({ ...NO_FILTER, track: 'Spa' });
+	});
+
+	it('drops an end day before the start day', () => {
+		storage();
+		saveFilter({ ...NO_FILTER, from: '2026-11-18', to: '2026-11-01' });
+		expect(loadFilter()).toEqual({ ...NO_FILTER, from: '2026-11-18' });
+	});
+
+	it('brings back sort order and page size, but starts on page 1', () => {
+		storage();
+		expect(loadView()).toEqual({ filter: NO_FILTER, sort: DEFAULT_SORT, page: 1, size: 50 });
+		const v = {
+			filter: { ...NO_FILTER, game: 'lmu' },
+			sort: { key: 'best' as const, descending: false },
+			page: 3,
+			size: 100
+		};
+		saveView(v);
+		expect(loadView()).toEqual({ ...v, page: 1 });
+	});
+
+	it('drops a sort order or page size the page could not have saved', () => {
+		const m = storage();
+		m.set('stintory.view.sessions.sort.key', 'constructor');
+		for (const size of ['1000000', '0', '50.0', ' 25']) {
+			m.set('stintory.view.sessions.size', size);
+			expect(loadView()).toEqual({ filter: NO_FILTER, sort: DEFAULT_SORT, page: 1, size: 50 });
+		}
+	});
+
+	it('forgets tracks and cars no session has', () => {
+		const f = { ...NO_FILTER, track: 'Spa', car: 'Gone' };
+		expect(withoutUnknownNames(f, list)).toEqual({ ...f, car: '' });
+		const known = { ...NO_FILTER, track: 'Monza' };
+		expect(withoutUnknownNames(known, list)).toBe(known);
+	});
+});
+
+describe('new sessions hidden by the filters', () => {
+	// b (Nov 3) is the newest, then c (Nov 2), then a (Nov 1)
+	const nov2 = new Date(2026, 10, 2, 0).toISOString();
+
+	it('finds the newest start', () => {
+		expect(newestStart(list)).toBe(list[1].startedAt);
+		expect(newestStart([])).toBe('');
+	});
+
+	it('lists sessions after the seen time that the filter hides', () => {
+		const spa = { ...NO_FILTER, track: 'Spa' };
+		expect(ids(hiddenNewSessions(list, spa, nov2))).toEqual(['b', 'c']);
+		expect(ids(hiddenNewSessions(list, spa, list[2].startedAt))).toEqual(['b']);
+		expect(hiddenNewSessions(list, spa, list[1].startedAt)).toEqual([]);
+	});
+
+	it('ignores new sessions the filter shows', () => {
+		expect(ids(hiddenNewSessions(list, { ...NO_FILTER, game: 'lmu' }, nov2))).toEqual(['c']);
+		expect(hiddenNewSessions(list, NO_FILTER, nov2)).toEqual([]);
+	});
+
+	it('ignores sessions clearing the filters would not show either', () => {
+		const shared = session('d', {
+			startedAt: new Date(2026, 10, 5).toISOString(),
+			origin: { kind: 'synced', server: 'https://example.org', owner: 'friend' }
+		});
+		expect(hiddenNewSessions([shared], { ...NO_FILTER, track: 'Monza' }, nov2)).toEqual([]);
+	});
+
+	it('finds nothing without a seen time', () => {
+		expect(hiddenNewSessions(list, { ...NO_FILTER, track: 'Spa' }, '')).toEqual([]);
+	});
+});
+
+describe('remembered seen time', () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	it('takes only timestamps', () => {
+		const m = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (k: string) => m.get(k) ?? null,
+			setItem: (k: string, v: string) => void m.set(k, v)
+		});
+		expect(loadSeenUntil()).toBe('');
+		for (const t of ['2026-11-10T18:00:00Z', '2026-11-10T18:00:00.123456789+01:00']) {
+			saveSeenUntil(t);
+			expect(loadSeenUntil()).toBe(t);
+		}
+		for (const bad of ['yesterday', '2026-11-10', '2026-13-10T18:00:00Z', '9'.repeat(20)]) {
+			saveSeenUntil(bad);
+			expect(loadSeenUntil()).toBe('');
+		}
 	});
 });
