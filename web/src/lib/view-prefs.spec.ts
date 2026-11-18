@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadFlag, saveFlag } from './view-prefs.ts';
+import { loadFlag, loadText, saveFlag, saveText } from './view-prefs.ts';
 
 function memoryStorage(): Storage {
 	const m = new Map<string, string>();
@@ -48,5 +48,23 @@ describe('view prefs', () => {
 		vi.stubGlobal('localStorage', blocked);
 		expect(() => saveFlag('x', false)).not.toThrow();
 		expect(loadFlag('x', true)).toBe(true);
+		expect(() => saveText('t', 'a')).not.toThrow();
+		expect(loadText('t', 'b', () => true)).toBe('b');
+	});
+
+	it('remembers a text the check accepts', () => {
+		vi.stubGlobal('localStorage', memoryStorage());
+		const short = (v: string) => v.length < 5;
+		expect(loadText('t', 'none', short)).toBe('none');
+		saveText('t', 'abc');
+		expect(loadText('t', 'none', short)).toBe('abc');
+		saveText('t', 'too long');
+		expect(loadText('t', 'none', short)).toBe('none');
+	});
+
+	it('never takes a very long text', () => {
+		vi.stubGlobal('localStorage', memoryStorage());
+		saveText('t', 'x'.repeat(501));
+		expect(loadText('t', 'none', () => true)).toBe('none');
 	});
 });

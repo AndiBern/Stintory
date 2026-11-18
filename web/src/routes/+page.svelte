@@ -5,14 +5,18 @@
 		DEFAULT_PAGE_SIZE,
 		DEFAULT_SORT,
 		NO_FILTER,
+		loadFilter,
 		type SessionFilter,
 		type Sort,
 		type SortKey
 	} from '#lib/session-list.ts';
 
-	/** Filters, sort order and page survive opening a session and coming back. */
+	/**
+	 * Sort order and page survive opening a session and coming back, the
+	 * filters also the next start.
+	 */
 	const view = $state<{ filter: SessionFilter; sort: Sort; page: number; size: number }>({
-		filter: { ...NO_FILTER },
+		filter: loadFilter(),
 		sort: { ...DEFAULT_SORT },
 		page: 1,
 		size: DEFAULT_PAGE_SIZE
@@ -48,7 +52,9 @@
 		pageForRow,
 		pageNumbers,
 		paginate,
-		sortSessions
+		saveFilter,
+		sortSessions,
+		withoutUnknownNames
 	} from '#lib/session-list.ts';
 
 	const client = api();
@@ -67,9 +73,16 @@
 			.then((l) => {
 				list = l;
 				selected = selected.filter((id) => l.some((s) => s.id === id));
+				view.filter = withoutUnknownNames(view.filter, l);
+				// without the owner filter on screen, a remembered "shared" could not be undone
+				if (!showOwner && view.filter.owner !== NO_FILTER.owner) {
+					view.filter.owner = NO_FILTER.owner;
+				}
 			})
 			.catch(() => {}); // shown by the {#await} block
 	});
+
+	$effect(() => saveFilter(view.filter));
 
 	const visible = $derived(sortSessions(filterSessions(list, view.filter), view.sort));
 	const paged = $derived(paginate(visible, view.page, view.size));

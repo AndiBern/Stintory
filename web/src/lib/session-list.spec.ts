@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 The Stintory Contributors
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SessionSummary } from './api/index.ts';
 import {
 	DEFAULT_SORT,
@@ -9,11 +9,14 @@ import {
 	filterOptions,
 	filterSessions,
 	isFiltered,
+	loadFilter,
 	nextSort,
 	pageForRow,
 	pageNumbers,
 	paginate,
-	sortSessions
+	saveFilter,
+	sortSessions,
+	withoutUnknownNames
 } from './session-list.ts';
 
 function session(id: string, over: Partial<SessionSummary>): SessionSummary {
@@ -180,5 +183,62 @@ describe('pageForRow', () => {
 		expect(pageForRow(0, 50)).toBe(1);
 		expect(pageForRow(50, 25)).toBe(3);
 		expect(pageForRow(75, 50)).toBe(2);
+	});
+});
+
+describe('remembered filter', () => {
+	afterEach(() => vi.unstubAllGlobals());
+
+	function storage(): Map<string, string> {
+		const m = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (k: string) => m.get(k) ?? null,
+			setItem: (k: string, v: string) => void m.set(k, v)
+		});
+		return m;
+	}
+
+	it('starts without a filter', () => {
+		storage();
+		expect(loadFilter()).toEqual(NO_FILTER);
+	});
+
+	it('comes back as it was saved', () => {
+		storage();
+		const f = {
+			owner: 'all' as const,
+			game: 'lmu',
+			track: 'Spa',
+			car: 'GT3',
+			type: 'race',
+			from: '2026-11-01',
+			to: '2026-11-18'
+		};
+		saveFilter(f);
+		expect(loadFilter()).toEqual(f);
+	});
+
+	it('drops values the page could not have saved', () => {
+		const m = storage();
+		saveFilter({ ...NO_FILTER, track: 'Spa' });
+		m.set('stintory.view.sessions.filter.owner', 'everyone');
+		m.set('stintory.view.sessions.filter.game', '__proto__');
+		m.set('stintory.view.sessions.filter.type', 'toString');
+		m.set('stintory.view.sessions.filter.from', '<img src=x onerror=alert(1)>');
+		m.set('stintory.view.sessions.filter.to', '2026-13-45');
+		expect(loadFilter()).toEqual({ ...NO_FILTER, track: 'Spa' });
+	});
+
+	it('drops an end day before the start day', () => {
+		storage();
+		saveFilter({ ...NO_FILTER, from: '2026-11-18', to: '2026-11-01' });
+		expect(loadFilter()).toEqual({ ...NO_FILTER, from: '2026-11-18' });
+	});
+
+	it('forgets tracks and cars no session has', () => {
+		const f = { ...NO_FILTER, track: 'Spa', car: 'Gone' };
+		expect(withoutUnknownNames(f, list)).toEqual({ ...f, car: '' });
+		const known = { ...NO_FILTER, track: 'Monza' };
+		expect(withoutUnknownNames(known, list)).toBe(known);
 	});
 });

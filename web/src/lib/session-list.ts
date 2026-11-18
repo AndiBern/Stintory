@@ -4,7 +4,8 @@
 /** Filtering and sorting of the sessions table. */
 
 import type { SessionSummary } from './api/index.ts';
-import { SESSION_TYPES } from './format.ts';
+import { GAMES, SESSION_TYPES } from './format.ts';
+import { loadText, saveText } from './view-prefs.ts';
 
 /**
  * Whose sessions: the user's own (recorded or imported), the copies of sessions
@@ -41,6 +42,55 @@ export interface Sort {
 }
 
 export const DEFAULT_SORT: Sort = { key: 'date', descending: true };
+
+const OWNERS: OwnerFilter[] = ['mine', 'shared', 'all'];
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** `hasOwn`, not `in`: "toString" or "__proto__" are no game. */
+const anyOrKey = (names: Record<string, string>) => (v: string) =>
+	v === '' || Object.hasOwn(names, v);
+const anyOrDay = (v: string) => v === '' || (DAY.test(v) && !Number.isNaN(Date.parse(v)));
+
+/** What a stored filter value may be; anything else falls back to "any". */
+const VALID_FILTER: Record<keyof SessionFilter, (v: string) => boolean> = {
+	owner: (v) => (OWNERS as string[]).includes(v),
+	game: anyOrKey(GAMES),
+	// names of tracks and cars no session has are dropped by `withoutUnknownNames`
+	track: () => true,
+	car: () => true,
+	type: anyOrKey(SESSION_TYPES),
+	from: anyOrDay,
+	to: anyOrDay
+};
+
+const FILTER_KEY = 'sessions.filter.';
+
+/** The filter of the last visit, checked value by value. */
+export function loadFilter(): SessionFilter {
+	const f = { ...NO_FILTER };
+	for (const k of Object.keys(NO_FILTER) as (keyof SessionFilter)[]) {
+		(f[k] as string) = loadText(FILTER_KEY + k, NO_FILTER[k], VALID_FILTER[k]);
+	}
+	if (f.from && f.to && f.from > f.to) f.to = '';
+	return f;
+}
+
+/** Remembers the filter for the next visit. */
+export function saveFilter(f: SessionFilter): void {
+	for (const k of Object.keys(NO_FILTER) as (keyof SessionFilter)[]) {
+		saveText(FILTER_KEY + k, f[k]);
+	}
+}
+
+/**
+ * Drops a track or car no session has (any more), so a remembered filter
+ * never hides every session. Returns `f` itself when nothing changed.
+ */
+export function withoutUnknownNames(f: SessionFilter, list: SessionSummary[]): SessionFilter {
+	const track = f.track && !list.some((s) => s.trackName === f.track) ? '' : f.track;
+	const car = f.car && !list.some((s) => s.carName === f.car) ? '' : f.car;
+	return track === f.track && car === f.car ? f : { ...f, track, car };
+}
 
 /** The local calendar day of a timestamp, e.g. `2026-11-12`. */
 export function localDay(iso: string): string {

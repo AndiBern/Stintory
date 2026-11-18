@@ -9,6 +9,8 @@
  */
 
 const PREFIX = 'stintory.view.';
+/** Longer stored texts are not taken, whatever they are. */
+const MAX_TEXT = 500;
 
 /** A remembered yes/no choice, or `fallback` if none was stored. */
 export function loadFlag(key: string, fallback: boolean): boolean {
@@ -24,6 +26,29 @@ export function loadFlag(key: string, fallback: boolean): boolean {
 export function saveFlag(key: string, value: boolean): void {
 	try {
 		localStorage.setItem(PREFIX + key, value ? '1' : '0');
+	} catch {
+		// not remembered, still applies for this visit
+	}
+}
+
+/**
+ * A remembered text, or `fallback` if none was stored or `valid` rejects it.
+ * Anyone can edit what is stored, so `valid` must accept only what the page
+ * could have saved itself.
+ */
+export function loadText(key: string, fallback: string, valid: (v: string) => boolean): string {
+	try {
+		const v = localStorage.getItem(PREFIX + key);
+		return v !== null && v.length <= MAX_TEXT && valid(v) ? v : fallback;
+	} catch {
+		return fallback;
+	}
+}
+
+/** Remembers a text. */
+export function saveText(key: string, value: string): void {
+	try {
+		localStorage.setItem(PREFIX + key, value);
 	} catch {
 		// not remembered, still applies for this visit
 	}
