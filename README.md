@@ -24,6 +24,38 @@ Most lap analysis tools send your telemetry to the vendor's servers so you can c
 
 The desktop app runs on Windows and Linux. If those games support Linux recording should also work on Linux. Games that share telemetry via UDP (like F1) should work out of the box. Games that used shared memory require the help of `sy-bridge.exe`, a small helper that runs next to the game ([docs/games/proton.md](docs/games/proton.md)). More games may follow by demand. Game requests and discussion in [Supported Games and Platforms](https://github.com/AndiBern/Stintory/discussions/2)
 
+## Installation
+
+This installs the desktop app. To run your own server, see [docs/SERVER.md](docs/SERVER.md).
+
+### Pre-built binaries
+
+Download the file for your system from the [latest release](https://github.com/AndiBern/Stintory/releases/latest):
+
+- **Windows:** `Stintory_<version>_x64-setup.exe`. Run it to install Stintory. The installer isn't signed, so Windows SmartScreen may warn you: click *More info → Run anyway*.
+- **Linux:** `Stintory_<version>_x86_64.flatpak`. Install it with
+
+  ```sh
+  flatpak install --user Stintory_<version>_x86_64.flatpak
+  ```
+
+  If the runtime it needs is missing, Flatpak installs it from Flathub. Then start Stintory from your app menu or with `flatpak run de.stintory.Stintory`.
+
+To update, install the file from the newer release the same way.
+
+### Build from source
+
+Install the requirements listed in [CONTRIBUTING.md](CONTRIBUTING.md#development-setup) (Rust, Node.js and, on Linux, the WebKitGTK packages). Then:
+
+```sh
+git clone https://github.com/AndiBern/Stintory.git
+cd Stintory
+npm ci
+```
+
+- **Windows:** `npm run build:desktop` builds the installer in `target/release/bundle/nsis/`.
+- **Linux:** `npm run build:desktop:linux` builds the Flatpak in `target/flatpak/`. This also needs `flatpak-builder` and the MinGW-w64 cross compiler for `sy-bridge.exe` (see [docs/games/proton.md](docs/games/proton.md)). Install the result with `flatpak install --user` as shown above.
+
 ## Documentation
 
 - Running a server: [docs/SERVER.md](docs/SERVER.md)
