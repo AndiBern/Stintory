@@ -9,6 +9,7 @@
 	import type { CompareData, Corner } from '#lib/api/index.ts';
 	import { lapColor } from './colors.ts';
 	import { byTimeLost, cornerRows, formatKmh, formatSeconds, type CornerRow } from './corners.ts';
+	import { loadFlag, saveFlag } from '#lib/view-prefs.ts';
 
 	let {
 		data,
@@ -34,6 +35,13 @@
 	let lap = $state(1);
 	let order = $state<'lost' | 'lap'>('lost');
 	let all = $state(false);
+	/** the table is shown; collapsing is remembered across visits */
+	let open = $state(loadFlag('compare.corners.open', true));
+
+	function toggle() {
+		open = !open;
+		saveFlag('compare.corners.open', open);
+	}
 
 	// a lap removed from the comparison falls back to the first one
 	$effect(() => {
@@ -63,9 +71,29 @@
 {#if data.corners && rows.length > 0}
 	<section class="mb-5" aria-labelledby="corners-title">
 		<div class="mb-2 flex flex-wrap items-center gap-x-4 gap-y-2">
-			<h2 id="corners-title" class="text-lg font-semibold">Corners</h2>
+			<h2 id="corners-title" class="text-lg font-semibold">
+				<button
+					type="button"
+					class="flex items-center gap-1.5 hover:text-zinc-50"
+					aria-expanded={open}
+					aria-controls="corners-body"
+					onclick={toggle}
+				>
+					<svg
+						viewBox="0 0 24 24"
+						class="h-4 w-4 text-zinc-400 transition-transform"
+						class:-rotate-90={!open}
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg
+					>Corners
+				</button>
+			</h2>
 			{#if comparing}
-				{#if data.laps.length > 2}
+				{#if open && data.laps.length > 2}
 					<div
 						class="flex rounded border border-zinc-800 p-0.5 text-xs"
 						role="group"
@@ -86,24 +114,26 @@
 						{/each}
 					</div>
 				{/if}
-				<div
-					class="flex rounded border border-zinc-800 p-0.5 text-xs"
-					role="group"
-					aria-label="Order"
-				>
-					<button
-						type="button"
-						class={tab}
-						aria-pressed={order === 'lost'}
-						onclick={() => (order = 'lost')}>Most time lost</button
+				{#if open}
+					<div
+						class="flex rounded border border-zinc-800 p-0.5 text-xs"
+						role="group"
+						aria-label="Order"
 					>
-					<button
-						type="button"
-						class={tab}
-						aria-pressed={order === 'lap'}
-						onclick={() => (order = 'lap')}>Lap order</button
-					>
-				</div>
+						<button
+							type="button"
+							class={tab}
+							aria-pressed={order === 'lost'}
+							onclick={() => (order = 'lost')}>Most time lost</button
+						>
+						<button
+							type="button"
+							class={tab}
+							aria-pressed={order === 'lap'}
+							onclick={() => (order = 'lap')}>Lap order</button
+						>
+					</div>
+				{/if}
 				<span class="text-xs text-zinc-500">
 					{labels[k]} vs {labels[0]}:
 					<span class="font-mono {lostClass(totalLost)} tabular-nums"
@@ -113,105 +143,114 @@
 			{/if}
 		</div>
 
-		<div class="overflow-x-auto">
-			<table class="text-left text-sm" class:w-full={comparing}>
-				<thead class="text-zinc-400">
-					<tr>
-						<th class="py-2 pr-3 font-normal">Corner</th>
-						{#if comparing}
-							<th class="pr-3 text-right font-normal">Time lost</th>
-							<th class="pr-3 text-right font-normal" title="Up to the apex / after the apex"
-								>Entry / exit</th
-							>
-							<th class="pr-3 text-right font-normal" title="Lowest speed, km/h (reference)"
-								>Apex</th
-							>
-							<th
-								class="pr-3 text-right font-normal"
-								title="Speed at the corner's end, km/h (reference)">Exit</th
-							>
-							<th class="font-normal">Difference to the reference</th>
-						{:else}
-							<th class="pl-6 text-right font-normal">Time</th>
-							<th class="pl-6 text-right font-normal" title="Distance from the line">Braking</th>
-							<th class="pl-6 text-right font-normal" title="Lowest speed, km/h">Apex</th>
-							<th class="pl-6 text-right font-normal">Gear</th>
-							<th class="pl-6 text-right font-normal" title="Speed at the corner's end, km/h"
-								>Exit</th
-							>
-						{/if}
-					</tr>
-				</thead>
-				<tbody>
-					{#each shown as r (r.corner.number)}
-						<tr
-							class="border-t border-zinc-800 hover:bg-zinc-900"
-							class:bg-zinc-900={selected === r.corner.number}
-						>
-							<td class="py-1.5 pr-3 whitespace-nowrap">
-								<button
-									type="button"
-									class="text-left text-zinc-200 underline decoration-zinc-600 underline-offset-2 hover:text-zinc-50 hover:decoration-zinc-300"
-									title="Show in the charts and on the map ({Math.round(r.corner.apexM)} m)"
-									aria-current={selected === r.corner.number ? 'true' : undefined}
-									onclick={() => onselect(r.corner)}
+		{#if open}
+			<div id="corners-body">
+				<div class="overflow-x-auto">
+					<table class="text-left text-sm" class:w-full={comparing}>
+						<thead class="text-zinc-400">
+							<tr>
+								<th class="py-2 pr-3 font-normal">Corner</th>
+								{#if comparing}
+									<th class="pr-3 text-right font-normal">Time lost</th>
+									<th class="pr-3 text-right font-normal" title="Up to the apex / after the apex"
+										>Entry / exit</th
+									>
+									<th class="pr-3 text-right font-normal" title="Lowest speed, km/h (reference)"
+										>Apex</th
+									>
+									<th
+										class="pr-3 text-right font-normal"
+										title="Speed at the corner's end, km/h (reference)">Exit</th
+									>
+									<th class="font-normal">Difference to the reference</th>
+								{:else}
+									<th class="pl-6 text-right font-normal">Time</th>
+									<th class="pl-6 text-right font-normal" title="Distance from the line">Braking</th
+									>
+									<th class="pl-6 text-right font-normal" title="Lowest speed, km/h">Apex</th>
+									<th class="pl-6 text-right font-normal">Gear</th>
+									<th class="pl-6 text-right font-normal" title="Speed at the corner's end, km/h"
+										>Exit</th
+									>
+								{/if}
+							</tr>
+						</thead>
+						<tbody>
+							{#each shown as r (r.corner.number)}
+								<tr
+									class="border-t border-zinc-800 hover:bg-zinc-900"
+									class:bg-zinc-900={selected === r.corner.number}
 								>
-									{name(r)}{#if r.lap.flatOut}<span class="ml-1.5 text-xs text-zinc-500">flat</span
-										>{/if}
-								</button>
-							</td>
-							{#if comparing}
-								<td class="pr-3 text-right font-mono tabular-nums {lostClass(r.lap.timeLostS)}">
-									{formatSeconds(r.lap.timeLostS)}
-								</td>
-								<td
-									class="pr-3 text-right font-mono text-xs whitespace-nowrap text-zinc-400 tabular-nums"
-								>
-									{formatSeconds(r.lap.entryLostS)} / {formatSeconds(r.lap.exitLostS)}
-								</td>
-								<td class="pr-3 text-right font-mono whitespace-nowrap tabular-nums">
-									{formatKmh(r.lap.minSpeedMps)}
-									<span class="text-xs text-zinc-500">({formatKmh(r.ref.minSpeedMps)})</span>
-								</td>
-								<td class="pr-3 text-right font-mono whitespace-nowrap tabular-nums">
-									{formatKmh(r.lap.exitSpeedMps)}
-									<span class="text-xs text-zinc-500">({formatKmh(r.ref.exitSpeedMps)})</span>
-								</td>
-								<td class="text-zinc-300">
-									{r.notes.length > 0 ? r.notes.join(' · ') : '–'}
-								</td>
-							{:else}
-								<td class="pl-6 text-right font-mono tabular-nums">
-									{r.lap.timeS == null ? '–' : `${r.lap.timeS.toFixed(3)} s`}
-								</td>
-								<td class="pl-6 text-right font-mono tabular-nums">
-									{r.lap.brakeM == null ? '–' : `${Math.round(r.lap.brakeM)} m`}
-								</td>
-								<td class="pl-6 text-right font-mono tabular-nums"
-									>{formatKmh(r.lap.minSpeedMps)}</td
-								>
-								<td class="pl-6 text-right font-mono tabular-nums">{r.lap.minSpeedGear ?? '–'}</td>
-								<td class="pl-6 text-right font-mono tabular-nums"
-									>{formatKmh(r.lap.exitSpeedMps)}</td
-								>
-							{/if}
-						</tr>
-					{/each}
-				</tbody>
-			</table>
-		</div>
-		{#if comparing && rows.length > TOP}
-			<button
-				type="button"
-				class="mt-1 text-xs text-zinc-400 hover:text-zinc-200"
-				onclick={() => (all = !all)}
-			>
-				{all ? 'Show fewer' : `Show all ${rows.length} corners`}
-			</button>
+									<td class="py-1.5 pr-3 whitespace-nowrap">
+										<button
+											type="button"
+											class="text-left text-zinc-200 underline decoration-zinc-600 underline-offset-2 hover:text-zinc-50 hover:decoration-zinc-300"
+											title="Show in the charts and on the map ({Math.round(r.corner.apexM)} m)"
+											aria-current={selected === r.corner.number ? 'true' : undefined}
+											onclick={() => onselect(r.corner)}
+										>
+											{name(r)}{#if r.lap.flatOut}<span class="ml-1.5 text-xs text-zinc-500"
+													>flat</span
+												>{/if}
+										</button>
+									</td>
+									{#if comparing}
+										<td class="pr-3 text-right font-mono tabular-nums {lostClass(r.lap.timeLostS)}">
+											{formatSeconds(r.lap.timeLostS)}
+										</td>
+										<td
+											class="pr-3 text-right font-mono text-xs whitespace-nowrap text-zinc-400 tabular-nums"
+										>
+											{formatSeconds(r.lap.entryLostS)} / {formatSeconds(r.lap.exitLostS)}
+										</td>
+										<td class="pr-3 text-right font-mono whitespace-nowrap tabular-nums">
+											{formatKmh(r.lap.minSpeedMps)}
+											<span class="text-xs text-zinc-500">({formatKmh(r.ref.minSpeedMps)})</span>
+										</td>
+										<td class="pr-3 text-right font-mono whitespace-nowrap tabular-nums">
+											{formatKmh(r.lap.exitSpeedMps)}
+											<span class="text-xs text-zinc-500">({formatKmh(r.ref.exitSpeedMps)})</span>
+										</td>
+										<td class="text-zinc-300">
+											{r.notes.length > 0 ? r.notes.join(' · ') : '–'}
+										</td>
+									{:else}
+										<td class="pl-6 text-right font-mono tabular-nums">
+											{r.lap.timeS == null ? '–' : `${r.lap.timeS.toFixed(3)} s`}
+										</td>
+										<td class="pl-6 text-right font-mono tabular-nums">
+											{r.lap.brakeM == null ? '–' : `${Math.round(r.lap.brakeM)} m`}
+										</td>
+										<td class="pl-6 text-right font-mono tabular-nums"
+											>{formatKmh(r.lap.minSpeedMps)}</td
+										>
+										<td class="pl-6 text-right font-mono tabular-nums"
+											>{r.lap.minSpeedGear ?? '–'}</td
+										>
+										<td class="pl-6 text-right font-mono tabular-nums"
+											>{formatKmh(r.lap.exitSpeedMps)}</td
+										>
+									{/if}
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+				{#if comparing && rows.length > TOP}
+					<button
+						type="button"
+						class="mt-1 text-xs text-zinc-400 hover:text-zinc-200"
+						onclick={() => (all = !all)}
+					>
+						{all ? 'Show fewer' : `Show all ${rows.length} corners`}
+					</button>
+				{/if}
+				<p class="mt-1 text-xs text-zinc-500">
+					Each corner counts from before braking to the next corner, the straight after it included,
+					so the times add up to the lap. Corners are numbered by Stintory, not the track’s official
+					turns.
+				</p>
+			</div>
 		{/if}
-		<p class="mt-1 text-xs text-zinc-500">
-			Each corner counts from before braking to the next corner, the straight after it included, so
-			the times add up to the lap. Corners are numbered by Stintory, not the track’s official turns.
-		</p>
 	</section>
 {/if}
