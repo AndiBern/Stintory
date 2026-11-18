@@ -241,6 +241,8 @@ Frontend gets resampled arrays (not raw) for comparison. These are computed on d
 9. **Account** (when connected): login via browser (§9.3), change password, manage passkeys, set up TOTP + recovery codes, list/revoke devices.
 10. **Settings**: data directory, close to tray (desktop: closing the window hides the app in the system tray; a second start shows the running app), enabled games, F1 UDP port/forwarding, server URL, default sharing, auto-sync on/off. **Advanced/Debug:** "Keep raw recordings" + raw folder size/open/delete, log level.
 
+**View choices** (small UI preferences such as a collapsed section) are remembered per device in the webview's `localStorage`, always through `web/src/lib/view-prefs.ts` (`loadFlag`/`saveFlag`), not in the settings: they only change how a page looks, so they are not synced or exported. If storage is unavailable, the default applies.
+
 ## 8. Export / import format
 
 `*.stintory` = ZIP (implemented in `sy-model::bundle`, MIT OR Apache-2.0):
