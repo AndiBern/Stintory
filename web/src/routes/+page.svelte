@@ -25,6 +25,7 @@
 	import { resolve } from '$app/paths';
 	import { api, type SessionSummary } from '#lib/api/index.ts';
 	import { app, errorText, runImport } from '#lib/app-state.svelte.ts';
+	import Combobox from '#lib/components/Combobox.svelte';
 	import ExportDialog, { type ExportScope } from '#lib/components/ExportDialog.svelte';
 	import {
 		GAMES,
@@ -281,24 +282,26 @@
 					{/each}
 				</select>
 			</label>
-			<label class="flex flex-col gap-1">
-				Track
-				<select class="{control} max-w-56" bind:value={view.filter.track}>
-					<option value="">All tracks</option>
-					{#each withCurrent(options.tracks, view.filter.track) as name (name)}
-						<option value={name}>{name}</option>
-					{/each}
-				</select>
-			</label>
-			<label class="flex flex-col gap-1">
-				Car
-				<select class="{control} max-w-56" bind:value={view.filter.car}>
-					<option value="">All cars</option>
-					{#each withCurrent(options.cars, view.filter.car) as name (name)}
-						<option value={name}>{name}</option>
-					{/each}
-				</select>
-			</label>
+			<div class="w-56">
+				<Combobox
+					label="Track"
+					placeholder="All tracks"
+					class={control}
+					options={withCurrent(options.tracks, view.filter.track)}
+					bind:value={view.filter.track}
+					onchange={() => (view.page = 1)}
+				/>
+			</div>
+			<div class="w-56">
+				<Combobox
+					label="Car"
+					placeholder="All cars"
+					class={control}
+					options={withCurrent(options.cars, view.filter.car)}
+					bind:value={view.filter.car}
+					onchange={() => (view.page = 1)}
+				/>
+			</div>
 			<label class="flex flex-col gap-1">
 				Type
 				<select class={control} bind:value={view.filter.type}>
