@@ -115,9 +115,9 @@
 				<input type="radio" name="format" value="bundle" bind:group={format} class="mt-1" />
 				<span>
 					Stintory file (.stintory)
-					<span class="block text-xs text-zinc-400"
-						>All data, for another Stintory installation or to share with someone.</span
-					>
+					<span class="block text-xs text-zinc-400">
+						All data, for another Stintory installation or to share with someone.
+					</span>
 				</span>
 			</label>
 			<label class="flex items-start gap-2" class:opacity-40={!csvPossible}>
@@ -131,9 +131,9 @@
 				/>
 				<span>
 					CSV, one file per lap
-					<span class="block text-xs text-zinc-400"
-						>Telemetry only, for spreadsheets and other tools.</span
-					>
+					<span class="block text-xs text-zinc-400">
+						Telemetry only, for spreadsheets and other tools.
+					</span>
 				</span>
 			</label>
 		</fieldset>
@@ -153,9 +153,10 @@
 				<input type="checkbox" bind:checked={includeSetup} class="mt-1" />
 				<span>
 					Include car setups
-					<span class="block text-xs text-zinc-400"
-						>Off by default. Your game account name and id are never exported.</span
-					>
+					<span class="block text-xs text-zinc-400">
+						Off by default. Setups of laps someone shared with you and your game account name and id
+						are never exported.
+					</span>
 				</span>
 			</label>
 		{/if}
@@ -164,8 +165,10 @@
 			<button
 				type="button"
 				class="rounded border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800"
-				onclick={() => (open = false)}>Cancel</button
+				onclick={() => (open = false)}
 			>
+				Cancel
+			</button>
 			<button
 				type="submit"
 				class="rounded bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"

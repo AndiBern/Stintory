@@ -29,6 +29,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
         9,
         include_str!("../migrations/0009_oauth_refresh_reuse.sql"),
     ),
+    (10, include_str!("../migrations/0010_lap_setups.sql")),
 ];
 
 /// Creates a connection pool. `search_path` selects a schema (tests).

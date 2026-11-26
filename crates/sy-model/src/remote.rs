@@ -208,8 +208,10 @@ pub struct SharedSessionDetail {
 }
 
 /// `GET /shared/sessions/{owner}/{id}/download`: a shared session for a
-/// client to keep as a reference. The session has no setup and no session
-/// info; its origin is [`crate::Origin::Synced`].
+/// client to keep as a reference. The session has no setup, and its session
+/// info says only whether the setup was fixed; its origin is
+/// [`crate::Origin::Synced`]. A lap has its setup only
+/// if the owner shares it with the user.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SharedSessionDownload {
@@ -245,6 +247,10 @@ pub struct ForeignLapCheck {
 pub struct ForeignLapCheckResult {
     /// Laps the user may not see anymore: the client deletes its copies
     pub lost: Vec<LapId>,
+    /// Laps the user may still see, but not their setup anymore: the client
+    /// removes the setup from its copies
+    #[serde(default)]
+    pub setup_lost: Vec<LapId>,
 }
 
 /// A track and car with laps others shared with the user

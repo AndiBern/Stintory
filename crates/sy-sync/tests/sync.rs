@@ -196,6 +196,7 @@ fn record(store: &SharedStore, laps: u32, hours_ago: i64) -> SessionId {
                     session_id: s.id,
                     number: n,
                     start_time_s: Some(f64::from(n) * 95.0),
+                    setup: None,
                     lap_time_ms: Some(95_000 + n),
                     sector_times_ms: vec![],
                     valid: true,

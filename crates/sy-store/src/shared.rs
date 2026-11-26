@@ -124,6 +124,24 @@ impl Store {
         Ok(deleted as u32)
     }
 
+    /// Removes the setup from kept laps of other users (the owner stopped
+    /// sharing it). Own laps are never touched. Returns the number of
+    /// changed laps.
+    pub fn remove_foreign_setups(&mut self, ids: &[LapId]) -> Result<u32> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let marks = vec!["?"; ids.len()].join(", ");
+        let changed = self.conn.execute(
+            &format!(
+                "UPDATE laps SET setup = NULL WHERE id IN ({marks}) AND setup IS NOT NULL
+                   AND session_id IN (SELECT id FROM sessions WHERE {SYNCED})"
+            ),
+            params_from_iter(ids.iter().map(ToString::to_string)),
+        )?;
+        Ok(changed as u32)
+    }
+
     /// Deletes everything kept from other users (the app disconnects from
     /// the server, so access can't be checked anymore). Returns the number
     /// of deleted sessions.
@@ -206,6 +224,7 @@ mod tests {
                     session_id: s,
                     number: n,
                     start_time_s: Some(f64::from(n) * 100.0),
+                    setup: None,
                     lap_time_ms: Some(90_000),
                     sector_times_ms: vec![],
                     valid: true,
@@ -273,6 +292,29 @@ mod tests {
         let pending = mine.pending_push(100).unwrap();
         assert_eq!((pending.sessions.len(), pending.laps.len()), (1, 1));
         mine.mark_pushed(&pending).unwrap();
+
+        // a setup shared later comes with a refresh; when it is withdrawn,
+        // only the copy loses it, never an own lap
+        let with_setup = Lap {
+            setup: Some(serde_json::json!({"rear_wing": 9})),
+            ..laps[0].clone()
+        };
+        assert!(mine.apply_shared_lap(&with_setup, None).unwrap());
+        let mut own_with_setup = my_lap.clone();
+        own_with_setup.setup = Some(serde_json::json!({"rear_wing": 7}));
+        mine.conn
+            .execute(
+                "UPDATE laps SET setup = '{\"rear_wing\":7}' WHERE id = ?1",
+                [my_lap.id.to_string()],
+            )
+            .unwrap();
+        assert_eq!(
+            mine.remove_foreign_setups(&[ids[0], ids[1], my_lap.id])
+                .unwrap(),
+            1
+        );
+        assert_eq!(mine.lap(ids[0]).unwrap().setup, None);
+        assert_eq!(mine.lap(my_lap.id).unwrap(), own_with_setup);
 
         // refreshing with fewer laps removes the others
         assert_eq!(

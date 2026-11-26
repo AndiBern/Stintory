@@ -71,7 +71,9 @@ pub struct Session {
     pub ended_at: Option<OffsetDateTime>,
     /// Conditions at session start.
     pub conditions: Conditions,
-    /// Car setup as reported by the game (game-specific JSON).
+    /// Car setup as reported by the game (game-specific JSON): the last one
+    /// seen in the session. Each lap has the setup it was driven with
+    /// ([`Lap::setup`]).
     pub setup: Option<serde_json::Value>,
     /// Further session information from the game, filtered to the player
     /// only (never contains other drivers' data, see docs/ARCHITECTURE.md §5.2).
@@ -122,6 +124,12 @@ pub struct Lap {
     /// Game session time (s) of the lap's first sample, if known.
     #[serde(default)]
     pub start_time_s: Option<f64>,
+    /// Car setup the lap was driven with, as reported by the game
+    /// (game-specific JSON, like [`Session::setup`]). None for laps
+    /// recorded before setups were kept per lap, and where the setup was
+    /// left out (export, sharing).
+    #[serde(default)]
+    pub setup: Option<serde_json::Value>,
 }
 
 /// A lap before its telemetry is stored: everything of [`Lap`] except the
@@ -147,6 +155,8 @@ pub struct NewLap {
     pub invalid_reason: Option<String>,
     /// Special lap flags
     pub flags: LapFlags,
+    /// Car setup the lap was driven with
+    pub setup: Option<serde_json::Value>,
 }
 
 impl NewLap {
@@ -165,6 +175,7 @@ impl NewLap {
             sample_rate_hz,
             sample_count,
             start_time_s: self.start_time_s,
+            setup: self.setup,
         }
     }
 }

@@ -188,8 +188,10 @@
 					onclick={() => {
 						challenge = null;
 						error = null;
-					}}>Back</button
+					}}
 				>
+					Back
+				</button>
 			{:else if auth.registrationOpen}
 				<button
 					type="button"

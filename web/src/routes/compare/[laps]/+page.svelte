@@ -8,6 +8,7 @@
 	import { api, type CompareData, type Corner, type LapTrace } from '#lib/api/index.ts';
 	import CompareCharts from '#lib/charts/CompareCharts.svelte';
 	import CornerTable from '#lib/charts/CornerTable.svelte';
+	import SetupTable from '#lib/charts/SetupTable.svelte';
 	import { cornerRange } from '#lib/charts/corners.ts';
 	import FollowMap from '#lib/charts/FollowMap.svelte';
 	import { lapColor } from '#lib/charts/colors.ts';
@@ -253,8 +254,8 @@
 					>
 						{own === null ? '–' : `${own.toFixed(3)} s`}{#if i > 0 && own !== null && ref !== null}
 							<span class="ml-1 text-zinc-500">
-								({own - ref >= 0 ? '+' : '−'}{Math.abs(own - ref).toFixed(3)})</span
-							>{/if}
+								({own - ref >= 0 ? '+' : '−'}{Math.abs(own - ref).toFixed(3)})
+							</span>{/if}
 					</span>
 				{/if}
 				{#if i > 0}
@@ -262,20 +263,26 @@
 						type="button"
 						class="text-xs text-zinc-500 hover:text-zinc-200"
 						aria-label="Use {labels[i]} as reference"
-						onclick={() => makeReference(lap.lapId)}>Use as reference</button
+						onclick={() => makeReference(lap.lapId)}
 					>
+						Use as reference
+					</button>
 				{/if}
 				{#if data.laps.length > 1}
 					<button
 						type="button"
 						class="text-xs text-zinc-500 hover:text-red-300"
 						aria-label="Remove {labels[i]}"
-						onclick={() => remove(lap.lapId)}>✕</button
+						onclick={() => remove(lap.lapId)}
 					>
+						✕
+					</button>
 				{/if}
 			</li>
 		{/each}
 	</ul>
+
+	<SetupTable laps={data.laps} labels={shortLabels} />
 
 	<CornerTable {data} labels={shortLabels} selected={selectedCorner} onselect={showCorner} />
 
@@ -297,21 +304,19 @@
 			onclick={() => (playing = !playing)}
 		>
 			{#if playing}
-				<svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"
-					><rect x="6" y="5" width="4" height="14" rx="1" /><rect
+				<svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+					<rect x="6" y="5" width="4" height="14" rx="1" /><rect
 						x="14"
 						y="5"
 						width="4"
 						height="14"
 						rx="1"
-					/></svg
-				>
+					/>
+				</svg>
 			{:else}
-				<svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true"
-					><path
-						d="M7 5.5v13a1 1 0 0 0 1.5.86l11-6.5a1 1 0 0 0 0-1.72l-11-6.5A1 1 0 0 0 7 5.5z"
-					/></svg
-				>
+				<svg viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+					<path d="M7 5.5v13a1 1 0 0 0 1.5.86l11-6.5a1 1 0 0 0 0-1.72l-11-6.5A1 1 0 0 0 7 5.5z" />
+				</svg>
 			{/if}
 		</button>
 		<div class="flex rounded border border-zinc-800 p-0.5 text-xs" role="group" aria-label="Speed">
@@ -320,8 +325,10 @@
 					type="button"
 					class="rounded px-2 py-1 text-zinc-400 hover:text-zinc-100 aria-pressed:bg-zinc-700 aria-pressed:text-zinc-100"
 					aria-pressed={speed === s}
-					onclick={() => (speed = s)}>{s}×</button
+					onclick={() => (speed = s)}
 				>
+					{s}×
+				</button>
 			{/each}
 		</div>
 		<input
@@ -349,14 +356,18 @@
 			type="button"
 			class="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
 			disabled={cursor >= last}
-			onclick={startHere}>Start here</button
+			onclick={startHere}
 		>
+			Start here
+		</button>
 		<button
 			type="button"
 			class="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
 			disabled={cursor <= first}
-			onclick={endHere}>End here</button
+			onclick={endHere}
 		>
+			End here
+		</button>
 		{#if range}
 			<span class="font-mono text-zinc-200 tabular-nums">
 				{Math.round(at(section.start))}–{Math.round(at(section.end))} m
@@ -365,8 +376,10 @@
 			<button
 				type="button"
 				class="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800"
-				onclick={() => (range = null)}>Full lap</button
+				onclick={() => (range = null)}
 			>
+				Full lap
+			</button>
 			<span class="text-zinc-500">Diff to ref counts from the section start.</span>
 		{:else}
 			<span class="text-zinc-500">Full lap · or drag across a chart</span>

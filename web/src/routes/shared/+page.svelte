@@ -175,13 +175,13 @@
 			<h2 class="font-medium">What I share by default</h2>
 			<p class="mt-1 mb-3 text-sm text-zinc-400">
 				Who sees the sessions you record, unless you choose something else for a session or a lap
-				("Share…"). Right now: <strong class="text-zinc-200"
-					>{formatAudience(
+				("Share…"). Right now: <strong class="text-zinc-200">
+					{formatAudience(
 						defaults.everyoneAllowed
 							? defaults.grants
 							: defaults.grants.filter((g) => g.kind !== 'everyone')
-					)}</strong
-				>.
+					)}
+				</strong>.
 			</p>
 			<form class="flex flex-col gap-3" onsubmit={saveDefault}>
 				<GranteePicker bind:grants everyoneAllowed={defaults.everyoneAllowed} />
@@ -193,10 +193,13 @@
 					<button
 						type="submit"
 						class="rounded bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
-						disabled={!changed}>Save</button
+						disabled={!changed}
 					>
-					{#if saved && !changed}<span class="text-sm text-zinc-300" role="status">{saved}</span
-						>{/if}
+						Save
+					</button>
+					{#if saved && !changed}<span class="text-sm text-zinc-300" role="status">
+							{saved}
+						</span>{/if}
 				</div>
 			</form>
 		</section>

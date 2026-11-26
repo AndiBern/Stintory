@@ -445,15 +445,16 @@ async fn upsert_lap(db: &impl GenericClient, owner: Uuid, lap: &Lap) -> ApiResul
     let n = db
         .execute(
             "INSERT INTO laps (owner_id, id, session_id, number, lap_time_ms, sector_times_ms,
-                valid, invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, start_time_s)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                valid, invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, start_time_s,
+                setup)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
              ON CONFLICT (owner_id, id) DO UPDATE SET
                 number = EXCLUDED.number, lap_time_ms = EXCLUDED.lap_time_ms,
                 sector_times_ms = EXCLUDED.sector_times_ms, valid = EXCLUDED.valid,
                 invalid_reason = EXCLUDED.invalid_reason, flags = EXCLUDED.flags,
                 blob_hash = EXCLUDED.blob_hash, sample_rate_hz = EXCLUDED.sample_rate_hz,
                 sample_count = EXCLUDED.sample_count, start_time_s = EXCLUDED.start_time_s,
-                updated_at = now(), seq = nextval('change_seq')",
+                setup = EXCLUDED.setup, updated_at = now(), seq = nextval('change_seq')",
             &[
                 &owner,
                 lap.id.as_uuid(),
@@ -468,6 +469,7 @@ async fn upsert_lap(db: &impl GenericClient, owner: Uuid, lap: &Lap) -> ApiResul
                 &lap.sample_rate_hz,
                 &(lap.sample_count as i32),
                 &lap.start_time_s,
+                &lap.setup,
             ],
         )
         .await?;

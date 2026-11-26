@@ -88,8 +88,10 @@
 						stroke-width="2.5"
 						stroke-linecap="round"
 						stroke-linejoin="round"
-						aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg
-					>Corners
+						aria-hidden="true"
+					>
+						<path d="m6 9 6 6 6-6" />
+					</svg>Corners
 				</button>
 			</h2>
 			{#if comparing}
@@ -124,21 +126,25 @@
 							type="button"
 							class={tab}
 							aria-pressed={order === 'lost'}
-							onclick={() => (order = 'lost')}>Most time lost</button
+							onclick={() => (order = 'lost')}
 						>
+							Most time lost
+						</button>
 						<button
 							type="button"
 							class={tab}
 							aria-pressed={order === 'lap'}
-							onclick={() => (order = 'lap')}>Lap order</button
+							onclick={() => (order = 'lap')}
 						>
+							Lap order
+						</button>
 					</div>
 				{/if}
 				<span class="text-xs text-zinc-500">
 					{labels[k]} vs {labels[0]}:
-					<span class="font-mono {lostClass(totalLost)} tabular-nums"
-						>{formatSeconds(totalLost)} s</span
-					>
+					<span class="font-mono {lostClass(totalLost)} tabular-nums">
+						{formatSeconds(totalLost)} s
+					</span>
 				</span>
 			{/if}
 		</div>
@@ -152,26 +158,29 @@
 								<th class="py-2 pr-3 font-normal">Corner</th>
 								{#if comparing}
 									<th class="pr-3 text-right font-normal">Time lost</th>
-									<th class="pr-3 text-right font-normal" title="Up to the apex / after the apex"
-										>Entry / exit</th
-									>
-									<th class="pr-3 text-right font-normal" title="Lowest speed, km/h (reference)"
-										>Apex</th
-									>
+									<th class="pr-3 text-right font-normal" title="Up to the apex / after the apex">
+										Entry / exit
+									</th>
+									<th class="pr-3 text-right font-normal" title="Lowest speed, km/h (reference)">
+										Apex
+									</th>
 									<th
 										class="pr-3 text-right font-normal"
-										title="Speed at the corner's end, km/h (reference)">Exit</th
+										title="Speed at the corner's end, km/h (reference)"
 									>
+										Exit
+									</th>
 									<th class="font-normal">Difference to the reference</th>
 								{:else}
 									<th class="pl-6 text-right font-normal">Time</th>
-									<th class="pl-6 text-right font-normal" title="Distance from the line">Braking</th
-									>
+									<th class="pl-6 text-right font-normal" title="Distance from the line">
+										Braking
+									</th>
 									<th class="pl-6 text-right font-normal" title="Lowest speed, km/h">Apex</th>
 									<th class="pl-6 text-right font-normal">Gear</th>
-									<th class="pl-6 text-right font-normal" title="Speed at the corner's end, km/h"
-										>Exit</th
-									>
+									<th class="pl-6 text-right font-normal" title="Speed at the corner's end, km/h">
+										Exit
+									</th>
 								{/if}
 							</tr>
 						</thead>
@@ -189,9 +198,9 @@
 											aria-current={selected === r.corner.number ? 'true' : undefined}
 											onclick={() => onselect(r.corner)}
 										>
-											{name(r)}{#if r.lap.flatOut}<span class="ml-1.5 text-xs text-zinc-500"
-													>flat</span
-												>{/if}
+											{name(r)}{#if r.lap.flatOut}<span class="ml-1.5 text-xs text-zinc-500">
+													flat
+												</span>{/if}
 										</button>
 									</td>
 									{#if comparing}
@@ -221,15 +230,15 @@
 										<td class="pl-6 text-right font-mono tabular-nums">
 											{r.lap.brakeM == null ? '–' : `${Math.round(r.lap.brakeM)} m`}
 										</td>
-										<td class="pl-6 text-right font-mono tabular-nums"
-											>{formatKmh(r.lap.minSpeedMps)}</td
-										>
-										<td class="pl-6 text-right font-mono tabular-nums"
-											>{r.lap.minSpeedGear ?? '–'}</td
-										>
-										<td class="pl-6 text-right font-mono tabular-nums"
-											>{formatKmh(r.lap.exitSpeedMps)}</td
-										>
+										<td class="pl-6 text-right font-mono tabular-nums">
+											{formatKmh(r.lap.minSpeedMps)}
+										</td>
+										<td class="pl-6 text-right font-mono tabular-nums">
+											{r.lap.minSpeedGear ?? '–'}
+										</td>
+										<td class="pl-6 text-right font-mono tabular-nums">
+											{formatKmh(r.lap.exitSpeedMps)}
+										</td>
 									{/if}
 								</tr>
 							{/each}

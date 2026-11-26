@@ -76,9 +76,9 @@
 		<p class="mb-3 text-sm text-zinc-300">
 			Your browser opened the server's login page. Log in there and allow this computer to sync.
 		</p>
-		<button type="button" class={secondary} onclick={() => client.syncCancelConnect()}
-			>Cancel</button
-		>
+		<button type="button" class={secondary} onclick={() => client.syncCancelConnect()}>
+			Cancel
+		</button>
 	{:else if s.state === 'disconnected'}
 		<form class="flex flex-col gap-3" onsubmit={connect}>
 			<label class="flex flex-col gap-1 text-sm">
@@ -93,9 +93,9 @@
 			</label>
 			{#if useToken}
 				<label class="flex flex-col gap-1 text-sm">
-					<span class="text-zinc-400"
-						>Device token (Account page on the server → Devices → Create token)</span
-					>
+					<span class="text-zinc-400">
+						Device token (Account page on the server → Devices → Create token)
+					</span>
 					<input class="{input} font-mono" bind:value={token} placeholder="syd_…" required />
 				</label>
 			{/if}
@@ -178,11 +178,13 @@
 				type="button"
 				class={button}
 				disabled={busy || s.state === 'syncing'}
-				onclick={() => act(async () => (app.sync = await client.syncNow()))}>Sync now</button
+				onclick={() => act(async () => (app.sync = await client.syncNow()))}
 			>
-			<button type="button" class={secondary} disabled={busy} onclick={disconnect}
-				>Disconnect</button
-			>
+				Sync now
+			</button>
+			<button type="button" class={secondary} disabled={busy} onclick={disconnect}>
+				Disconnect
+			</button>
 		</div>
 	{/if}
 

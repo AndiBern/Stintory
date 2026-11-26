@@ -337,10 +337,10 @@
 				<input type="checkbox" class="mt-1" bind:checked={disconnectDevices} />
 				<span>
 					Also disconnect all desktop apps and AI assistants
-					<span class="block text-zinc-500"
-						>Do this if someone else may have had access to your account. You connect them again
-						afterwards.</span
-					>
+					<span class="block text-zinc-500">
+						Do this if someone else may have had access to your account. You connect them again
+						afterwards.
+					</span>
 				</span>
 			</label>
 			<div><button type="submit" class={button}>Change password</button></div>
@@ -371,9 +371,9 @@
 					</ul>
 					<div class="flex gap-2">
 						<button type="button" class={secondary} onclick={downloadCodes}>Download</button>
-						<button type="button" class={secondary} onclick={() => (recoveryCodes = null)}
-							>I saved them</button
-						>
+						<button type="button" class={secondary} onclick={() => (recoveryCodes = null)}>
+							I saved them
+						</button>
 					</div>
 				</div>
 			{/if}
@@ -390,15 +390,17 @@
 							autocomplete="current-password"
 						/>
 					</label>
-					<button type="button" class={secondary} disabled={!confirmPassword} onclick={regenerate}
-						>New recovery codes</button
-					>
+					<button type="button" class={secondary} disabled={!confirmPassword} onclick={regenerate}>
+						New recovery codes
+					</button>
 					<button
 						type="button"
 						class="{secondary} hover:border-red-700 hover:text-red-300"
 						disabled={!confirmPassword}
-						onclick={disable}>Turn off</button
+						onclick={disable}
 					>
+						Turn off
+					</button>
 				</div>
 			{:else if setup}
 				<div class="flex flex-wrap gap-4">
@@ -457,9 +459,9 @@
 									</div>
 								</td>
 								<td class="text-right">
-									<button type="button" class={secondary} onclick={() => removePasskey(p)}
-										>Remove</button
-									>
+									<button type="button" class={secondary} onclick={() => removePasskey(p)}>
+										Remove
+									</button>
 								</td>
 							</tr>
 						{/each}
@@ -512,9 +514,9 @@
 								{#if s.current}
 									<span class="text-xs text-zinc-400">this browser</span>
 								{:else}
-									<button type="button" class={secondary} onclick={() => endSession(s.id)}
-										>Log out</button
-									>
+									<button type="button" class={secondary} onclick={() => endSession(s.id)}>
+										Log out
+									</button>
 								{/if}
 							</td>
 						</tr>
@@ -544,9 +546,9 @@
 									</div>
 								</td>
 								<td class="text-right">
-									<button type="button" class={secondary} onclick={() => revokeDevice(d)}
-										>Disconnect</button
-									>
+									<button type="button" class={secondary} onclick={() => revokeDevice(d)}>
+										Disconnect
+									</button>
 								</td>
 							</tr>
 						{/each}
@@ -603,9 +605,9 @@
 									</div>
 								</td>
 								<td class="text-right">
-									<button type="button" class={secondary} onclick={() => revokeDevice(d)}
-										>Remove</button
-									>
+									<button type="button" class={secondary} onclick={() => revokeDevice(d)}>
+										Remove
+									</button>
 								</td>
 							</tr>
 						{/each}
@@ -620,18 +622,20 @@
 					</p>
 					<code
 						class="block rounded bg-emerald-900/40 p-2 font-mono text-xs break-all text-emerald-100 select-all"
-						>claude mcp add --transport http stintory {mcpUrl} --header "Authorization: Bearer {assistantToken}"</code
 					>
+						claude mcp add --transport http stintory {mcpUrl} --header "Authorization: Bearer {assistantToken}"
+					</code>
 					<p class="mt-2 text-emerald-200">Address and token on their own:</p>
-					<code class="block font-mono text-xs break-all text-emerald-100 select-all">{mcpUrl}</code
-					>
-					<code class="block font-mono text-xs break-all text-emerald-100 select-all"
-						>{assistantToken}</code
-					>
+					<code class="block font-mono text-xs break-all text-emerald-100 select-all">
+						{mcpUrl}
+					</code>
+					<code class="block font-mono text-xs break-all text-emerald-100 select-all">
+						{assistantToken}
+					</code>
 					<div class="mt-2">
-						<button type="button" class={secondary} onclick={() => (assistantToken = null)}
-							>Done</button
-						>
+						<button type="button" class={secondary} onclick={() => (assistantToken = null)}>
+							Done
+						</button>
 					</div>
 				</div>
 			{/if}

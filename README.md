@@ -11,9 +11,9 @@ Most lap analysis tools send your telemetry to the vendor's servers so you can c
 ## Features
 
 - **Automatic recording** of every session and lap while you drive, no clicks needed. Only your own car is recorded, never other drivers' data.
-- **Session and lap browser**, lap view with traces over distance, and **lap comparison** with a time delta, a track map with a synced cursor and **corner insights**: where you lose time, corner by corner (braking point, minimum speed, throttle pick-up, exit speed).
+- **Session and lap browser**, lap view with traces over distance, and **lap comparison** with a time delta, a track map with a synced cursor and **corner insights**: where you lose time, corner by corner (braking point, minimum speed, throttle pick-up, exit speed). The **car setups** of the laps side by side show whether the laps are comparable or the setup makes the difference.
 - **Export and import** sessions and laps as `.stintory` files (and CSV), to move them to another computer or compare with laps from other people.
-- **Self-hosted server** (Docker) with accounts (password, TOTP, passkeys) and a web UI. It syncs your sessions between your computers and lets you share sessions and laps with other users, teams, or everyone on the server. Compare your laps with the ones others share with you, in the browser or the desktop app.
+- **Self-hosted server** (Docker) with accounts (password, TOTP, passkeys) and a web UI. It syncs your sessions between your computers and lets you share sessions and laps with other users, teams, or everyone on the server, and your car setups with the teams and people you choose. Compare your laps with the ones others share with you, in the browser or the desktop app.
 - **AI assistants** (Claude and other MCP clients) can read your laps and the corner analysis to tell you where you lose time: from the desktop app on your computer (*Settings → AI*) or from your server ([docs/SERVER.md](docs/SERVER.md)). Stintory has no AI service of its own.
 
 <img src="docs/images/comparison_4way.png" width="720" alt="Four laps side by side on the track map, colored by throttle, with steering, gear and pedals for each car">

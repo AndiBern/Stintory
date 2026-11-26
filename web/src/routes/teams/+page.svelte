@@ -80,11 +80,12 @@
 							{/if}
 						</span>
 						<span class="flex gap-2">
-							<button type="button" class={button} onclick={() => answer(invite, true)}>Join</button
-							>
-							<button type="button" class={small} onclick={() => answer(invite, false)}
-								>Decline</button
-							>
+							<button type="button" class={button} onclick={() => answer(invite, true)}>
+								Join
+							</button>
+							<button type="button" class={small} onclick={() => answer(invite, false)}>
+								Decline
+							</button>
 						</span>
 					</li>
 				{/each}
@@ -114,9 +115,9 @@
 					{#each teams as team (team.id)}
 						<tr class="border-t border-zinc-800">
 							<td class="py-1.5">
-								<a class="hover:underline" href={resolve('/teams/[id]', { id: team.id })}
-									>{team.name}</a
-								>
+								<a class="hover:underline" href={resolve('/teams/[id]', { id: team.id })}>
+									{team.name}
+								</a>
 							</td>
 							<td class="text-zinc-300">{team.role}</td>
 							<td class="text-right">{team.memberCount}</td>

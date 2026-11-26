@@ -618,6 +618,7 @@ fn sample() -> (Session, Vec<(Lap, Vec<u8>)>) {
             sample_rate_hz: 10.0,
             sample_count: samples as u32,
             start_time_s: Some(f64::from(n) * 10.0),
+            setup: None,
         };
         laps.push((lap, bytes));
     }
@@ -1701,7 +1702,7 @@ async fn sharing_access_matrix() {
     assert_eq!(state["source"], "session");
     assert_eq!(
         state["effective"],
-        json!([{ "kind": "team", "id": t, "name": "Team" }])
+        json!([{ "kind": "team", "id": t, "name": "Team", "withSetup": false }])
     );
 
     // lap custom: beats the session in both directions
@@ -1874,6 +1875,223 @@ async fn sharing_access_matrix() {
         .unwrap()
         .get(0);
     assert_eq!(grants, 0);
+}
+
+/// `sample()` with setups: lap 1 has its own, lap 2 is older than setups
+/// per lap (only the session has one). Pushed like `push_sample`.
+async fn push_sample_with_setups(b: &mut Browser<'_>) -> (Session, Vec<Lap>) {
+    let (mut session, mut laps) = sample();
+    session.setup = Some(json!({ "Chassis": { "Front": { "ArbSetting": "2" } } }));
+    session.session_info = Some(json!({ "fixed_setup": true, "player": { "user_name": "Owner" } }));
+    laps[0].0.setup = Some(json!({ "Chassis": { "Front": { "ArbSetting": "3" } } }));
+    for (lap, bytes) in &laps {
+        let req = b
+            .request("PUT", &format!("/sync/blobs/{}", lap.blob_hash))
+            .body(Body::from(bytes.clone()))
+            .unwrap();
+        assert_eq!(b.send(req).await.0, StatusCode::NO_CONTENT);
+    }
+    let laps: Vec<Lap> = laps.into_iter().map(|(l, _)| l).collect();
+    let (st, body) = b
+        .post("/sync/push", json!({ "sessions": [session], "laps": laps }))
+        .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    (session, laps)
+}
+
+/// What the user sees of the setups of `owner`'s laps: in the comparison
+/// (setup source per lap, or "hidden"), in the download and in the
+/// revocation check. All three must agree.
+async fn visible_setups(
+    b: &mut Browser<'_>,
+    owner: (&str, &str),
+    session: &Session,
+    laps: &[Lap],
+) -> Vec<&'static str> {
+    let (owner_id, owner_name) = owner;
+    let ids: Vec<_> = laps.iter().map(|l| l.id).collect();
+    let (st, cmp) = b.post("/analysis/compare", json!({ "lapIds": ids })).await;
+    assert_eq!(st, StatusCode::OK, "{cmp}");
+    let seen: Vec<&'static str> = cmp["laps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| match (&t["setup"]["source"], &t["setupHidden"]) {
+            (Value::String(s), _) if s == "lap" => "lap",
+            (Value::String(s), _) if s == "session" => "session",
+            (_, Value::Bool(true)) => "hidden",
+            _ => "none",
+        })
+        .collect();
+    if owner_id.is_empty() {
+        return seen; // own laps
+    }
+    let (_, download) = b
+        .get(&format!(
+            "/shared/sessions/{owner_id}/{}/download",
+            session.id
+        ))
+        .await;
+    assert_eq!(
+        download["session"]["setup"],
+        Value::Null,
+        "never the session's"
+    );
+    assert_eq!(
+        download["session"]["session_info"],
+        json!({ "fixed_setup": true }),
+        "only whether the setup was fixed"
+    );
+    assert!(
+        cmp["laps"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["fixedSetup"] == true)
+    );
+    let downloaded: Vec<bool> = download["laps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| !l["setup"].is_null())
+        .collect();
+    assert_eq!(
+        downloaded,
+        seen.iter().map(|s| *s == "lap").collect::<Vec<_>>()
+    );
+    let check: Vec<Value> = laps
+        .iter()
+        .map(|l| json!({ "id": l.id, "owner": owner_name }))
+        .collect();
+    let (_, checked) = b.post("/shared/check", json!({ "laps": check })).await;
+    assert_eq!(checked["lost"], json!([]));
+    let setup_lost = checked["setupLost"].as_array().unwrap();
+    assert_eq!(
+        setup_lost.contains(&json!(laps[0].id)),
+        seen[0] == "hidden",
+        "revocation check"
+    );
+    seen
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn setups_are_shared_only_where_chosen() {
+    let Some(s) = server().await else { return };
+    let mut admin = Browser::new(&s);
+    admin.login(ADMIN, ADMIN_PW).await;
+    let (mut owner, owner_id) = user(&s, &mut admin, "owner").await;
+    let (mut mate, _) = user(&s, &mut admin, "mate").await;
+    let (mut direct, direct_id) = user(&s, &mut admin, "direct").await;
+    let (mut stranger, _) = user(&s, &mut admin, "stranger").await;
+    let o = (owner_id.as_str(), "owner");
+
+    let (_, team) = owner.post("/teams", json!({ "name": "Team" })).await;
+    let t = team["id"].as_str().unwrap().to_owned();
+    let (_, link) = owner
+        .post(&format!("/teams/{t}/invites"), json!({ "link": {} }))
+        .await;
+    let token = link["url"].as_str().unwrap().rsplit('/').next().unwrap();
+    let accept = format!("/invites/link/{token}/accept");
+    assert_eq!(mate.post(&accept, json!({})).await.0, StatusCode::OK);
+
+    let (session, laps) = push_sample_with_setups(&mut owner).await;
+    // the owner: the lap's setup, else the session's
+    assert_eq!(
+        visible_setups(&mut owner, ("", ""), &session, &laps).await,
+        ["lap", "session"]
+    );
+    let (_, cmp) = owner
+        .post("/analysis/compare", json!({ "lapIds": [laps[0].id] }))
+        .await;
+    assert_eq!(
+        cmp["laps"][0]["setup"]["items"],
+        json!([{ "group": "Chassis · Front", "name": "ARB setting", "value": "3" }])
+    );
+
+    // shared without setups: the laps, but no setup (never the session's)
+    let sharing = format!("/sessions/{}/sharing", session.id);
+    put(
+        &mut owner,
+        &sharing,
+        json!({ "mode": "custom", "grants": [{ "kind": "team", "id": t }] }),
+    )
+    .await;
+    assert_eq!(
+        visible_setups(&mut mate, o, &session, &laps).await,
+        ["hidden", "none"]
+    );
+
+    // the team with setups, everyone without (asking for it changes nothing)
+    let state = put(
+        &mut owner,
+        &sharing,
+        json!({ "mode": "custom", "grants": [
+            { "kind": "team", "id": t, "withSetup": true },
+            { "kind": "user", "id": direct_id },
+            { "kind": "everyone", "withSetup": true },
+        ] }),
+    )
+    .await;
+    assert_eq!(state["grants"][0]["kind"], "everyone");
+    assert_eq!(state["grants"][1]["withSetup"], true, "{state}");
+    assert_eq!(state["grants"][2]["withSetup"], false, "{state}");
+    assert_eq!(
+        visible_setups(&mut mate, o, &session, &laps).await,
+        ["lap", "none"]
+    );
+    assert_eq!(
+        visible_setups(&mut direct, o, &session, &laps).await,
+        ["hidden", "none"]
+    );
+    assert_eq!(
+        visible_setups(&mut stranger, o, &session, &laps).await,
+        ["hidden", "none"]
+    );
+
+    // a lap's own grant decides for that lap
+    put(
+        &mut owner,
+        &format!("/laps/{}/sharing", laps[0].id),
+        json!({ "mode": "custom", "grants": [
+            { "kind": "team", "id": t },
+            { "kind": "user", "id": direct_id, "withSetup": true },
+        ] }),
+    )
+    .await;
+    assert_eq!(
+        visible_setups(&mut mate, o, &session, &laps).await,
+        ["hidden", "none"]
+    );
+    assert_eq!(
+        visible_setups(&mut direct, o, &session, &laps).await,
+        ["lap", "none"]
+    );
+
+    // the default works the same; a grant with and without setups is one grant
+    put(
+        &mut owner,
+        &format!("/laps/{}/sharing", laps[0].id),
+        json!({ "mode": "inherit" }),
+    )
+    .await;
+    put(&mut owner, &sharing, json!({ "mode": "inherit" })).await;
+    let default = put(
+        &mut owner,
+        "/me/default-sharing",
+        json!({ "grants": [
+            { "kind": "team", "id": t, "withSetup": true },
+            { "kind": "team", "id": t },
+        ] }),
+    )
+    .await;
+    assert_eq!(
+        default["grants"],
+        json!([{ "kind": "team", "id": t, "name": "Team", "withSetup": true }])
+    );
+    assert_eq!(
+        visible_setups(&mut mate, o, &session, &laps).await,
+        ["lap", "none"]
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

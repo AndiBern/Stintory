@@ -291,9 +291,9 @@
 			<p>No sessions yet.</p>
 			<p class="mt-1 text-sm">
 				{#if client.capabilities.liveRecording}
-					Start driving – sessions are recorded automatically. Or import Stintory <code
-						>.stintory</code
-					>
+					Start driving – sessions are recorded automatically. Or import Stintory <code>
+						.stintory
+					</code>
 					or iRacing <code>.ibt</code> files (drag them onto this window).
 				{:else}
 					Sync from the desktop app, or upload <code>.stintory</code> files exported there with "Import…".
@@ -448,9 +448,9 @@
 								}}
 							>
 								{col.label}
-								<span class="inline-block w-3 text-xs" aria-hidden="true"
-									>{active ? (view.sort.descending ? '↓' : '↑') : ''}</span
-								>
+								<span class="inline-block w-3 text-xs" aria-hidden="true">
+									{active ? (view.sort.descending ? '↓' : '↑') : ''}
+								</span>
 							</button>
 						</th>
 					{/each}
@@ -506,9 +506,9 @@
 							<div class="text-xs text-zinc-500">
 								{formatGame(s.game)}
 								{#if formatOrigin(s.origin)}
-									<span class="ml-1 rounded bg-sky-950 px-1.5 text-sky-300"
-										>{formatOrigin(s.origin)}</span
-									>
+									<span class="ml-1 rounded bg-sky-950 px-1.5 text-sky-300">
+										{formatOrigin(s.origin)}
+									</span>
 								{/if}
 								{#if s.shared}
 									<span class="ml-1 rounded bg-emerald-950 px-1.5 text-emerald-300">shared</span>

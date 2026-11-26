@@ -555,6 +555,32 @@ fn setup_is_stored() {
     assert_eq!(last.setup, Some(serde_json::json!({"wing": 4})));
 }
 
+/// Each lap keeps the setup it was driven with: one that comes late counts
+/// for the lap it arrives in, a change during a lap (in-car adjustment) from
+/// the next lap on.
+#[test]
+fn each_lap_has_its_setup() {
+    let mut g = SimLmu::new();
+    let mut rec = g.drive(5.0);
+    rec.push(SimLmu::setup(r#"{"wing": 3}"#));
+    rec.extend(g.drive_lap(10.0));
+    rec.push(SimLmu::setup(r#"{"wing": 4}"#));
+    rec.extend(g.drive_lap(1.0));
+    rec.extend(g.drive_lap(1.0));
+    let out = record(rec);
+    let wings: Vec<_> = laps(&out)
+        .iter()
+        .map(|l| {
+            (
+                l.lap.number,
+                l.lap.setup.as_ref().map(|s| s["wing"].clone()),
+            )
+        })
+        .collect();
+    let w = |n: u64| Some(serde_json::json!(n));
+    assert_eq!(wings, [(0, w(3)), (1, w(3)), (2, w(4)), (3, w(4))]);
+}
+
 /// Spooled data holds the player only, and replaying the spool gives the
 /// same laps.
 #[test]

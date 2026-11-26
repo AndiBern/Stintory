@@ -771,6 +771,7 @@ mod tests {
             sample_rate_hz: 60.0,
             sample_count: 0,
             start_time_s: None,
+            setup: None,
         }
     }
 

@@ -332,6 +332,50 @@ pub struct LapTrace {
     /// desktop app keeps such laps as local copies)
     #[serde(default)]
     pub owner: Option<UserRef>,
+    /// The car setup the lap was driven with, if known and visible to the
+    /// user. Set by the backends.
+    #[serde(default)]
+    pub setup: Option<LapSetup>,
+    /// The lap has a setup, but its owner doesn't share it with the user
+    /// (server only)
+    #[serde(default)]
+    pub setup_hidden: bool,
+    /// The lap's session prescribed the setup (as far as the game says)
+    #[serde(default)]
+    pub fixed_setup: bool,
+}
+
+/// A lap's car setup as a list of settings, in the game's order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LapSetup {
+    /// Where the setup comes from
+    pub source: SetupSource,
+    /// The settings
+    pub items: Vec<SetupItem>,
+}
+
+/// Where a lap's setup comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SetupSource {
+    /// Recorded with the lap
+    Lap,
+    /// The lap was recorded before setups were kept per lap: the last setup
+    /// of its session, which may have changed after the lap
+    Session,
+}
+
+/// One setting of a car setup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetupItem {
+    /// Section, e.g. `Tires` or `Chassis · Left front`
+    pub group: String,
+    /// Setting, e.g. `Camber`
+    pub name: String,
+    /// Value as the game shows it, e.g. `-3.5 deg`
+    pub value: String,
 }
 
 /// Laps resampled onto a common distance grid, ready for charts.

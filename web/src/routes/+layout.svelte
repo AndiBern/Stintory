@@ -138,8 +138,10 @@
 						<!-- eslint-disable svelte/no-navigation-without-resolve -- resolved path + query -->
 						<a
 							href={`${resolve('/settings')}?tab=games`}
-							class="mt-1 block text-amber-400 hover:text-amber-300">{app.recorder.hint}</a
+							class="mt-1 block text-amber-400 hover:text-amber-300"
 						>
+							{app.recorder.hint}
+						</a>
 						<!-- eslint-enable svelte/no-navigation-without-resolve -->
 					{/if}
 				{:else if app.recorder?.state === 'unsupported'}
@@ -192,8 +194,10 @@
 				<button
 					type="button"
 					class="ml-4 text-xs opacity-70 hover:opacity-100"
-					onclick={() => (app.notice = null)}>Dismiss</button
+					onclick={() => (app.notice = null)}
 				>
+					Dismiss
+				</button>
 			</div>
 		{/if}
 		{#if showPage}

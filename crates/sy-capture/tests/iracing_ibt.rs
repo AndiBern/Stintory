@@ -268,6 +268,14 @@ fn all_examples_decode_and_are_deterministic() {
         assert!(!info.contains("IRating"), "no other drivers' data");
         assert!(!info.contains("ResultsPositions"));
     }
+    // every example session is a fixed-setup session
+    for s in &a.sessions {
+        assert!(
+            sy_analysis::setup::fixed_setup(s.session_info.as_ref()),
+            "{}",
+            s.track_name
+        );
+    }
 }
 
 #[test]

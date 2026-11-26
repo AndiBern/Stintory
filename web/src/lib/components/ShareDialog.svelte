@@ -148,8 +148,9 @@
 				</p>
 			{/if}
 			<p class="text-xs text-zinc-500">
-				Others can look at the laps and compare them with theirs, but not change or delete them. Car
-				setups are not shared. Copies someone exported can't be taken back.
+				Others can look at the laps and compare them with theirs, but not change or delete them.
+				They see the car setups only where you chose “Setups too”. Copies someone exported can't be
+				taken back.
 			</p>
 		{:else if !error}
 			<p class="text-sm text-zinc-400">Loading…</p>
@@ -159,8 +160,10 @@
 			<button
 				type="button"
 				class="rounded border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800"
-				onclick={() => (target = null)}>Cancel</button
+				onclick={() => (target = null)}
 			>
+				Cancel
+			</button>
 			<button
 				type="submit"
 				class="rounded bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"

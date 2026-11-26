@@ -68,6 +68,9 @@ the part up to the apex, exitLostS the part after it. Corners are numbered by St
 driving order, not by the track's official turn numbers. Distances are metres from the \
 start/finish line, speeds km/h, pedals percent, times seconds.
 
+compare_laps also says whether both laps were driven with the same car setup. If the setups \
+differ, mention it: part of the gap may come from the setup rather than the driving.
+
 Prefer valid laps as references. Ground advice in the numbers (braking point, apex speed, \
 throttle pick-up, exit speed) and name the corners with the biggest gains first.";
 

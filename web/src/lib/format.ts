@@ -111,15 +111,21 @@ export function formatAgo(iso: string | null | undefined, now = Date.now()): str
 	return formatDateTime(iso);
 }
 
-/** One entry of an audience, e.g. `Team Sim Racers` or `Max (@max)`. */
+/**
+ * One entry of an audience, e.g. `Team Sim Racers`, `Max (@max)` or
+ * `Team Sim Racers with setups`.
+ */
 export function formatGrantee(g: Grantee): string {
 	switch (g.kind) {
 		case 'everyone':
 			return 'Everyone on this server';
 		case 'team':
-			return `Team ${g.name}`;
-		case 'user':
-			return g.displayName === g.username ? `@${g.username}` : `${g.displayName} (@${g.username})`;
+			return `Team ${g.name}${g.withSetup ? ' with setups' : ''}`;
+		case 'user': {
+			const name =
+				g.displayName === g.username ? `@${g.username}` : `${g.displayName} (@${g.username})`;
+			return g.withSetup ? `${name} with setups` : name;
+		}
 	}
 }
 

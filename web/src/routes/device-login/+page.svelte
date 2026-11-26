@@ -76,13 +76,17 @@
 				type="button"
 				class="rounded bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
 				disabled={busy}
-				onclick={allow}>Allow</button
+				onclick={allow}
 			>
+				Allow
+			</button>
 			<button
 				type="button"
 				class="rounded border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-800"
-				onclick={deny}>Cancel</button
+				onclick={deny}
 			>
+				Cancel
+			</button>
 		</div>
 	{/if}
 </div>

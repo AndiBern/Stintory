@@ -110,8 +110,10 @@ pub async fn list_sessions(
     ))
 }
 
+/// The columns [`lap_from_row`] reads. Laps of other users go through
+/// `sharing::viewer_lap_columns`, which leaves out a setup they may not see.
 pub(crate) const LAP_COLUMNS: &str = "id, session_id, number, lap_time_ms, sector_times_ms, valid, \
-     invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, start_time_s";
+     invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, start_time_s, setup";
 
 pub(crate) fn lap_from_row(r: &Row) -> ApiResult<Lap> {
     Ok(Lap {
@@ -127,6 +129,7 @@ pub(crate) fn lap_from_row(r: &Row) -> ApiResult<Lap> {
         sample_rate_hz: r.get(9),
         sample_count: u32::try_from(r.get::<_, i32>(10)).unwrap_or(0),
         start_time_s: r.get(11),
+        setup: r.get(12),
     })
 }
 
@@ -257,6 +260,13 @@ pub async fn compare(
         for (trace, r) in data.laps.iter_mut().zip(&laps) {
             trace.driver = r.driver();
             trace.owner = r.owner.clone();
+            trace.setup = sy_analysis::setup::lap_setup(
+                r.game,
+                r.lap.setup.as_ref(),
+                r.session_setup.as_ref(),
+            );
+            trace.setup_hidden = r.setup_hidden;
+            trace.fixed_setup = r.fixed_setup;
         }
         Ok(data)
     })
@@ -307,8 +317,9 @@ pub async fn insert_lap(
     let n = db
         .execute(
             "INSERT INTO laps (owner_id, id, session_id, number, lap_time_ms, sector_times_ms,
-                valid, invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, start_time_s)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                valid, invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, start_time_s,
+                setup)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
              ON CONFLICT (owner_id, id) DO NOTHING",
             &[
                 &owner,
@@ -324,6 +335,7 @@ pub async fn insert_lap(
                 &lap.sample_rate_hz,
                 &(lap.sample_count as i32),
                 &lap.start_time_s,
+                &lap.setup,
             ],
         )
         .await?;

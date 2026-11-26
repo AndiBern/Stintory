@@ -80,36 +80,38 @@
 			<input type="checkbox" bind:checked={form.allowRemote} class="mt-1" />
 			<span>
 				Accept data from other devices
-				<span class="block text-xs text-zinc-400"
-					>For a PlayStation, Xbox or another PC on your network. Your firewall may ask to allow
-					Stintory.</span
-				>
+				<span class="block text-xs text-zinc-400">
+					For a PlayStation, Xbox or another PC on your network. Your firewall may ask to allow
+					Stintory.
+				</span>
 			</span>
 		</label>
 		<label class="flex flex-col gap-1">
-			<span class="text-zinc-400"
-				>Forward to other apps (one <code>address:port</code> per line)</span
-			>
+			<span class="text-zinc-400">
+				Forward to other apps (one <code>address:port</code> per line)
+			</span>
 			<textarea
 				rows="2"
 				class="rounded border border-zinc-700 bg-zinc-950 px-2 py-1 font-mono text-xs"
 				placeholder="127.0.0.1:20778"
 				bind:value={forward}></textarea>
-			<span class="text-xs text-zinc-500"
-				>Every packet is passed on unchanged, so other telemetry apps keep working. Set them to
-				listen on that port.</span
-			>
+			<span class="text-xs text-zinc-500">
+				Every packet is passed on unchanged, so other telemetry apps keep working. Set them to
+				listen on that port.
+			</span>
 		</label>
 		<div class="flex items-center gap-3">
 			<button
 				type="submit"
 				class="rounded bg-zinc-100 px-3 py-1.5 font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
-				disabled={busy}>Save</button
+				disabled={busy}
 			>
+				Save
+			</button>
 			{#if error}<span class="text-red-400" role="alert">{error}</span>{/if}
-			{#if saved}<span class="text-zinc-300" role="status"
-					>Saved. Applies once no F1 session is being recorded.</span
-				>{/if}
+			{#if saved}<span class="text-zinc-300" role="status">
+					Saved. Applies once no F1 session is being recorded.
+				</span>{/if}
 		</div>
 	</form>
 </section>

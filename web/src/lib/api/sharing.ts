@@ -185,8 +185,11 @@ export class ServerApiClient implements ServerApi {
 }
 
 /** What the server needs of a grantee: its kind and id. */
-function grantRef(g: Grantee): { kind: string; id?: string } {
-	return g.kind === 'everyone' ? { kind: g.kind } : { kind: g.kind, id: g.id };
+/** A grant as the server takes it: who, and for users and teams whether with setups. */
+function grantRef(g: Grantee): { kind: string; id?: string; withSetup?: boolean } {
+	return g.kind === 'everyone'
+		? { kind: g.kind }
+		: { kind: g.kind, id: g.id, withSetup: !!g.withSetup };
 }
 
 function updateBody(update: SharingUpdate) {

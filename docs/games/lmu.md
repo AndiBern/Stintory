@@ -121,12 +121,15 @@ shared memory has any number of readers.
   and time limit, online or not, field size, fixed setup, track grip,
   track-limits rules, vehicle, model, class, championship (BoP year),
   steering range, gears, fuel capacity, tire compounds.
-- Car setup: `GET /rest/garage/getPlayerGarageData` every 5 s, stored when
-  it changed (exported only when chosen). The response (~40 KB) has one
+- Car setup: `GET /rest/garage/getPlayerGarageData` every 5 s, stored with
+  each lap (exported only when chosen). The response (~40 KB) has one
   object per setting with the readable `stringValue`, an index `value`,
   limits and UI state; Stintory keeps `{"VM_BRAKE_BALANCE": "51.2:48.8",
   "WM_PRESSURE-W_FL": "136 kPa", …}` (about 120 settings, ~4 KB) and drops
   settings the car doesn't have. The raw response stays in the spool.
+  `VM_FUEL_CAPACITY` and `VM_VIRTUAL_ENERGY` end with the game's estimate
+  of how many laps they last ("89.0L (25.5 laps)"), which changed during a
+  session without the setup changing; the comparison leaves it out.
 
 ## The REST API
 

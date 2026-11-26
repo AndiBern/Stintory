@@ -108,9 +108,9 @@
 	{/if}
 
 	{#if trackKey && carKey}
-		<a href={resolve('/shared/tracks')} class="text-sm text-zinc-400 hover:text-zinc-200"
-			>← All tracks</a
-		>
+		<a href={resolve('/shared/tracks')} class="text-sm text-zinc-400 hover:text-zinc-200">
+			← All tracks
+		</a>
 		<div class="mt-2 mb-3 flex flex-wrap items-start justify-between gap-4">
 			<div>
 				<h2 class="text-xl font-semibold">{heading ?? 'Reference laps'}</h2>
@@ -183,9 +183,10 @@
 							<td>{t.carName}</td>
 							<td class="text-right">
 								{t.laps}
-								<span class="text-xs text-zinc-500"
-									>· {t.drivers} {t.drivers === 1 ? 'driver' : 'drivers'}</span
-								>
+								<span class="text-xs text-zinc-500">
+									· {t.drivers}
+									{t.drivers === 1 ? 'driver' : 'drivers'}
+								</span>
 							</td>
 							<td class="text-right font-mono">{formatLapTime(t.bestLapMs)}</td>
 							<td class="pl-4">

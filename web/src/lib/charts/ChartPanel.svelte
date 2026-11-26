@@ -194,8 +194,9 @@
 
 <section class="mb-3" aria-label={panel.title}>
 	<h3 class="mb-0.5 pl-14 text-xs font-medium text-zinc-300">
-		{panel.title}{#if panel.unit}<span class="ml-1 font-normal text-zinc-500">({panel.unit})</span
-			>{/if}
+		{panel.title}{#if panel.unit}<span class="ml-1 font-normal text-zinc-500">
+				({panel.unit})
+			</span>{/if}
 	</h3>
 	<div class="relative" bind:this={host} bind:clientWidth={width}>
 		{#if markerShown}
@@ -226,9 +227,9 @@
 				{#each rows as r, i (i)}
 					<span class="flex items-center gap-1.5 leading-4">
 						<span class="inline-block h-0.5 w-3 rounded" style:background={lapColor(r.lap)}></span>
-						<span class="font-mono font-semibold text-zinc-100 tabular-nums"
-							>{r.value === null ? '–' : panel.format(r.value)}</span
-						>
+						<span class="font-mono font-semibold text-zinc-100 tabular-nums">
+							{r.value === null ? '–' : panel.format(r.value)}
+						</span>
 						<span class="text-zinc-500">{r.label}</span>
 					</span>
 				{/each}

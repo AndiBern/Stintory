@@ -14,14 +14,18 @@
 //!   of the team (checked live).
 //! - "Everyone" counts only while the admin allows it.
 //! - Sharing gives read access to the session's basic data (track, car,
-//!   conditions) and the laps with their telemetry; never to the setup or
-//!   the game's session info, and never write access.
+//!   conditions, whether the setup was fixed) and the laps with their
+//!   telemetry; never to the rest of the game's session info, and never
+//!   write access.
+//! - A lap's setup is shared only through a user or team grant marked
+//!   `with_setup` (never through "everyone"); the session's setup never.
 //!
 //! # One access check
 //!
-//! [`lap_readable`] is the only place that decides who may read a lap.
-//! Every endpoint that returns data of other users builds on it. A session
-//! is visible to others through its readable laps.
+//! [`lap_readable`] is the only place that decides who may read a lap, and
+//! [`lap_setup_readable`] who may read its setup. Every endpoint that
+//! returns data of other users builds on them. A session is visible to
+//! others through its readable laps.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -52,10 +56,21 @@ const MAX_GRANTS: usize = 200;
 /// user's id (`$1`), `everyone` one for "sharing with everyone is allowed"
 /// (`$2`, boolean).
 pub fn lap_readable(viewer: &str, everyone: &str) -> String {
+    readable(viewer, everyone, "")
+}
+
+/// SQL condition: the user `viewer` may read the setup of lap `l` of
+/// session `s`: their own, or shared with a grant that includes setups.
+/// Placeholders as for [`lap_readable`].
+pub fn lap_setup_readable(viewer: &str, everyone: &str) -> String {
+    readable(viewer, everyone, "AND g.with_setup")
+}
+
+fn readable(viewer: &str, everyone: &str, grant: &str) -> String {
     format!(
         "(l.owner_id = {viewer} OR EXISTS (
             SELECT 1 FROM share_grants g
-            WHERE g.owner_id = l.owner_id
+            WHERE g.owner_id = l.owner_id {grant}
               AND ((l.sharing_mode = 'custom' AND g.object_kind = 'lap' AND g.object_id = l.id)
                 OR (l.sharing_mode = 'inherit' AND s.sharing_mode = 'custom'
                     AND g.object_kind = 'session' AND g.object_id = s.id)
@@ -75,11 +90,37 @@ pub fn lap_readable(viewer: &str, everyone: &str) -> String {
 /// SQL condition: lap `l` (alias in scope) is readable by `viewer`; joins
 /// the session itself.
 pub fn lap_readable_with_session(viewer: &str, everyone: &str) -> String {
+    with_session(&lap_readable(viewer, everyone))
+}
+
+fn with_session(condition: &str) -> String {
     format!(
         "EXISTS (SELECT 1 FROM sessions s
-                 WHERE s.owner_id = l.owner_id AND s.id = l.session_id AND {})",
-        lap_readable(viewer, everyone)
+                 WHERE s.owner_id = l.owner_id AND s.id = l.session_id AND {condition})"
     )
+}
+
+/// The lap columns ([`crate::data::LAP_COLUMNS`], alias `l`) as `viewer`
+/// may read them: the setup only if they may see it. With `session`, the
+/// session `s` is in scope.
+fn viewer_lap_columns(viewer: &str, everyone: &str, session: bool) -> String {
+    crate::data::LAP_COLUMNS
+        .split(", ")
+        .map(|c| {
+            if c == "setup" {
+                let readable = lap_setup_readable(viewer, everyone);
+                let readable = if session {
+                    readable
+                } else {
+                    with_session(&readable)
+                };
+                format!("CASE WHEN {readable} THEN l.setup END")
+            } else {
+                format!("l.{c}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 async fn everyone_allowed(db: &impl GenericClient) -> ApiResult<bool> {
@@ -90,20 +131,42 @@ async fn everyone_allowed(db: &impl GenericClient) -> ApiResult<bool> {
 
 /// Who something is shared with, as sent by the client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum GranteeRef {
     /// One user
     User {
         /// User id
         id: Uuid,
+        /// The user sees the setups too
+        #[serde(default)]
+        with_setup: bool,
     },
     /// All members of a team
     Team {
         /// Team id
         id: Uuid,
+        /// The members see the setups too
+        #[serde(default)]
+        with_setup: bool,
     },
-    /// Everyone with an account on this server
+    /// Everyone with an account on this server (never with setups)
     Everyone,
+}
+
+impl GranteeRef {
+    /// Kind and id as stored (`grantee_kind`, `grantee_id`), and whether the
+    /// grant includes setups.
+    fn stored(self) -> (&'static str, Uuid, bool) {
+        match self {
+            Self::User { id, with_setup } => ("user", id, with_setup),
+            Self::Team { id, with_setup } => ("team", id, with_setup),
+            Self::Everyone => ("everyone", Uuid::nil(), false),
+        }
+    }
 }
 
 /// Who something is shared with, with names.
@@ -122,6 +185,8 @@ pub enum Grantee {
         username: String,
         /// Name shown to others
         display_name: String,
+        /// The user sees the setups too
+        with_setup: bool,
     },
     /// All members of a team
     Team {
@@ -129,6 +194,8 @@ pub enum Grantee {
         id: Uuid,
         /// Team name
         name: String,
+        /// The members see the setups too
+        with_setup: bool,
     },
     /// Everyone with an account on this server
     Everyone,
@@ -210,7 +277,8 @@ async fn load_grants(
 ) -> ApiResult<Vec<Grantee>> {
     let rows = db
         .query(
-            "SELECT g.grantee_kind, g.grantee_id, u.username, u.display_name, t.name
+            "SELECT g.grantee_kind, g.grantee_id, u.username, u.display_name, t.name,
+                    g.with_setup
              FROM share_grants g
              LEFT JOIN users u ON g.grantee_kind = 'user' AND u.id = g.grantee_id
              LEFT JOIN teams t ON g.grantee_kind = 'team' AND t.id = g.grantee_id
@@ -223,15 +291,18 @@ async fn load_grants(
         .iter()
         .filter_map(|r| {
             let id: Uuid = r.get(1);
+            let with_setup: bool = r.get(5);
             match r.get::<_, &str>(0) {
                 "user" => Some(Grantee::User {
                     id,
                     username: r.get::<_, Option<String>>(2)?,
                     display_name: r.get::<_, Option<String>>(3)?,
+                    with_setup,
                 }),
                 "team" => Some(Grantee::Team {
                     id,
                     name: r.get::<_, Option<String>>(4)?,
+                    with_setup,
                 }),
                 _ => Some(Grantee::Everyone),
             }
@@ -251,11 +322,19 @@ async fn replace_grants(
     if grants.len() > MAX_GRANTS {
         return Err(ApiError::bad_request("too many people and teams"));
     }
+    // one grant per user or team (the first one counts)
     let mut seen = std::collections::HashSet::new();
-    let grants: Vec<GranteeRef> = grants.iter().copied().filter(|g| seen.insert(*g)).collect();
+    let grants: Vec<GranteeRef> = grants
+        .iter()
+        .copied()
+        .filter(|g| {
+            let (kind, id, _) = g.stored();
+            seen.insert((kind, id))
+        })
+        .collect();
     for g in &grants {
         match g {
-            GranteeRef::User { id } => {
+            GranteeRef::User { id, .. } => {
                 let known = db
                     .query_opt("SELECT 1 FROM users WHERE id = $1 AND NOT disabled", &[id])
                     .await?
@@ -264,7 +343,7 @@ async fn replace_grants(
                     return Err(ApiError::bad_request("unknown user"));
                 }
             }
-            GranteeRef::Team { id } => {
+            GranteeRef::Team { id, .. } => {
                 if crate::teams::role_of(db, *id, owner).await?.is_none() {
                     return Err(ApiError::bad_request(
                         "you can only share with teams you are a member of",
@@ -286,15 +365,12 @@ async fn replace_grants(
     )
     .await?;
     for g in &grants {
-        let (grantee_kind, id) = match g {
-            GranteeRef::User { id } => ("user", *id),
-            GranteeRef::Team { id } => ("team", *id),
-            GranteeRef::Everyone => ("everyone", Uuid::nil()),
-        };
+        let (grantee_kind, id, with_setup) = g.stored();
         db.execute(
-            "INSERT INTO share_grants (owner_id, object_kind, object_id, grantee_kind, grantee_id)
-             VALUES ($1, $2, $3, $4, $5)",
-            &[&owner, &kind, &object, &grantee_kind, &id],
+            "INSERT INTO share_grants (owner_id, object_kind, object_id, grantee_kind, grantee_id,
+                with_setup)
+             VALUES ($1, $2, $3, $4, $5, $6)",
+            &[&owner, &kind, &object, &grantee_kind, &id, &with_setup],
         )
         .await?;
     }
@@ -698,7 +774,7 @@ async fn readable_laps(
                 "SELECT {columns} FROM laps l
                  WHERE l.owner_id = $3 AND l.session_id = $4 AND {readable}
                  ORDER BY l.number, l.id",
-                columns = crate::data::LAP_COLUMNS,
+                columns = viewer_lap_columns("$1", "$2", false),
                 readable = lap_readable_with_session("$1", "$2")
             ),
             &[&viewer, &everyone, &owner, &session],
@@ -744,8 +820,9 @@ pub async fn get_shared(
 }
 
 /// `GET /shared/sessions/{owner}/{id}/download`: the same for a desktop
-/// app that keeps the laps as a reference. Without the setup and the
-/// game's session info.
+/// app that keeps the laps as a reference. Without the session's setup, and
+/// of the game's session info only whether the setup was fixed; a lap has
+/// its setup if the owner shares it with the user.
 pub async fn download_shared(
     State(state): State<SharedState>,
     Auth(session): Auth,
@@ -759,11 +836,12 @@ pub async fn download_shared(
         .ok_or_else(|| ApiError::not_found("session"))?;
     let row = db
         .query_one(
-            "SELECT ended_at, game_version, conditions FROM sessions
+            "SELECT ended_at, game_version, conditions, session_info FROM sessions
              WHERE owner_id = $1 AND id = $2",
             &[&owner, &id],
         )
         .await?;
+    let info: Option<serde_json::Value> = row.get(3);
     let s = shared.summary;
     Ok(Json(SharedSessionDownload {
         session: Session {
@@ -779,7 +857,7 @@ pub async fn download_shared(
             ended_at: row.get(0),
             conditions: serde_json::from_value(row.get(2))?,
             setup: None,
-            session_info: None,
+            session_info: sy_analysis::setup::shared_session_info(info.as_ref()),
             origin: Origin::Synced {
                 server: state.config.public_url.clone(),
                 owner: shared.owner.username.clone(),
@@ -803,27 +881,30 @@ pub async fn check_foreign(
     let db = state.conn().await?;
     let everyone = everyone_allowed(&db).await?;
     let ids: Vec<Uuid> = req.laps.iter().map(|l| *l.id.as_uuid()).collect();
-    let readable: std::collections::HashSet<(Uuid, String)> = db
+    // readable laps → whether their setup is too
+    let readable: std::collections::HashMap<(Uuid, String), bool> = db
         .query(
             &format!(
-                "SELECT l.id, u.username FROM laps l JOIN users u ON u.id = l.owner_id
-                 WHERE l.id = ANY($3) AND l.owner_id <> $1 AND {}",
-                lap_readable_with_session("$1", "$2")
+                "SELECT l.id, u.username, {setup} FROM laps l JOIN users u ON u.id = l.owner_id
+                 WHERE l.id = ANY($3) AND l.owner_id <> $1 AND {readable}",
+                setup = with_session(&lap_setup_readable("$1", "$2")),
+                readable = lap_readable_with_session("$1", "$2")
             ),
             &[&session.user.id, &everyone, &ids],
         )
         .await?
         .iter()
-        .map(|r| (r.get(0), r.get(1)))
+        .map(|r| ((r.get(0), r.get(1)), r.get(2)))
         .collect();
-    Ok(Json(ForeignLapCheckResult {
-        lost: req
-            .laps
-            .into_iter()
-            .filter(|l| !readable.contains(&(*l.id.as_uuid(), l.owner.clone())))
-            .map(|l| l.id)
-            .collect(),
-    }))
+    let mut result = ForeignLapCheckResult::default();
+    for l in req.laps {
+        match readable.get(&(*l.id.as_uuid(), l.owner.clone())) {
+            None => result.lost.push(l.id),
+            Some(false) => result.setup_lost.push(l.id),
+            Some(true) => {}
+        }
+    }
+    Ok(Json(result))
 }
 
 /// A lap the user may read, with who drove it.
@@ -835,6 +916,14 @@ pub struct ReadableLap {
     pub owner: Option<UserRef>,
     /// Origin of the lap's session (as stored for its owner)
     pub origin: Origin,
+    /// Game of the lap's session
+    pub game: sy_model::GameId,
+    /// The session's setup, for the user's own laps only
+    pub session_setup: Option<serde_json::Value>,
+    /// The lap has a setup the user may not see
+    pub setup_hidden: bool,
+    /// The lap's session prescribed the setup
+    pub fixed_setup: bool,
 }
 
 impl ReadableLap {
@@ -856,20 +945,20 @@ pub async fn readable_lap(
     id: Uuid,
 ) -> ApiResult<Option<ReadableLap>> {
     let everyone = everyone_allowed(db).await?;
-    let columns = crate::data::LAP_COLUMNS
-        .split(", ")
-        .map(|c| format!("l.{c}"))
-        .collect::<Vec<_>>()
-        .join(", ");
     let Some(r) = db
         .query_opt(
             &format!(
-                "SELECT {columns}, u.id, u.username, u.display_name, s.origin
+                "SELECT {columns}, u.id, u.username, u.display_name, s.origin, s.game,
+                        CASE WHEN l.owner_id = $1 THEN s.setup END,
+                        l.setup IS NOT NULL AND NOT {setup_readable},
+                        coalesce((s.session_info->>'fixed_setup')::boolean, false)
                  FROM laps l
                  JOIN sessions s ON s.owner_id = l.owner_id AND s.id = l.session_id
                  JOIN users u ON u.id = l.owner_id
                  WHERE l.id = $3 AND {readable}
                  ORDER BY (l.owner_id = $1) DESC, l.owner_id LIMIT 1",
+                columns = viewer_lap_columns("$1", "$2", true),
+                setup_readable = lap_setup_readable("$1", "$2"),
                 readable = lap_readable("$1", "$2")
             ),
             &[&viewer, &everyone, &id],
@@ -878,15 +967,19 @@ pub async fn readable_lap(
     else {
         return Ok(None);
     };
-    let owner_id: Uuid = r.get(12);
+    let owner_id: Uuid = r.get(13);
     Ok(Some(ReadableLap {
         lap: lap_from_row(&r)?,
         owner: (owner_id != viewer).then(|| UserRef {
             id: owner_id,
-            username: r.get(13),
-            display_name: r.get(14),
+            username: r.get(14),
+            display_name: r.get(15),
         }),
-        origin: serde_json::from_value(r.get(15))?,
+        origin: serde_json::from_value(r.get(16))?,
+        game: bad(r.get(17), "sessions.game")?,
+        session_setup: r.get(18),
+        setup_hidden: r.get(19),
+        fixed_setup: r.get(20),
     }))
 }
 

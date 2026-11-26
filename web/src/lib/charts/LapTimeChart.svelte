@@ -95,37 +95,32 @@
 	<figcaption class="mb-2 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1">
 		<span class="text-sm font-medium text-zinc-200">Session performance</span>
 		<span class="flex flex-wrap gap-x-4 text-xs text-zinc-400" aria-hidden="true">
-			<span class="inline-flex items-center gap-1.5"
-				><svg width="10" height="10"><circle cx="5" cy="5" r="4" class="fill-zinc-100" /></svg>Clean
-				lap</span
-			>
-			<span class="inline-flex items-center gap-1.5"
-				><svg width="10" height="10"><circle cx="5" cy="5" r="4" class="fill-purple-400" /></svg
-				>Best</span
-			>
+			<span class="inline-flex items-center gap-1.5">
+				<svg width="10" height="10"><circle cx="5" cy="5" r="4" class="fill-zinc-100" /></svg>Clean
+				lap
+			</span>
+			<span class="inline-flex items-center gap-1.5">
+				<svg width="10" height="10"><circle cx="5" cy="5" r="4" class="fill-purple-400" /></svg>Best
+			</span>
 			{#if hasUnclean}
-				<span class="inline-flex items-center gap-1.5"
-					><svg width="10" height="10"
-						><circle
+				<span class="inline-flex items-center gap-1.5">
+					<svg width="10" height="10">
+						<circle
 							cx="5"
 							cy="5"
 							r="3.5"
 							class="fill-zinc-950 stroke-zinc-400"
 							stroke-width="1.5"
-						/></svg
-					>Invalid, out- or in-lap</span
-				>
+						/>
+					</svg>Invalid, out- or in-lap
+				</span>
 			{/if}
 			{#if hasOffScale}
-				<span class="inline-flex items-center gap-1.5"
-					><svg width="10" height="10"
-						><path
-							d="M5 1 L9 8 L1 8 Z"
-							class="fill-zinc-950 stroke-zinc-400"
-							stroke-width="1.5"
-						/></svg
-					>Off the scale (much slower or faster)</span
-				>
+				<span class="inline-flex items-center gap-1.5">
+					<svg width="10" height="10">
+						<path d="M5 1 L9 8 L1 8 Z" class="fill-zinc-950 stroke-zinc-400" stroke-width="1.5" />
+					</svg>Off the scale (much slower or faster)
+				</span>
 			{/if}
 		</span>
 	</figcaption>
@@ -156,8 +151,10 @@
 						y={y(t)}
 						text-anchor="end"
 						dominant-baseline="middle"
-						class="fill-zinc-400 text-[11px] tabular-nums">{formatTick(t, scale.step)}</text
+						class="fill-zinc-400 text-[11px] tabular-nums"
 					>
+						{formatTick(t, scale.step)}
+					</text>
 				{/each}
 				<!-- lap axis -->
 				{#each xTicks as n (n)}
@@ -165,8 +162,10 @@
 						x={x(n)}
 						y={HEIGHT - 8}
 						text-anchor="middle"
-						class="fill-zinc-400 text-[11px] tabular-nums">{n}</text
+						class="fill-zinc-400 text-[11px] tabular-nums"
 					>
+						{n}
+					</text>
 				{/each}
 
 				{#if hovered}
@@ -236,8 +235,10 @@
 						x={right ? bx + 10 : bx - 10}
 						y={y(best.lapTimeMs!) + 14}
 						text-anchor={right ? 'start' : 'end'}
-						class="fill-zinc-300 font-mono text-[11px]">{formatLapTime(best.lapTimeMs)}</text
+						class="fill-zinc-300 font-mono text-[11px]"
 					>
+						{formatLapTime(best.lapTimeMs)}
+					</text>
 				{/if}
 			</svg>
 

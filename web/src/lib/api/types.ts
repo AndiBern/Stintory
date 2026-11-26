@@ -136,6 +136,33 @@ export interface LapTrace {
 	driver?: string | null;
 	/** The owner of a lap someone shared (server only) */
 	owner?: UserRef | null;
+	/** The car setup the lap was driven with, if known and visible to the user */
+	setup?: LapSetup | null;
+	/** The lap has a setup, but its owner doesn't share it with the user (server only) */
+	setupHidden?: boolean;
+	/** The lap's session prescribed the setup (as far as the game says) */
+	fixedSetup?: boolean;
+}
+
+/** A lap's car setup as a list of settings, in the game's order. */
+export interface LapSetup {
+	/**
+	 * `lap`: recorded with the lap. `session`: the lap is older than setups
+	 * per lap, so this is the last setup of its session (it may have changed
+	 * after the lap).
+	 */
+	source: 'lap' | 'session';
+	items: SetupItem[];
+}
+
+/** One setting of a car setup. */
+export interface SetupItem {
+	/** e.g. `Tires` or `Chassis · Left front` */
+	group: string;
+	/** e.g. `Camber` */
+	name: string;
+	/** As the game shows it, e.g. `-3.5 deg` */
+	value: string;
 }
 
 /** Which laps a reference list contains. */
@@ -571,10 +598,13 @@ export interface InviteLinkPreview {
 	alreadyMember: boolean;
 }
 
-/** Who something is shared with. */
+/**
+ * Who something is shared with. Users and teams can also see the car setups
+ * (`withSetup`); everyone on the server never.
+ */
 export type Grantee =
-	| { kind: 'user'; id: string; username: string; displayName: string }
-	| { kind: 'team'; id: string; name: string }
+	| { kind: 'user'; id: string; username: string; displayName: string; withSetup?: boolean }
+	| { kind: 'team'; id: string; name: string; withSetup?: boolean }
 	| { kind: 'everyone' };
 
 export type SharingMode = 'inherit' | 'custom';

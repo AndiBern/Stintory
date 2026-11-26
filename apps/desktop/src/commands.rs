@@ -11,8 +11,8 @@ use sy_analysis::{DEFAULT_STEP_M, MIN_STEP_M};
 use sy_capture::pipeline::{self, RunOptions};
 use sy_model::api::{
     AppInfo, BackendKind, CompareData, CompareRequest, ConditionsView, ExportRequest, ExportResult,
-    F1CaptureSettings, ImportProgress, ImportResult, LapSummary, LmuCaptureSettings, McpCommand,
-    OriginView, ProtonBridgeSettings, REFERENCE_LAPS_MAX, RecorderStatus, ReferenceLap,
+    F1CaptureSettings, ImportProgress, ImportResult, LapSetup, LapSummary, LmuCaptureSettings,
+    McpCommand, OriginView, ProtonBridgeSettings, REFERENCE_LAPS_MAX, RecorderStatus, ReferenceLap,
     ReferenceScope, SessionDetail, SessionSummary, Settings, SyncStatus,
 };
 use sy_model::{Lap, LapId, LapTelemetry, Origin, SessionId};
@@ -160,8 +160,15 @@ pub async fn compare_laps(
         .map_err(Into::into)
 }
 
-/// A lap to compare: metadata, telemetry and who drove it (if not the user).
-pub(crate) type ComparisonLap = (Lap, LapTelemetry, Option<String>);
+/// A lap to compare: metadata, telemetry, who drove it (if not the user)
+/// and its setup.
+pub(crate) struct ComparisonLap {
+    lap: Lap,
+    telemetry: LapTelemetry,
+    driver: Option<String>,
+    setup: Option<LapSetup>,
+    fixed_setup: bool,
+}
 
 /// Loads laps for a comparison.
 pub(crate) fn comparison_laps(
@@ -171,12 +178,27 @@ pub(crate) fn comparison_laps(
     ids.into_iter()
         .map(|id| {
             let lap = store.lap(id)?;
-            let driver = match store.session(lap.session_id)?.origin {
+            let session = store.session(lap.session_id)?;
+            // kept copies of shared laps: the lap's own setup only
+            let session_setup = match &session.origin {
+                Origin::Synced { .. } => None,
+                Origin::Own | Origin::Imported { .. } => session.setup.as_ref(),
+            };
+            let setup =
+                sy_analysis::setup::lap_setup(session.game, lap.setup.as_ref(), session_setup);
+            let fixed_setup = sy_analysis::setup::fixed_setup(session.session_info.as_ref());
+            let driver = match session.origin {
                 Origin::Own => None,
                 Origin::Imported { driver_name } => driver_name,
                 Origin::Synced { owner, .. } => Some(owner),
             };
-            Ok((lap, store.lap_telemetry(id)?, driver))
+            Ok(ComparisonLap {
+                telemetry: store.lap_telemetry(id)?,
+                lap,
+                driver,
+                setup,
+                fixed_setup,
+            })
         })
         .collect()
 }
@@ -186,10 +208,12 @@ pub(crate) fn compare_loaded(
     laps: &[ComparisonLap],
     step_m: f32,
 ) -> Result<CompareData, sy_analysis::AnalysisError> {
-    let refs: Vec<_> = laps.iter().map(|(l, t, _)| (l, t)).collect();
+    let refs: Vec<_> = laps.iter().map(|l| (&l.lap, &l.telemetry)).collect();
     let mut data = sy_analysis::compare(&refs, step_m)?;
-    for (trace, (_, _, driver)) in data.laps.iter_mut().zip(laps) {
-        trace.driver = driver.clone();
+    for (trace, l) in data.laps.iter_mut().zip(laps) {
+        trace.driver.clone_from(&l.driver);
+        trace.setup.clone_from(&l.setup);
+        trace.fixed_setup = l.fixed_setup;
     }
     Ok(data)
 }

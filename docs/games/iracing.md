@@ -15,6 +15,8 @@ Implementation: `crates/sy-source-iracing`. Sources: the official iRacing SDK 1.
   - The position is set to (0, 0) at every line crossing **on track**. That bounds the drift (< 4 m from GPS in every lap) and puts it in the same frame as the GPS position.
   - Before the first crossing on track (out-lap from the pits, joined mid-lap, after a tow) the position is unknown and left empty. The line crossing in the pit lane is ~25 m off the racing line, so it is no anchor.
 - Session info YAML is ISO-8859-1. It contains **all drivers** (names, ids, iRating, license) and results. We keep only a whitelist (`session_info.rs`).
+- The player's setup is `CarSetup` in the session info: sections (`Tires`, `Chassis`, `Suspension`, … depending on the car) with the corners and settings as the garage shows them ("-3.5 deg"). Each lap keeps the one it was driven with; every `.ibt` in the recordings had a single setup. `UpdateCount`, `LastHotPressure`, `LastTemps*` and `TreadRemaining` are measured, not set, and left out of the comparison.
+- Fixed setup: `WeekendInfo.WeekendOptions.IsFixedSetup` (1 in every recording; `DriverSetupLoadTypeName` was `fixed` and `DriverSetupIsModified` 0). Sessions recorded before it was kept don't say.
 
 ## Lap behavior
 

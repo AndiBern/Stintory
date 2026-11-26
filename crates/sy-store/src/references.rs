@@ -141,6 +141,7 @@ mod tests {
                     session_id: s,
                     number: n,
                     start_time_s: Some(f64::from(n) * 100.0),
+                    setup: None,
                     lap_time_ms: Some(ms),
                     sector_times_ms: vec![],
                     valid: true,
