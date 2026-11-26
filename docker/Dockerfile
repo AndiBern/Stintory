@@ -15,7 +15,7 @@ COPY web/ web/
 RUN npm run build -w web
 
 # --- server ---------------------------------------------------------------
-FROM rust:1.99-slim-trixie AS server
+FROM rust:1.100-slim-trixie AS server
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

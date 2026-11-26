@@ -6,35 +6,35 @@ resolver = "3"
 members = ["crates/*", "apps/desktop"]
 
 [workspace.package]
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
-rust-version = "1.99"
+rust-version = "1.100"
 authors = ["The Stintory Contributors"]
 # Each crate sets its own `license` (see docs/ARCHITECTURE.md §12.1).
 
 [workspace.dependencies]
 # internal
-sy-model = { path = "crates/sy-model", version = "0.6.1" }
-sy-store = { path = "crates/sy-store", version = "0.6.1" }
-sy-capture = { path = "crates/sy-capture", version = "0.6.1" }
-sy-analysis = { path = "crates/sy-analysis", version = "0.6.1" }
-sy-source-f1 = { path = "crates/sy-source-f1", version = "0.6.1" }
-sy-source-lmu = { path = "crates/sy-source-lmu", version = "0.6.1" }
-sy-source-iracing = { path = "crates/sy-source-iracing", version = "0.6.1" }
-sy-server = { path = "crates/sy-server", version = "0.6.1" }
-sy-sync = { path = "crates/sy-sync", version = "0.6.1" }
-sy-bridge = { path = "crates/sy-bridge", version = "0.6.1" }
-sy-mcp = { path = "crates/sy-mcp", version = "0.6.1" }
+sy-model = { path = "crates/sy-model", version = "0.7.0" }
+sy-store = { path = "crates/sy-store", version = "0.7.0" }
+sy-capture = { path = "crates/sy-capture", version = "0.7.0" }
+sy-analysis = { path = "crates/sy-analysis", version = "0.7.0" }
+sy-source-f1 = { path = "crates/sy-source-f1", version = "0.7.0" }
+sy-source-lmu = { path = "crates/sy-source-lmu", version = "0.7.0" }
+sy-source-iracing = { path = "crates/sy-source-iracing", version = "0.7.0" }
+sy-server = { path = "crates/sy-server", version = "0.7.0" }
+sy-sync = { path = "crates/sy-sync", version = "0.7.0" }
+sy-bridge = { path = "crates/sy-bridge", version = "0.7.0" }
+sy-mcp = { path = "crates/sy-mcp", version = "0.7.0" }
 
 # external
 arrow-array = "60"
 arrow-schema = "60"
 parquet = { version = "60", default-features = false, features = ["arrow", "zstd"] }
 bytes = "1"
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4"
 thiserror = "2"
 time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
