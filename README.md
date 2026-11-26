@@ -43,7 +43,7 @@ Download the file for your system from the [latest release](https://github.com/A
   flatpak install --user Stintory_<version>_x86_64.flatpak
   ```
 
-  If the runtime it needs is missing, Flatpak installs it from Flathub. Then start Stintory from your app menu or with `flatpak run de.stintory.Stintory`.
+  If the runtime it needs is missing, Flatpak installs it from Flathub. Then start Stintory from your app menu or with `flatpak run io.github.andibern.stintory`.
 
 To update, install the file from the newer release the same way.
 

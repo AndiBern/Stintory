@@ -4,12 +4,12 @@ SPDX-FileCopyrightText: 2026 The Stintory Contributors
 SPDX-License-Identifier: MIT
 -->
 <component type="desktop-application">
-  <id>de.stintory.Stintory</id>
+  <id>io.github.andibern.stintory</id>
   <metadata_license>MIT</metadata_license>
   <project_license>AGPL-3.0-or-later</project_license>
   <name>Stintory</name>
   <summary>Record and compare your sim racing laps</summary>
-  <developer id="de.stintory">
+  <developer id="io.github.andibern">
     <name>Stintory</name>
   </developer>
   <description>
@@ -36,7 +36,7 @@ SPDX-License-Identifier: MIT
       <caption>Four laps side by side on the track map, colored by throttle</caption>
     </screenshot>
   </screenshots>
-  <launchable type="desktop-id">de.stintory.Stintory.desktop</launchable>
+  <launchable type="desktop-id">io.github.andibern.stintory.desktop</launchable>
   <url type="homepage">https://github.com/AndiBern/Stintory</url>
   <url type="bugtracker">https://github.com/AndiBern/Stintory/issues</url>
   <content_rating type="oars-1.1"/>

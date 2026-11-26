@@ -4,9 +4,9 @@
 Type=Application
 Name=Stintory
 Comment=Record and compare your sim racing laps
-Exec=de.stintory.Stintory
-Icon=de.stintory.Stintory
+Exec=io.github.andibern.stintory
+Icon=io.github.andibern.stintory
 Terminal=false
 Categories=Utility;
 Keywords=telemetry;racing;lap;iRacing;F1;Le Mans Ultimate;
-StartupWMClass=de.stintory.Stintory
+StartupWMClass=io.github.andibern.stintory

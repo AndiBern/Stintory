@@ -39,7 +39,7 @@ game ─shared memory─► sy-bridge.exe (in the prefix) ─127.0.0.1:20790─�
    launch option like
 
    ```text
-   PROTON_REMOTE_DEBUG_CMD=/home/you/.var/app/de.stintory.Stintory/data/de.stintory.Stintory/proton/sy-bridge.exe %command%
+   PROTON_REMOTE_DEBUG_CMD=/home/you/.var/app/io.github.andibern.stintory/data/io.github.andibern.stintory/proton/sy-bridge.exe %command%
    ```
 
    (Stintory copies `sy-bridge.exe` there at every start, so the path
@@ -246,11 +246,11 @@ packages while it runs, and writes
 
 ```sh
 flatpak install --user target/flatpak/Stintory_*_x86_64.flatpak
-flatpak run de.stintory.Stintory
+flatpak run io.github.andibern.stintory
 ```
 
 In the Flatpak the data directory is
-`~/.var/app/de.stintory.Stintory/data/de.stintory.Stintory/`, and the
+`~/.var/app/io.github.andibern.stintory/data/io.github.andibern.stintory/`, and the
 launch option points at the `sy-bridge.exe` there. Steam installed as a
 Flatpak (`com.valvesoftware.Steam`) can't see that folder;
 

@@ -25,7 +25,7 @@ else
 	exit 1
 fi
 
-manifest=apps/desktop/flatpak/de.stintory.Stintory.yml
+manifest=apps/desktop/flatpak/io.github.andibern.stintory.yml
 if [ ! -f apps/desktop/flatpak/shared-modules/README.md ]; then
 	git submodule update --init apps/desktop/flatpak/shared-modules
 fi
@@ -45,5 +45,5 @@ $builder --user --install-deps-from=flathub --force-clean \
 	"$out/build" "$manifest"
 # --runtime-repo: installing the file adds Flathub for the runtime if needed
 flatpak build-bundle --runtime-repo="$flathub" \
-	"$out/repo" "$out/Stintory_${version}_x86_64.flatpak" de.stintory.Stintory
+	"$out/repo" "$out/Stintory_${version}_x86_64.flatpak" io.github.andibern.stintory
 echo "Flatpak: $out/Stintory_${version}_x86_64.flatpak"

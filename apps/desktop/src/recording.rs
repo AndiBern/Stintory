@@ -909,15 +909,15 @@ mod tests {
     #[test]
     fn launch_options_survive_the_shell_and_shlex() {
         let exe = Path::new(
-            "/home/me/.var/app/de.stintory.Stintory/data/de.stintory.Stintory/proton/sy-bridge.exe",
+            "/home/me/.var/app/io.github.andibern.stintory/data/io.github.andibern.stintory/proton/sy-bridge.exe",
         );
         assert_eq!(
             launch_option(exe, 20790).unwrap(),
-            "PROTON_REMOTE_DEBUG_CMD=/home/me/.var/app/de.stintory.Stintory/data/de.stintory.Stintory/proton/sy-bridge.exe %command%"
+            "PROTON_REMOTE_DEBUG_CMD=/home/me/.var/app/io.github.andibern.stintory/data/io.github.andibern.stintory/proton/sy-bridge.exe %command%"
         );
         assert_eq!(
             launch_option(exe, 20800).unwrap(),
-            "PROTON_REMOTE_DEBUG_CMD=\"/home/me/.var/app/de.stintory.Stintory/data/de.stintory.Stintory/proton/sy-bridge.exe --port 20800\" %command%"
+            "PROTON_REMOTE_DEBUG_CMD=\"/home/me/.var/app/io.github.andibern.stintory/data/io.github.andibern.stintory/proton/sy-bridge.exe --port 20800\" %command%"
         );
         assert_eq!(
             launch_option(Path::new("/home/Max Mustermann/sy-bridge.exe"), 20790).unwrap(),
