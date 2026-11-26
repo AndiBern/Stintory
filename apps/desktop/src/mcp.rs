@@ -29,7 +29,7 @@ use crate::commands::{compare_loaded, comparison_laps, session_detail};
 
 /// Must equal `identifier` in tauri.conf.json: Tauri keeps the app's data
 /// in `<platform data directory>/<identifier>`.
-const IDENTIFIER: &str = "de.stintory.Stintory";
+const IDENTIFIER: &str = "io.github.andibern.stintory";
 
 /// Most laps compared at once (as in the app).
 const MAX_LAPS: usize = 8;

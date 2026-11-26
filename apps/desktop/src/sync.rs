@@ -36,7 +36,7 @@ use crate::commands::EVENT_SESSIONS_CHANGED;
 pub const EVENT_SYNC_STATUS: &str = "sync-status";
 
 /// Keychain service name of the device token (the account is the server URL).
-const KEYCHAIN_SERVICE: &str = "de.stintory.Stintory";
+const KEYCHAIN_SERVICE: &str = "io.github.andibern.stintory";
 /// Settings: cached account and device name for display while offline.
 const SYNC_USERNAME: &str = "sync.username";
 const SYNC_DEVICE_NAME: &str = "sync.device_name";

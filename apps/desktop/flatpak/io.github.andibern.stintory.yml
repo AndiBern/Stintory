@@ -12,7 +12,7 @@
 # The app id is the Tauri identifier (apps/desktop/tauri.conf.json), which
 # also names the data directory and the single-instance D-Bus name.
 
-id: de.stintory.Stintory
+id: io.github.andibern.stintory
 runtime: org.gnome.Platform
 runtime-version: "51"
 sdk: org.gnome.Sdk
@@ -21,7 +21,7 @@ sdk-extensions:
 # GTK takes the program name from argv[0], and Wayland compositors find the
 # window's icon through the desktop file named after it. So the command is
 # a link named like the app id (see the install steps below).
-command: de.stintory.Stintory
+command: io.github.andibern.stintory
 finish-args:
   - --share=ipc
   - --socket=wayland
@@ -57,30 +57,30 @@ modules:
       # builds the frontend first (beforeBuildCommand)
       - PATH="$CARGO_HOME/bin:$PATH" npx tauri build --no-bundle -- --locked
       - install -Dm755 target/release/stintory /app/bin/stintory
-      - ln -s stintory /app/bin/de.stintory.Stintory
+      - ln -s stintory /app/bin/io.github.andibern.stintory
       # install_bridge finds it next to the app and copies it to the data
       # directory, where Steam can start it
       - install -Dm644 sy-bridge.exe /app/bin/sy-bridge.exe
-      - install -Dm644 apps/desktop/flatpak/de.stintory.Stintory.desktop
-        /app/share/applications/de.stintory.Stintory.desktop
+      - install -Dm644 apps/desktop/flatpak/io.github.andibern.stintory.desktop
+        /app/share/applications/io.github.andibern.stintory.desktop
       # the release that software centres show as the version (without one
       # they show the Flatpak branch, "master"), dated with the build day;
       # the screenshot URLs point to the tag of that version
       - |
         version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n 1)
         sed -e "s/@VERSION@/$version/" -e "s/@DATE@/$(date -u +%F)/" \
-          apps/desktop/flatpak/de.stintory.Stintory.metainfo.xml \
-          > de.stintory.Stintory.metainfo.xml
-        install -Dm644 de.stintory.Stintory.metainfo.xml \
-          /app/share/metainfo/de.stintory.Stintory.metainfo.xml
+          apps/desktop/flatpak/io.github.andibern.stintory.metainfo.xml \
+          > io.github.andibern.stintory.metainfo.xml
+        install -Dm644 io.github.andibern.stintory.metainfo.xml \
+          /app/share/metainfo/io.github.andibern.stintory.metainfo.xml
       - install -Dm644 apps/desktop/icons/32x32.png
-        /app/share/icons/hicolor/32x32/apps/de.stintory.Stintory.png
+        /app/share/icons/hicolor/32x32/apps/io.github.andibern.stintory.png
       - install -Dm644 apps/desktop/icons/128x128.png
-        /app/share/icons/hicolor/128x128/apps/de.stintory.Stintory.png
+        /app/share/icons/hicolor/128x128/apps/io.github.andibern.stintory.png
       - install -Dm644 apps/desktop/icons/128x128@2x.png
-        /app/share/icons/hicolor/256x256/apps/de.stintory.Stintory.png
+        /app/share/icons/hicolor/256x256/apps/io.github.andibern.stintory.png
       - install -Dm644 apps/desktop/icons/icon.png
-        /app/share/icons/hicolor/512x512/apps/de.stintory.Stintory.png
+        /app/share/icons/hicolor/512x512/apps/io.github.andibern.stintory.png
     sources:
       - type: dir
         path: ../../..
