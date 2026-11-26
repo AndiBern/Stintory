@@ -14,24 +14,34 @@ function recorder() {
 }
 
 describe('ServerApiClient', () => {
-	it('sends only kind and id of the people and teams shared with', async () => {
+	it('sends who it is shared with and who sees the setups too', async () => {
 		const { calls, api } = recorder();
 		await api.setSessionSharing('s 1', {
 			mode: 'custom',
 			grants: [
 				{ kind: 'user', id: 'u1', username: 'max', displayName: 'Max' },
-				{ kind: 'team', id: 't1', name: 'Sim Racers' },
+				{ kind: 'team', id: 't1', name: 'Sim Racers', withSetup: true },
 				{ kind: 'everyone' }
 			]
 		});
+		await api.setDefaultSharing([{ kind: 'team', id: 't1', name: 'Sim Racers', withSetup: true }]);
 		expect(calls).toEqual([
 			{
 				method: 'PUT',
 				path: '/sessions/s%201/sharing',
 				body: {
 					mode: 'custom',
-					grants: [{ kind: 'user', id: 'u1' }, { kind: 'team', id: 't1' }, { kind: 'everyone' }]
+					grants: [
+						{ kind: 'user', id: 'u1', withSetup: false },
+						{ kind: 'team', id: 't1', withSetup: true },
+						{ kind: 'everyone' }
+					]
 				}
+			},
+			{
+				method: 'PUT',
+				path: '/me/default-sharing',
+				body: { grants: [{ kind: 'team', id: 't1', withSetup: true }] }
 			}
 		]);
 	});

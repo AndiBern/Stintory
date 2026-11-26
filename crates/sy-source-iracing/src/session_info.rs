@@ -126,6 +126,10 @@ pub struct SessionInfo {
     pub player: PlayerInfo,
     /// The player's car setup (iRacing structure, values as text)
     pub setup: Option<serde_json::Value>,
+    /// The session prescribes the setup (`WeekendOptions.IsFixedSetup`).
+    /// Top level, like Le Mans Ultimate's session info.
+    #[serde(default)]
+    pub fixed_setup: Option<bool>,
 }
 
 impl SessionInfo {
@@ -219,6 +223,7 @@ impl SessionInfo {
                 tyre_compounds: tyre_compounds(&y),
             },
             setup: y.get("CarSetup").map(Yaml::to_json),
+            fixed_setup: i("WeekendInfo.WeekendOptions.IsFixedSetup").map(|v| v != 0),
         }
     }
 
@@ -272,6 +277,9 @@ WeekendInfo:
  SessionID: 1
  SubSessionID: 2
  Official: 1
+ WeekendOptions:
+  NumStarters: 0
+  IsFixedSetup: 1
 SessionInfo:
  Sessions:
  - SessionNum: 0
@@ -329,6 +337,8 @@ DriverInfo:
             info.setup.as_ref().unwrap()["Tires"]["LeftFront"]["ColdPressure"],
             "124 kPa"
         );
+        assert_eq!(info.fixed_setup, Some(true));
+        assert_eq!(SessionInfo::from_yaml("", 0.0).fixed_setup, None);
     }
 
     #[test]

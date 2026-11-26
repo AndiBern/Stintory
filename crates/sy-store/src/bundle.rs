@@ -60,9 +60,11 @@ impl Store {
     /// The file is written next to `path` first and renamed when complete,
     /// so a failed export never leaves a half-written file behind.
     ///
-    /// Privacy: setups are left out unless [`ExportOptions::include_setup`],
-    /// and the game's player identity (name, customer id) is removed from the
-    /// session info. The driver name in the file is the one the user chose.
+    /// Privacy: setups are left out unless [`ExportOptions::include_setup`]
+    /// (and always for laps someone shared on a server: their setups aren't
+    /// the user's to pass on), and the game's player identity (name, customer
+    /// id) is removed from the session info. The driver name in the file is
+    /// the one the user chose.
     pub fn export_bundle(
         &self,
         path: &Path,
@@ -94,11 +96,16 @@ impl Store {
                 laps: 0,
             };
             for (&id, laps) in &mut chosen {
-                let session = for_export(self.session(id)?, options.include_setup);
-                writer.add_session(&session)?;
+                let session = self.session(id)?;
+                let setups =
+                    options.include_setup && !matches!(session.origin, Origin::Synced { .. });
+                writer.add_session(&for_export(session, setups))?;
                 stats.sessions += 1;
                 laps.sort_by_key(|l| l.number);
-                for lap in laps.iter() {
+                for lap in laps.iter_mut() {
+                    if !setups {
+                        lap.setup = None;
+                    }
                     let bytes = self.blobs().get(&lap.blob_hash)?;
                     writer.add_lap(lap, &bytes)?;
                     stats.laps += 1;
@@ -248,6 +255,7 @@ mod tests {
                     session_id: s.id,
                     number,
                     start_time_s: Some(f64::from(number) * 95.0),
+                    setup: Some(serde_json::json!({"rear_wing": number})),
                     lap_time_ms: Some(95_000 + number),
                     sector_times_ms: vec![],
                     valid: true,
@@ -317,7 +325,16 @@ mod tests {
             "{info}"
         );
         assert!(info.contains("\"car_id\":67"));
-        assert_eq!(dst.laps(s.id).unwrap(), laps, "same ids, times, hashes");
+        let without_setups: Vec<Lap> = laps
+            .iter()
+            .cloned()
+            .map(|l| Lap { setup: None, ..l })
+            .collect();
+        assert_eq!(
+            dst.laps(s.id).unwrap(),
+            without_setups,
+            "same ids, times, hashes; no setups"
+        );
         assert_eq!(
             dst.lap_telemetry(laps[1].id).unwrap(),
             src.lap_telemetry(laps[1].id).unwrap()
@@ -363,8 +380,42 @@ mod tests {
         );
         let mut r = BundleReader::open(File::open(&file).unwrap()).unwrap();
         assert!(r.sessions().unwrap()[0].setup.is_some());
-        let numbers: Vec<u32> = r.laps().unwrap().iter().map(|l| l.number).collect();
+        let laps = r.laps().unwrap();
+        let numbers: Vec<u32> = laps.iter().map(|l| l.number).collect();
         assert_eq!(numbers, [1, 3]);
+        assert_eq!(laps[1].setup, Some(serde_json::json!({"rear_wing": 3})));
+    }
+
+    #[test]
+    fn setups_of_shared_laps_are_never_exported() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path()).unwrap();
+        // a kept copy of a lap someone shared with its setup
+        let s = Session {
+            id: SessionId::new(),
+            origin: Origin::Synced {
+                server: "https://stintory.example".into(),
+                owner: "ben".into(),
+            },
+            ..session(&mut store)
+        };
+        store.insert_session(&s).unwrap();
+        let l = lap(&mut store, &s, 1);
+        assert!(store.lap(l.id).unwrap().setup.is_some());
+        let file = dir.path().join("ben.stintory");
+        store
+            .export_bundle(
+                &file,
+                &ExportSelection {
+                    sessions: vec![s.id],
+                    laps: vec![],
+                },
+                &options(true),
+            )
+            .unwrap();
+        let mut r = BundleReader::open(File::open(&file).unwrap()).unwrap();
+        assert_eq!(r.sessions().unwrap()[0].setup, None);
+        assert_eq!(r.laps().unwrap()[0].setup, None);
     }
 
     #[test]

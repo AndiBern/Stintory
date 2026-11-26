@@ -156,7 +156,17 @@ fn bundle_roundtrip_with_real_data() {
     dst.import_bundle(&file).unwrap();
     src.with(|s| {
         let laps = s.laps(id).unwrap();
-        assert_eq!(dst.laps(id).unwrap(), laps);
+        // every lap has its setup, which the export leaves out
+        assert!(laps.iter().all(|l| l.setup.is_some()));
+        let without_setup: Vec<_> = laps
+            .iter()
+            .cloned()
+            .map(|mut l| {
+                l.setup = None;
+                l
+            })
+            .collect();
+        assert_eq!(dst.laps(id).unwrap(), without_setup);
         for lap in &laps {
             assert_eq!(
                 dst.lap_telemetry(lap.id).unwrap(),

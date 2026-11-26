@@ -10,7 +10,9 @@ use std::collections::BTreeMap;
 
 use serde_json::{Map, Value, json};
 use sy_model::SessionType;
-use sy_model::api::{CompareData, CornerLapStats, ReferenceScope, SessionSummary};
+use sy_model::api::{
+    CompareData, CornerLapStats, LapTrace, ReferenceScope, SessionSummary, SetupItem, SetupSource,
+};
 use sy_model::channel::names;
 use uuid::Uuid;
 
@@ -95,7 +97,9 @@ pub fn definitions() -> Vec<Value> {
             "Corner by corner analysis of a lap against a reference lap of the same track and \
              car: time lost per corner (split into entry and exit), and for both laps braking \
              point and pressure, lift, apex speed and gear, throttle pick-up, full throttle and \
-             exit speed. The corners with the most time lost are listed first in biggestLosses.",
+             exit speed. The corners with the most time lost are listed first in biggestLosses. \
+             setup tells whether both laps were driven with the same car setup, and if not, \
+             which settings differ; fixedSetup, if a session prescribed the setup.",
             json!({
                 "type": "object",
                 "properties": {
@@ -468,9 +472,14 @@ impl<D: Data> Ctx<'_, D> {
                 .map(|(a, b)| (a as f32 - b as f32) / 1000.0),
             _ => None,
         };
+        let setup = match (data.laps.get(1), data.laps.first()) {
+            (Some(l), Some(r)) => setup_comparison(l, r),
+            _ => Value::Null,
+        };
         let Some(report) = &data.corners else {
             return Ok(json!({
                 "lap": lap_info(1), "reference": lap_info(0), "gapS": opt(gap, 3),
+                "setup": setup,
                 "corners": [],
                 "note": "no corner analysis: the reference lap has no lateral acceleration data",
             }));
@@ -509,6 +518,7 @@ impl<D: Data> Ctx<'_, D> {
             "lap": lap_info(1),
             "reference": lap_info(0),
             "gapS": opt(gap, 3),
+            "setup": setup,
             "biggestLosses": biggest_losses,
             "biggestGains": biggest_gains,
             "corners": corners,
@@ -645,9 +655,150 @@ impl<D: Data> Ctx<'_, D> {
     }
 }
 
+/// Whether a lap and the reference were driven with the same car setup:
+/// the settings that differ, or why that isn't known.
+fn setup_comparison(lap: &LapTrace, reference: &LapTrace) -> Value {
+    let mut out = setup_differences(lap, reference);
+    if lap.fixed_setup || reference.fixed_setup {
+        // the session prescribed the setup
+        out["fixedSetup"] = json!({ "lap": lap.fixed_setup, "reference": reference.fixed_setup });
+    }
+    out
+}
+
+fn setup_differences(lap: &LapTrace, reference: &LapTrace) -> Value {
+    let unknown = |t: &LapTrace| {
+        if t.setup_hidden {
+            "not shared with the user"
+        } else {
+            "not known (not recorded, or left out of an export or a share)"
+        }
+    };
+    let (a, b) = match (&lap.setup, &reference.setup) {
+        (Some(a), Some(b)) => (a, b),
+        (None, _) => {
+            return json!({ "known": false, "note": format!("the lap's setup is {}", unknown(lap)) });
+        }
+        (_, None) => {
+            return json!({ "known": false, "note": format!("the reference's setup is {}", unknown(reference)) });
+        }
+    };
+    let key = |i: &SetupItem| (i.group.clone(), i.name.clone());
+    let theirs: BTreeMap<_, _> = b.items.iter().map(|i| (key(i), &i.value)).collect();
+    let mine: BTreeMap<_, _> = a.items.iter().map(|i| (key(i), &i.value)).collect();
+    let mut differences = Vec::new();
+    for i in &a.items {
+        let other = theirs.get(&key(i));
+        if other != Some(&&i.value) {
+            differences.push(json!({
+                "setting": format!("{} / {}", i.group, i.name), "lap": i.value, "reference": other,
+            }));
+        }
+    }
+    for i in b.items.iter().filter(|i| !mine.contains_key(&key(i))) {
+        differences.push(json!({
+            "setting": format!("{} / {}", i.group, i.name), "lap": null, "reference": i.value,
+        }));
+    }
+    let mut out =
+        json!({ "known": true, "same": differences.is_empty(), "differences": differences });
+    if a.source == SetupSource::Session || b.source == SetupSource::Session {
+        out["note"] = json!(
+            "a lap recorded before setups were kept per lap has the last setup of its session, \
+             which may have changed after the lap"
+        );
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sy_model::api::LapSetup;
+
+    fn trace(setup: Option<LapSetup>, setup_hidden: bool) -> LapTrace {
+        LapTrace {
+            lap_id: sy_model::LapId::new(),
+            session_id: sy_model::SessionId::new(),
+            number: 1,
+            lap_time_ms: Some(90_000),
+            valid: true,
+            channels: BTreeMap::new(),
+            delta_s: Vec::new(),
+            driver: None,
+            owner: None,
+            setup,
+            setup_hidden,
+            fixed_setup: false,
+        }
+    }
+
+    fn setup(source: SetupSource, items: &[(&str, &str, &str)]) -> Option<LapSetup> {
+        Some(LapSetup {
+            source,
+            items: items
+                .iter()
+                .map(|(g, n, v)| SetupItem {
+                    group: (*g).into(),
+                    name: (*n).into(),
+                    value: (*v).into(),
+                })
+                .collect(),
+        })
+    }
+
+    #[test]
+    fn setup_differences_for_the_model() {
+        let lap = trace(
+            setup(
+                SetupSource::Lap,
+                &[
+                    ("Aero", "Rear wing", "8"),
+                    ("Tires", "Pressure FL", "136 kPa"),
+                ],
+            ),
+            false,
+        );
+        let reference = trace(
+            setup(
+                SetupSource::Session,
+                &[
+                    ("Aero", "Rear wing", "9"),
+                    ("Tires", "Pressure FL", "136 kPa"),
+                    ("Fuel", "Level", "20 l"),
+                ],
+            ),
+            false,
+        );
+        let c = setup_comparison(&lap, &reference);
+        assert_eq!(c["same"], false);
+        assert_eq!(
+            c["differences"],
+            json!([
+                { "setting": "Aero / Rear wing", "lap": "8", "reference": "9" },
+                { "setting": "Fuel / Level", "lap": null, "reference": "20 l" },
+            ])
+        );
+        assert!(
+            c["note"]
+                .as_str()
+                .unwrap()
+                .contains("last setup of its session")
+        );
+        assert_eq!(setup_comparison(&lap, &lap)["same"], true);
+        let hidden = setup_comparison(&lap, &trace(None, true));
+        assert_eq!(hidden["known"], false);
+        assert!(hidden["note"].as_str().unwrap().contains("not shared"));
+        assert!(hidden.get("fixedSetup").is_none());
+        let fixed = LapTrace {
+            fixed_setup: true,
+            ..trace(None, true)
+        };
+        assert_eq!(
+            setup_comparison(&lap, &fixed)["fixedSetup"],
+            json!({ "lap": false, "reference": true })
+        );
+    }
 
     #[test]
     fn formats_for_the_model() {

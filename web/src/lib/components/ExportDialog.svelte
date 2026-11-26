@@ -154,7 +154,8 @@
 				<span>
 					Include car setups
 					<span class="block text-xs text-zinc-400"
-						>Off by default. Your game account name and id are never exported.</span
+						>Off by default. Setups of laps someone shared with you and your game account name and
+						id are never exported.</span
 					>
 				</span>
 			</label>

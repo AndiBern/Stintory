@@ -30,8 +30,17 @@
 	const everyone = $derived(grants.some((g) => g.kind === 'everyone'));
 	const people = $derived(grants.filter((g) => g.kind === 'user'));
 
-	function hasTeam(id: string): boolean {
-		return grants.some((g) => g.kind === 'team' && g.id === id);
+	function teamGrant(id: string): Grantee | undefined {
+		return grants.find((g) => g.kind === 'team' && g.id === id);
+	}
+
+	/** The car setups are shared too (users and teams only). */
+	function withSetup(g: Grantee | undefined): boolean {
+		return !!g && g.kind !== 'everyone' && !!g.withSetup;
+	}
+
+	function setSetup(kind: 'user' | 'team', id: string, on: boolean) {
+		grants = grants.map((g) => (g.kind === kind && g.id === id ? { ...g, withSetup: on } : g));
 	}
 
 	function setEveryone(on: boolean) {
@@ -99,18 +108,35 @@
 		</span>
 	</label>
 
+	<p class="text-xs text-zinc-500">
+		Car setups are shared only with the teams and people marked “Setups too”, never with everyone.
+	</p>
+
 	<fieldset class="flex flex-col gap-1">
 		<legend class="mb-1 text-zinc-400">Teams</legend>
 		{#each teams as team (team.id)}
-			<label class="flex items-center gap-2">
-				<input
-					type="checkbox"
-					checked={hasTeam(team.id)}
-					onchange={(e) => setTeam(team, e.currentTarget.checked)}
-				/>
-				{team.name}
-				<span class="text-xs text-zinc-500">{team.memberCount} members</span>
-			</label>
+			{@const grant = teamGrant(team.id)}
+			<div class="flex flex-wrap items-center justify-between gap-x-3">
+				<label class="flex items-center gap-2">
+					<input
+						type="checkbox"
+						checked={!!grant}
+						onchange={(e) => setTeam(team, e.currentTarget.checked)}
+					/>
+					{team.name}
+					<span class="text-xs text-zinc-500">{team.memberCount} members</span>
+				</label>
+				{#if grant}
+					<label class="flex items-center gap-1.5 text-xs text-zinc-400">
+						<input
+							type="checkbox"
+							checked={withSetup(grant)}
+							onchange={(e) => setSetup('team', team.id, e.currentTarget.checked)}
+						/>
+						Setups too
+					</label>
+				{/if}
+			</div>
 		{:else}
 			<p class="text-xs text-zinc-500">You are not in a team yet.</p>
 		{/each}
@@ -120,7 +146,17 @@
 		<span class="text-zinc-400">People</span>
 		{#each people as p (p.id)}
 			<div class="flex items-center justify-between gap-2">
-				<span>{p.displayName} <span class="text-xs text-zinc-500">@{p.username}</span></span>
+				<span class="min-w-0 flex-1"
+					>{p.displayName} <span class="text-xs text-zinc-500">@{p.username}</span></span
+				>
+				<label class="flex items-center gap-1.5 text-xs text-zinc-400">
+					<input
+						type="checkbox"
+						checked={withSetup(p)}
+						onchange={(e) => setSetup('user', p.id, e.currentTarget.checked)}
+					/>
+					Setups too
+				</label>
 				<button
 					type="button"
 					class="rounded border border-zinc-700 px-2 py-0.5 text-xs hover:bg-zinc-800"

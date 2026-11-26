@@ -26,13 +26,11 @@ See [RESEARCH.md](RESEARCH.md) for the telemetry interfaces and the competitor a
 
 **Core features** (all built, see §11)
 - Automatically record every session/lap while driving, with no clicks needed
-- Session and lap browser, lap view with traces over distance, **compare two laps** (delta trace, track map, synced cursor)
+- Session and lap browser, lap view with traces over distance, **compare two laps** (delta trace, track map, synced cursor, the car setups side by side)
 - Export selected sessions/laps to a file; import files (own or other people's)
 - Optional sync to a self-hosted server; teams; share with users/teams/everyone, with a per-user default plus per-session/lap override
 - Secure login: password, passkeys, TOTP
 - Web UI on the server with the same analysis views
-
-**Not built yet** (candidates, see §11): live overlays/HUD, voice coaching, built-in AI tips (an external assistant can use the MCP endpoint, §6.5), setup sharing, video sync, mobile app, OIDC login.
 
 **Never:** recording other cars or other drivers' data.
 
@@ -112,12 +110,12 @@ LICENSES/                  # REUSE-style full texts: AGPL-3.0-or-later, MIT, Apa
 Driver        id, display_name, game_identities{iracing_cust_id, f1_name, lmu_name}
 Session       id (UUIDv7), game, game_version, track_key, layout_key, car_key,
               session_type (practice/qualy/race/time_trial/hotlap), started_at, ended_at,
-              weather/track_temp/air_temp, setup (JSON), session_info (JSON, filtered to player only, §5.2),
+              weather/track_temp/air_temp, setup (JSON, the last one seen), session_info (JSON, filtered to player only, §5.2),
               origin (own | imported:<bundle> | synced:<server>/<user>), sharing (see §9.2)
 Lap           id (UUIDv7), session_id, number, lap_time_ms, sector_times_ms[],
               valid (bool) + invalid_reason, flags (out_lap, in_lap, pit, flashback, incident),
               tire/fuel at start, blob_hash (sha256 of Parquet file), sample_rate_hz,
-              sharing (see §9.2), notes, tags
+              setup (JSON, the one the lap was driven with), sharing (see §9.2), notes, tags
 Track         game, track_key, layout_key, display_name, length_m, sector boundaries, outline (polyline)
 Car           game, car_key, display_name, class
 RawSpool      (client only) id, game, started_at, path, state (recording | processing | processed | failed), keep (bool)
@@ -213,6 +211,7 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
   - Marks out-laps (started in pits), in-laps (ending in pits), incomplete laps (session end, tow, disconnect). These are stored but flagged.
   - Validity: F1 and LMU flags directly. iRacing: incident counter increase, `PlayerTrackSurface` off-track, or pit road during the lap → invalid with a reason.
   - Rewind: truncate buffer to `to_time`, flag lap `flashback`.
+  - Setup: a lap keeps the setup that was on the car at its first sample away from the pit lane (after the garage). A change during the lap (in-car adjustment) counts from the next lap; if the game hasn't sent a setup by then, the first one that arrives counts. The session keeps the last setup seen. Laps recorded before setups were kept per lap have none; for the user's own laps the comparison falls back to the session's setup and says so.
   - On lap completion: build Arrow batch → Parquet → hash → write blob → insert Lap row (one transaction). Combined with the raw spool (§5.1), a crash loses nothing.
 - **iRacing specifics:** wait on `IRSDKDataValidEvent`. Parse the var table once per session (re-parse if the header changes). Parse the session YAML on `sessionInfoUpdate` change. Player car only. `.ibt` import uses the same var-table parser plus the same recorder (file source instead of shm source).
 - **F1 specifics:** bind UDP port (configurable, default 20777; this PC only, or all interfaces for consoles/other PCs). Group by `sessionUID` + player car index. One Frame per Car Telemetry packet with the latest Motion, LapData, Status, MotionEx and Telemetry2. Branch on `packetFormat` 2025/2026. Player index from header. Optional UDP forwarding to other tools (many users run several F1 apps). Details: docs/games/f1.md.
@@ -225,6 +224,7 @@ Pipeline: `game → reader → raw spool file (append) → parser → recorder �
 3. **Track map**: from `pos_x/y` (F1/LMU) or dead reckoning/GPS (iRacing). Store a smoothed outline per track (median of several clean laps) in `Track.outline`. Color by delta/speed/throttle/brake.
 4. **Sectors**: game sectors.
 5. **Corner insights** (local, no AI service; `sy_analysis::corners`): corners come from the reference lap's curvature `g_lat / speed²` (smoothed, radius < 250 m, same-direction bends < 30 m apart merged, a bend inside the next corner's braking zone belongs to that corner). Per corner and lap: braking point, peak pressure and release, lift, lowest speed and gear, throttle pick-up, full throttle, exit speed, and the time lost, split into entry (to the apex) and exit. The lap is split into one segment per corner (approach → next approach, wrapping around the line), so the times lost add up to the gap between the laps. Checked on the iRacing, F1 and LMU recordings (e.g. Hungaroring 14, Suzuka 18, Snetterton 300 11 corners). Shown in the compare view (corner list sorted by time lost, corner numbers on the map) and part of `CompareData`. AI assistants read it through the server's MCP endpoint (`/mcp`, docs/SERVER.md): OAuth 2.1 (own authorization server, client ID metadata documents or dynamic registration, PKCE, resource-bound access tokens, rotating refresh tokens with reuse detection) or read-only device tokens; tools for tracks, sessions, best laps, corner comparison and telemetry excerpts. Without a server, the desktop app serves the same tools from the local data: `stintory mcp` speaks MCP over stdio for assistants on the same computer (Settings → AI shows the command). The tools and the protocol live once in `sy-mcp` behind a small data trait.
+6. **Setups**: each game's setup becomes a list of settings (section, name, value as the game shows it), so the setups of compared laps can be put side by side. Values the game measures rather than the driver sets are left out (iRacing's last hot pressures, tire temperatures and wear; LMU's estimate of how many laps the fuel and energy last). The compare view shows only the settings that differ unless asked for all, says for which laps the setup isn't known or not shared, and which laps come from a session with a fixed setup (as iRacing and LMU report it; F1 25 doesn't). The MCP comparison lists the differences too.
 
 Frontend gets resampled arrays (not raw) for comparison. These are computed on demand and cached in memory (LRU).
 
@@ -233,7 +233,7 @@ Frontend gets resampled arrays (not raw) for comparison. These are computed on d
 1. **Dashboard / Recorder status**: which games are detected, current session, last laps.
 2. **Sessions list**: filter by game/track/car/date/type, with a notice when new sessions are hidden by the filters; best lap; laps count; sharing badge; origin (own/imported/synced).
 3. **Session detail**: lap table (time, sectors, valid, flags, fuel, tires); select laps for comparison; share dialog; notes/tags.
-4. **Lap view / Compare**: stacked traces vs distance (speed, throttle/brake, steering, gear, RPM, delta). Track map with synced cursor. Zoom/pan synced across charts. Choose "reference" = own best / any lap / imported / lap shared with me.
+4. **Lap view / Compare**: stacked traces vs distance (speed, throttle/brake, steering, gear, RPM, delta). Track map with synced cursor. Zoom/pan synced across charts. The car setups of the laps side by side (§6.6). Choose "reference" = own best / any lap / imported / lap shared with me.
 5. **Library of references**: laps from imports and laps shared with me (by users or teams) for the same track+car.
 6. **Import/Export**: select sessions/laps → export bundle. Drag & drop `.stintory` / `.ibt` to import.
 7. **Share dialog** (session or lap): "Use my default" or custom: an "Everyone on this server" toggle plus a picker for users and teams, with a summary of who can see it.
@@ -254,7 +254,7 @@ laps/<id>.parquet    telemetry (same file as in the local store, stored uncompre
 ```
 - Import dedups by session and lap id: what is already stored stays as it is. New sessions get `origin = imported` with the driver name from the file (a re-exported imported session keeps its original driver).
 - Imported sessions are never merged with own sessions by the "same session" rule (§5, `find_duplicate_session` only matches sessions of the same origin). Session keys contain the driver's game id, so two drivers in the same online session get different ids.
-- Privacy on export: the user picks the driver name (empty = anonymous, remembered for the next export). Setups are left out unless chosen. The game account name and id are removed from the session info.
+- Privacy on export: the user picks the driver name (empty = anonymous, remembered for the next export). Setups (the session's and the laps') are left out unless chosen, and never exported for laps someone shared: those aren't the user's to pass on. The game account name and id are removed from the session info.
 - Additional exports: **CSV** per lap (for spreadsheets; header `name [unit]`, empty = no value).
 - `format_version` is checked; newer minor versions are readable, unknown fields are ignored. Entry sizes are limited on import (ZIP bombs).
 
@@ -293,8 +293,9 @@ Sharing mode   on Session and Lap: inherit | custom
 - Access check: user U may read a lap if U is the owner, or U is directly granted, or U is a member of a granted team, or there is an `everyone` grant (and it's allowed on the server). Team access is evaluated **live**: whoever joins later sees team-shared laps, and whoever leaves loses access. A user can only share with teams they are in; when they leave a team, what they shared with it stops being shared.
 - A session is visible to others through its readable laps: a private session with one shared lap shows up with that lap only.
 - Changing the default affects everything still on `inherit`. The UI says so explicitly ("applies to 37 sessions using your default").
-- Sharing grants read access to session/lap metadata and telemetry only. Others can never edit, re-share or delete. The car setup and the game's session info are not part of what others get.
-- Revocation: clients that cached a foreign lap (used as a reference) get the lost-access list on their next sync (`POST /shared/check`) and delete the cached copy. Disconnecting the app from the server deletes all cached copies, because access can't be checked anymore. Copies already exported to `.stintory` can't be recalled; the share dialog mentions this.
+- Sharing grants read access to session/lap metadata and telemetry only. Others can never edit, re-share or delete. Of the game's session info, others get only whether the session had a fixed setup.
+- Setups: a user or team grant can include the car setups ("with setups", off by default); a grant to everyone never does. Who may see a lap's setup follows the same resolution as the lap itself, counting only grants with setups. Others get the setup each lap was driven with, never the session's.
+- Revocation: clients that cached a foreign lap (used as a reference) get the lost-access list on their next sync (`POST /shared/check`) and delete the cached copy. Laps still shared, but no longer with setups, lose the setup in the copy. Disconnecting the app from the server deletes all cached copies, because access can't be checked anymore. Copies already exported to `.stintory` can't be recalled; the share dialog mentions this.
 - User lookup for the picker: exact username, or autocomplete among people you share a team with. There is no full user directory, so usernames on a server aren't enumerable.
 
 ### 9.3 Authentication
@@ -389,9 +390,9 @@ The MVP is complete (version 0.2.0, November 2026): the core features of §2 wor
 | Area | What works |
 |---|---|
 | Capture | iRacing live (Windows) and `.ibt` import (everywhere). F1 25 incl. the 2026 Season Pack format over UDP (Windows, Linux, consoles/other PCs, forwarding to other apps). LMU from the shared memory (Windows, and Linux through `sy-bridge.exe` or from `/dev/shm` when another shared-memory bridge puts it there). Raw spool with crash recovery, player-only filtering before the spool. All three games checked with real recordings, which are golden tests (docs/games/) |
-| Analysis | Distance resampling, delta, track map, game sectors, corner insights (§6.5) |
-| Desktop app | Sessions, session detail, lap view, compare with synced traces and map, reference laps (own, imported, shared), `.stintory` + CSV export/import, settings for every game, Proton bridge setup, MCP over stdio (`stintory mcp`), close to tray, single instance |
-| Server | Docker image; accounts with password, TOTP + recovery codes and passkeys; admin page and CLI reset; device login from the desktop app; sync of own data; teams, invites and sharing; web UI with the same views as the desktop app; reference laps across users; MCP endpoint with OAuth 2.1 (docs/SERVER.md) |
+| Analysis | Distance resampling, delta, track map, game sectors, corner insights (§6.5), setups side by side (§6.6) |
+| Desktop app | Sessions, session detail, lap view, compare with synced traces, map and setups, reference laps (own, imported, shared), `.stintory` + CSV export/import, settings for every game, Proton bridge setup, MCP over stdio (`stintory mcp`), close to tray, single instance |
+| Server | Docker image; accounts with password, TOTP + recovery codes and passkeys; admin page and CLI reset; device login from the desktop app; sync of own data; teams, invites and sharing (setups only where chosen); web UI with the same views as the desktop app; reference laps across users; MCP endpoint with OAuth 2.1 (docs/SERVER.md) |
 
 **Known gaps**
 - Sharing changes while offline (outbox, §9.5): the desktop app needs a server connection for teams and sharing.

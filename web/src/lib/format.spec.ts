@@ -101,6 +101,16 @@ describe('formatAudience', () => {
 			formatAudience([{ kind: 'team', id: 't', name: 'Sim Racers' }, { kind: 'everyone' }])
 		).toBe('Everyone on this server');
 	});
+
+	it('says who sees the setups too', () => {
+		expect(
+			formatAudience([
+				{ kind: 'team', id: 't', name: 'Sim Racers', withSetup: true },
+				{ kind: 'user', id: 'u', username: 'max', displayName: 'Max M.', withSetup: true },
+				{ kind: 'user', id: 'v', username: 'ben', displayName: 'ben', withSetup: false }
+			])
+		).toBe('Team Sim Racers with setups, Max M. (@max) with setups, @ben');
+	});
 });
 
 describe('formatDriver', () => {

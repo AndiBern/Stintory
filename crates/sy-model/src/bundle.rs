@@ -385,6 +385,7 @@ mod tests {
             sample_rate_hz: 60.0,
             sample_count: 3,
             start_time_s: Some(356.7),
+            setup: None,
         }
     }
 

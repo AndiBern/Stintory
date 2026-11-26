@@ -124,6 +124,12 @@ CREATE TABLE sync_deleted (
 ) STRICT;
 "#;
 
+/// Version 6: the car setup each lap was driven with (JSON, like
+/// `sessions.setup`). Laps recorded before have none.
+const V6_LAP_SETUP: &str = r#"
+ALTER TABLE laps ADD COLUMN setup TEXT;
+"#;
+
 /// All migrations in order. Index + 1 = schema version.
 const MIGRATIONS: &[&str] = &[
     V1_INITIAL,
@@ -131,6 +137,7 @@ const MIGRATIONS: &[&str] = &[
     V3_NAMES_AND_SETTINGS,
     V4_DUPLICATES,
     V5_SYNC,
+    V6_LAP_SETUP,
 ];
 
 /// Migrates the database to the latest schema version. Each migration runs

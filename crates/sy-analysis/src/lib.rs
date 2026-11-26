@@ -10,12 +10,14 @@
 //! - [`corners`]: finds the corners and measures braking, lowest speed,
 //!   throttle and time lost in each.
 //! - [`lap_conditions`]: weather, fuel and tyres of one lap.
+//! - [`setup`]: car setups as lists of settings, to put them side by side.
 //!
 //! Used by both the desktop backend and sy-server, so the analysis exists
 //! exactly once.
 
 mod conditions;
 mod corners;
+pub mod setup;
 
 use std::collections::BTreeMap;
 
@@ -244,6 +246,9 @@ pub fn compare(laps: &[(&Lap, &LapTelemetry)], step_m: f32) -> Result<CompareDat
             delta_s,
             driver: None,
             owner: None,
+            setup: None,
+            setup_hidden: false,
+            fixed_setup: false,
         });
     }
     Ok(CompareData {
@@ -303,6 +308,7 @@ mod tests {
             sample_rate_hz: 10.0,
             sample_count: 0,
             start_time_s: None,
+            setup: None,
         }
     }
 

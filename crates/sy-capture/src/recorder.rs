@@ -20,6 +20,10 @@
 //!   the same ids (the store skips duplicates).
 //! - [`SourceEvent::Rewind`] removes the rewound samples and flags the lap
 //!   as `flashback`. Laps already emitted are not taken back.
+//! - A lap's setup is the one on the car at its first sample away from the
+//!   pit lane, after the garage. Changed later in the lap (in-car
+//!   adjustments), it counts from the next lap. If the game sent no setup
+//!   by then, the first one that arrives during the lap counts.
 
 use std::collections::VecDeque;
 
@@ -116,6 +120,9 @@ struct LapBuffer {
     last_in_pits: bool,
     /// At least one sample away from the pit lane.
     left_pits: bool,
+    /// The car setup of the lap; settled at the first sample away from the
+    /// pit lane (see the module docs).
+    setup: Option<serde_json::Value>,
 }
 
 #[derive(Debug)]
@@ -149,10 +156,16 @@ impl LapBuffer {
             invalid: Vec::new(),
             last_in_pits: frame.in_pits,
             left_pits: false,
+            setup: None,
         }
     }
 
-    fn push(&mut self, frame: Frame) {
+    /// Adds a sample; `setup` is the car's setup now.
+    fn push(&mut self, frame: Frame, setup: Option<&serde_json::Value>) {
+        if !self.left_pits || self.setup.is_none() {
+            // in the pits the setup can still change
+            self.setup = setup.cloned();
+        }
         self.times.push(frame.session_time);
         self.dists.push(frame.lap_dist);
         self.last_in_pits = frame.in_pits;
@@ -292,15 +305,15 @@ impl Recorder {
             None => {
                 let mut buf = LapBuffer::start(&frame, &config);
                 buf.flashback = std::mem::take(&mut active.flashback_next);
-                buf.push(frame);
+                buf.push(frame, active.meta.setup.as_ref());
                 active.current = Some(buf);
             }
-            Some(cur) if frame.lap == cur.lap => cur.push(frame),
+            Some(cur) if frame.lap == cur.lap => cur.push(frame, active.meta.setup.as_ref()),
             Some(cur) if frame.lap > cur.lap => {
                 // Lap boundary: the current lap is complete.
                 let finished = std::mem::replace(cur, LapBuffer::start(&frame, &config));
                 let end_time = frame.session_time;
-                cur.push(frame);
+                cur.push(frame, active.meta.setup.as_ref());
                 let official = take_early_time(&mut active.early_times, finished.lap);
                 active.pending.push_back(PendingLap {
                     buffer: finished,
@@ -324,7 +337,7 @@ impl Recorder {
                 }
                 let old = active.current.take().expect("matched Some");
                 let mut buf = LapBuffer::start(&frame, &config);
-                buf.push(frame);
+                buf.push(frame, active.meta.setup.as_ref());
                 active.current = Some(buf);
                 // emit the taken-back laps first, so laps come out in order
                 self.flush_pending(false, out);
@@ -629,6 +642,7 @@ fn build_lap(
             valid,
             invalid_reason: (!valid).then(|| reasons.join(", ")),
             flags,
+            setup: buffer.setup,
         },
         telemetry,
     })

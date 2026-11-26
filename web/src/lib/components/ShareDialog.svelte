@@ -148,8 +148,9 @@
 				</p>
 			{/if}
 			<p class="text-xs text-zinc-500">
-				Others can look at the laps and compare them with theirs, but not change or delete them. Car
-				setups are not shared. Copies someone exported can't be taken back.
+				Others can look at the laps and compare them with theirs, but not change or delete them.
+				They see the car setups only where you chose “Setups too”. Copies someone exported can't be
+				taken back.
 			</p>
 		{:else if !error}
 			<p class="text-sm text-zinc-400">Loading…</p>

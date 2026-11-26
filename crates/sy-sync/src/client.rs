@@ -13,7 +13,7 @@ use sy_model::remote::{
     BlobHashes, CurrentDevice, ForeignLap, ForeignLapCheck, ForeignLapCheckResult, MissingBlobs,
     NewDevice, SharedSessionDownload, SyncChanges, SyncPush, SyncPushResult, TokenRequest,
 };
-use sy_model::{BlobHash, LapId, SessionId};
+use sy_model::{BlobHash, SessionId};
 
 /// Errors talking to the server.
 #[derive(Debug, thiserror::Error)]
@@ -276,16 +276,18 @@ impl Client {
         self.json(self.http.get(url)).await
     }
 
-    /// Which of the kept laps of other users the user may not see anymore.
-    pub async fn lost_laps(&self, laps: Vec<ForeignLap>) -> Result<Vec<LapId>, SyncError> {
-        let r: ForeignLapCheckResult = self
-            .json(
-                self.http
-                    .post(self.url("/shared/check"))
-                    .json(&ForeignLapCheck { laps }),
-            )
-            .await?;
-        Ok(r.lost)
+    /// Which of the kept laps of other users the user may not see anymore,
+    /// and of which they may not see the setup anymore.
+    pub async fn lost_laps(
+        &self,
+        laps: Vec<ForeignLap>,
+    ) -> Result<ForeignLapCheckResult, SyncError> {
+        self.json(
+            self.http
+                .post(self.url("/shared/check"))
+                .json(&ForeignLapCheck { laps }),
+        )
+        .await
     }
 
     /// Any JSON request of the server API as the device's user (teams and

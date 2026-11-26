@@ -158,15 +158,20 @@ Nothing is shared until a user says so.
   becomes the reference; on the comparison page *Use as reference* changes
   it and *Add laps…* adds more.
 - Others can only look: they can't change, delete or share your laps. They
-  get the laps and the session's basic data (track, car, conditions), not
-  your car setup.
+  get the laps and the session's basic data (track, car, conditions).
+- **Car setups**: tick *Setups too* next to a team or person in the share
+  dialog (or the default) to let them see the setup each lap was driven
+  with, side by side with theirs on the comparison page. Off by default,
+  never for *Everyone on this server*. Without it they see that the setup
+  isn't shared; whether the session had a fixed setup they always see.
 - Access is checked on every request. Leaving or being removed from a team
   ends the access to what is shared with it, and ends what that person
   shared with the team. Deleting a team does the same for everyone.
 - In the desktop app, *Sharing* and *Teams* appear once it is connected to
   the server. A shared session you open there is kept on the computer as a
   reference (also a lap you choose under *Compare with…*); the next sync
-  deletes it when it isn't shared with you anymore,
+  deletes it when it isn't shared with you anymore (or only its setup, when
+  just that isn't shared anymore),
   and disconnecting from the server deletes all such copies. Exported files
   can't be taken back.
 - Admins can turn off "everyone on this server" on the Admin page (useful on

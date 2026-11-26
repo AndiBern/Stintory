@@ -369,8 +369,8 @@ impl Store {
         let inserted = tx.execute(
             "INSERT INTO laps (id, session_id, number, lap_time_ms, sector_times_ms, valid,
                 invalid_reason, flags, blob_hash, sample_rate_hz, sample_count, created_at,
-                updated_at, start_time_s)
-             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13
+                updated_at, start_time_s, setup)
+             SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13, ?14
              WHERE EXISTS (SELECT 1 FROM sessions WHERE id = ?2)",
             params![
                 lap.id.to_string(),
@@ -386,6 +386,7 @@ impl Store {
                 lap.sample_count,
                 now,
                 lap.start_time_s,
+                lap.setup.as_ref().map(serde_json::to_string).transpose()?,
             ],
         )?;
         if inserted == 0 {
@@ -448,6 +449,9 @@ impl Store {
         let start_time_s = new.start_time_s;
         let mut lap = new.into_lap(hash, telemetry.sample_rate_hz(), sample_count);
         lap.id = existing;
+        if lap.setup.is_none() {
+            lap.setup = old.setup.clone();
+        }
         let now = timefmt::now();
         let tx = self.conn.transaction()?;
         tx.execute(
@@ -457,7 +461,7 @@ impl Store {
         tx.execute(
             "UPDATE laps SET lap_time_ms = ?2, sector_times_ms = ?3, valid = ?4,
                 invalid_reason = ?5, flags = ?6, blob_hash = ?7, sample_rate_hz = ?8,
-                sample_count = ?9, start_time_s = ?10, updated_at = ?11
+                sample_count = ?9, start_time_s = ?10, updated_at = ?11, setup = ?12
              WHERE id = ?1",
             params![
                 lap.id.to_string(),
@@ -471,6 +475,7 @@ impl Store {
                 lap.sample_count,
                 start_time_s,
                 now,
+                lap.setup.as_ref().map(serde_json::to_string).transpose()?,
             ],
         )?;
         let orphaned = tx.execute(
@@ -489,7 +494,7 @@ impl Store {
     pub fn laps(&self, session_id: SessionId) -> Result<Vec<Lap>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, session_id, number, lap_time_ms, sector_times_ms, valid, invalid_reason,
-                    flags, blob_hash, sample_rate_hz, sample_count, start_time_s
+                    flags, blob_hash, sample_rate_hz, sample_count, start_time_s, setup
              FROM laps WHERE session_id = ?1 ORDER BY number, id",
         )?;
         let rows = stmt.query_map([session_id.to_string()], |row| Ok(read_lap(row)))?;
@@ -501,7 +506,7 @@ impl Store {
         self.conn
             .query_row(
                 "SELECT id, session_id, number, lap_time_ms, sector_times_ms, valid, invalid_reason,
-                        flags, blob_hash, sample_rate_hz, sample_count, start_time_s
+                        flags, blob_hash, sample_rate_hz, sample_count, start_time_s, setup
                  FROM laps WHERE id = ?1",
                 [id.to_string()],
                 |row| Ok(read_lap(row)),
@@ -587,6 +592,7 @@ pub(crate) fn read_lap(row: &Row<'_>) -> Result<Lap> {
         sample_rate_hz: row.get(9)?,
         sample_count: row.get(10)?,
         start_time_s: row.get(11)?,
+        setup: json(row, 12)?,
     })
 }
 
@@ -637,6 +643,7 @@ mod tests {
             session_id,
             number,
             start_time_s: Some(f64::from(number) * 100.0),
+            setup: None,
             lap_time_ms: Some(time_ms),
             sector_times_ms: vec![30_000, 30_000, time_ms - 60_000],
             valid,
@@ -762,10 +769,10 @@ mod tests {
         let mut store = Store::open(dir.path()).unwrap();
         let s = session(datetime!(2026-11-10 18:00 UTC));
         store.insert_session(&s).unwrap();
-        let live = store
-            .insert_lap(new_lap(s.id, 1, 90_000, true), &telemetry(10, 1.0))
-            .unwrap();
-        // the game file has GPS: one channel more
+        let mut with_setup = new_lap(s.id, 1, 90_000, true);
+        with_setup.setup = Some(serde_json::json!({"rear_wing": 3}));
+        let live = store.insert_lap(with_setup, &telemetry(10, 1.0)).unwrap();
+        // the game file has GPS: one channel more (and here no setup)
         let richer = telemetry(10, 1.0)
             .with_channel(Channel::new(
                 "iracing.lat",
@@ -779,6 +786,11 @@ mod tests {
         assert_eq!(stored.id, live.id);
         assert_ne!(stored.blob_hash, live.blob_hash);
         assert_eq!(store.laps(s.id).unwrap().len(), 1);
+        assert_eq!(
+            store.lap(live.id).unwrap().setup,
+            Some(serde_json::json!({"rear_wing": 3})),
+            "the setup is kept"
+        );
         assert!(
             store
                 .lap_telemetry(live.id)

@@ -8,6 +8,7 @@
 	import { api, type CompareData, type Corner, type LapTrace } from '#lib/api/index.ts';
 	import CompareCharts from '#lib/charts/CompareCharts.svelte';
 	import CornerTable from '#lib/charts/CornerTable.svelte';
+	import SetupTable from '#lib/charts/SetupTable.svelte';
 	import { cornerRange } from '#lib/charts/corners.ts';
 	import FollowMap from '#lib/charts/FollowMap.svelte';
 	import { lapColor } from '#lib/charts/colors.ts';
@@ -276,6 +277,8 @@
 			</li>
 		{/each}
 	</ul>
+
+	<SetupTable laps={data.laps} labels={shortLabels} />
 
 	<CornerTable {data} labels={shortLabels} selected={selectedCorner} onselect={showCorner} />
 

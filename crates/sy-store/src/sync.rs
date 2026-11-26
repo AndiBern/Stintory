@@ -60,7 +60,7 @@ impl Store {
         let mut stmt = self.conn().prepare(&format!(
             "SELECT l.id, l.session_id, l.number, l.lap_time_ms, l.sector_times_ms, l.valid,
                     l.invalid_reason, l.flags, l.blob_hash, l.sample_rate_hz, l.sample_count,
-                    l.start_time_s, l.updated_at
+                    l.start_time_s, l.setup, l.updated_at
              FROM laps l JOIN sessions s ON s.id = l.session_id
              LEFT JOIN sync_pushed p ON p.kind = 'lap' AND p.id = l.id
              WHERE (p.version IS NULL OR p.version != l.updated_at) AND {own}
@@ -68,7 +68,7 @@ impl Store {
              LIMIT ?1"
         ))?;
         let rows = stmt.query_map([limit as i64], |r| {
-            Ok((read_lap(r), r.get::<_, String>(12)?))
+            Ok((read_lap(r), r.get::<_, String>(13)?))
         })?;
         for row in rows {
             let (lap, version) = row?;
@@ -203,6 +203,7 @@ impl Store {
                     valid: lap.valid,
                     invalid_reason: None,
                     flags: lap.flags,
+                    setup: None,
                 };
                 if self.find_duplicate_lap(&probe)?.is_some() {
                     return Ok(false);
@@ -249,7 +250,7 @@ impl Store {
         tx.execute(
             "UPDATE laps SET number = ?2, lap_time_ms = ?3, sector_times_ms = ?4, valid = ?5,
                 invalid_reason = ?6, flags = ?7, blob_hash = ?8, sample_rate_hz = ?9,
-                sample_count = ?10, start_time_s = ?11, updated_at = ?12
+                sample_count = ?10, start_time_s = ?11, updated_at = ?12, setup = ?13
              WHERE id = ?1",
             params![
                 lap.id.to_string(),
@@ -264,6 +265,7 @@ impl Store {
                 lap.sample_count,
                 lap.start_time_s,
                 now,
+                lap.setup.as_ref().map(serde_json::to_string).transpose()?,
             ],
         )?;
         tx.commit()?;
@@ -335,6 +337,7 @@ mod tests {
                     session_id: s,
                     number: n,
                     start_time_s: Some(f64::from(n) * 100.0),
+                    setup: None,
                     lap_time_ms: Some(90_000),
                     sector_times_ms: vec![],
                     valid: true,

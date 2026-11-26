@@ -44,12 +44,19 @@ pub struct SyncReport {
     pub pulled_deletions: u32,
     /// Kept laps of other users deleted because they aren't shared anymore
     pub revoked_laps: u32,
+    /// Kept laps of others whose setup is not shared anymore
+    pub revoked_setups: u32,
 }
 
 impl SyncReport {
     /// True if the local data changed (the UI should refresh).
     pub fn changed_local_data(&self) -> bool {
-        self.pulled_sessions + self.pulled_laps + self.pulled_deletions + self.revoked_laps > 0
+        self.pulled_sessions
+            + self.pulled_laps
+            + self.pulled_deletions
+            + self.revoked_laps
+            + self.revoked_setups
+            > 0
     }
 }
 
@@ -182,7 +189,8 @@ async fn pull(
 }
 
 /// Deletes kept laps of other users that aren't shared with the user
-/// anymore (docs/ARCHITECTURE.md §9.2).
+/// anymore, and the setups of those whose setup isn't (docs/ARCHITECTURE.md
+/// §9.2).
 async fn revoke(
     client: &Client,
     store: &SharedStore,
@@ -192,12 +200,18 @@ async fn revoke(
     if kept.is_empty() {
         return Ok(());
     }
-    let mut lost = Vec::new();
+    let (mut lost, mut setup_lost) = (Vec::new(), Vec::new());
     for chunk in kept.chunks(5000) {
-        lost.extend(client.lost_laps(chunk.to_vec()).await?);
+        let r = client.lost_laps(chunk.to_vec()).await?;
+        lost.extend(r.lost);
+        setup_lost.extend(r.setup_lost);
     }
     if !lost.is_empty() {
         report.revoked_laps += with_store(store, move |s| s.remove_foreign_laps(&lost)).await?;
+    }
+    if !setup_lost.is_empty() {
+        report.revoked_setups +=
+            with_store(store, move |s| s.remove_foreign_setups(&setup_lost)).await?;
     }
     Ok(())
 }
