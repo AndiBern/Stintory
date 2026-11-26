@@ -226,10 +226,13 @@ cargo run --release -p sy-bridge --example client        # native
 ## Building
 
 ```sh
-rustup target add x86_64-pc-windows-gnu
 npm run build:bridge          # target/x86_64-pc-windows-gnu/release/sy-bridge.exe
 npm run build:desktop:linux   # the Flatpak with sy-bridge.exe inside
 ```
+
+`npm run build:bridge` adds the Rust target `x86_64-pc-windows-gnu` to the
+toolchain of `rust-toolchain.toml` when it's missing, also after a toolchain
+update.
 
 The Linux app is a **Flatpak** (`apps/desktop/flatpak/`) on the GNOME
 runtime, which brings WebKitGTK and the other libraries, so the same file

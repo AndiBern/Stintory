@@ -8,7 +8,7 @@
 	"scripts": {
 		"dev:desktop": "tauri dev",
 		"build:desktop": "tauri build",
-		"build:bridge": "cargo build --release --locked -p sy-bridge --target x86_64-pc-windows-gnu",
+		"build:bridge": "rustup target add x86_64-pc-windows-gnu && cargo build --release --locked -p sy-bridge --target x86_64-pc-windows-gnu",
 		"build:desktop:linux": "sh scripts/build-flatpak.sh",
 		"tauri": "tauri"
 	},
