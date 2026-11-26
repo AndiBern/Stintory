@@ -189,7 +189,7 @@ impl SecretBox {
 
     /// HMAC-SHA256 with the server key (recovery codes).
     pub fn mac(&self, data: &[u8]) -> Vec<u8> {
-        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.key).expect("any key length");
+        let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(&self.key).expect("any key length");
         mac.update(data);
         mac.finalize().into_bytes().to_vec()
     }
@@ -200,7 +200,7 @@ pub const TOTP_STEP_S: u64 = 30;
 
 /// The 6-digit TOTP code for a time step.
 pub fn totp_code(secret: &[u8], step: u64) -> u32 {
-    let mut mac = <Hmac<sha1::Sha1> as Mac>::new_from_slice(secret).expect("any key length");
+    let mut mac = <Hmac<sha1::Sha1> as KeyInit>::new_from_slice(secret).expect("any key length");
     mac.update(&step.to_be_bytes());
     let hash = mac.finalize().into_bytes();
     let offset = (hash[19] & 0x0f) as usize;
