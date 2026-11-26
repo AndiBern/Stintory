@@ -61,9 +61,9 @@
 
 	<div class="mb-1 flex items-center justify-between text-sm">
 		<span class="text-zinc-300">Claude Code</span>
-		<button type="button" class={button} onclick={() => copy('code', claudeCode)}
-			>{copied === 'code' ? 'Copied' : 'Copy'}</button
-		>
+		<button type="button" class={button} onclick={() => copy('code', claudeCode)}>
+			{copied === 'code' ? 'Copied' : 'Copy'}
+		</button>
 	</div>
 	<pre
 		class="mb-3 overflow-x-auto rounded bg-zinc-950 p-2 font-mono text-xs whitespace-pre-wrap text-zinc-200 select-all">{claudeCode}</pre>
@@ -72,9 +72,9 @@
 		<span class="text-zinc-300">
 			Claude Desktop <span class="text-zinc-500">(Settings → Developer → Edit Config)</span>
 		</span>
-		<button type="button" class={button} onclick={() => copy('desktop', claudeDesktop)}
-			>{copied === 'desktop' ? 'Copied' : 'Copy'}</button
-		>
+		<button type="button" class={button} onclick={() => copy('desktop', claudeDesktop)}>
+			{copied === 'desktop' ? 'Copied' : 'Copy'}
+		</button>
 	</div>
 	<pre
 		class="mb-3 overflow-x-auto rounded bg-zinc-950 p-2 font-mono text-xs text-zinc-200 select-all">{claudeDesktop}</pre>

@@ -111,14 +111,18 @@
 				type="button"
 				class="rounded bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
 				disabled={busy}
-				onclick={() => decide(true)}>Allow</button
+				onclick={() => decide(true)}
 			>
+				Allow
+			</button>
 			<button
 				type="button"
 				class="rounded border border-zinc-700 px-4 py-2 text-sm hover:bg-zinc-800 disabled:opacity-50"
 				disabled={busy}
-				onclick={() => decide(false)}>Deny</button
+				onclick={() => decide(false)}
 			>
+				Deny
+			</button>
 		</div>
 	{/if}
 </div>

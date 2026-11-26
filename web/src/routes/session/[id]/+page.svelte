@@ -174,18 +174,18 @@
 	<p class="text-zinc-400">Loading…</p>
 {:else}
 	{@const s = detail.summary}
-	<a href={resolve(foreign ? '/shared' : '/')} class="text-sm text-zinc-400 hover:text-zinc-200"
-		>← {foreign ? 'Sharing' : 'Sessions'}</a
-	>
+	<a href={resolve(foreign ? '/shared' : '/')} class="text-sm text-zinc-400 hover:text-zinc-200">
+		← {foreign ? 'Sharing' : 'Sessions'}
+	</a>
 	<div class="mt-2 mb-4 flex flex-wrap items-start justify-between gap-4">
 		<div>
 			<h1 class="text-2xl font-semibold">{s.trackName}</h1>
 			<p class="text-zinc-300">
 				{s.carName}
 				{#if formatOrigin(s.origin)}
-					<span class="ml-1 rounded bg-sky-950 px-1.5 text-xs text-sky-300"
-						>{formatOrigin(s.origin)}</span
-					>
+					<span class="ml-1 rounded bg-sky-950 px-1.5 text-xs text-sky-300">
+						{formatOrigin(s.origin)}
+					</span>
 				{/if}
 			</p>
 			<p class="mt-1 text-sm text-zinc-400">
@@ -414,9 +414,9 @@
 						{/if}
 					{/each}
 					<td class="pl-6">
-						{#if isBest}<span class="mr-1 rounded bg-purple-900 px-1.5 text-xs text-purple-200"
-								>best</span
-							>{/if}
+						{#if isBest}<span class="mr-1 rounded bg-purple-900 px-1.5 text-xs text-purple-200">
+								best
+							</span>{/if}
 						{#each status(l) as tag (tag)}
 							<span class="mr-1 rounded bg-zinc-800 px-1.5 text-xs text-zinc-300">{tag}</span>
 						{/each}
@@ -431,8 +431,9 @@
 								class="rounded border border-zinc-800 px-2 py-0.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
 								aria-label="Share lap {l.number}"
 								onclick={() => (sharing = { kind: 'lap', id: l.id, label: `Lap ${l.number}` })}
-								>Share…</button
 							>
+								Share…
+							</button>
 						</td>
 					{/if}
 				</tr>

@@ -64,19 +64,25 @@
 			{#if preview.alreadyMember}
 				<a
 					class="rounded bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white"
-					href={resolve('/teams/[id]', { id: preview.team.id })}>You are a member – open team</a
+					href={resolve('/teams/[id]', { id: preview.team.id })}
 				>
+					You are a member – open team
+				</a>
 			{:else}
 				<button
 					type="button"
 					class="rounded bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
 					disabled={busy}
-					onclick={join}>Join {preview.team.name}</button
+					onclick={join}
 				>
+					Join {preview.team.name}
+				</button>
 				<a
 					class="rounded border border-zinc-700 px-3 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
-					href={resolve('/')}>Not now</a
+					href={resolve('/')}
 				>
+					Not now
+				</a>
 			{/if}
 		</div>
 	</div>

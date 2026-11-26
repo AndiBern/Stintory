@@ -554,8 +554,10 @@
 		</div>
 		<span
 			class="w-8 text-center font-mono text-[10px] text-zinc-100 tabular-nums"
-			aria-hidden="true">{percent(value)}</span
+			aria-hidden="true"
 		>
+			{percent(value)}
+		</span>
 	</div>
 {/snippet}
 
@@ -608,9 +610,9 @@
 							<li class="flex items-center gap-2 py-0.5">
 								<span class="inline-block h-0.5 w-4 rounded" style:background={lapColor(k)}></span>
 								<span class="text-zinc-400">{labels[k]}</span>
-								<span class="ml-auto pl-3 font-mono text-zinc-100 tabular-nums"
-									>{gapText(data, k, cursor, mode)}</span
-								>
+								<span class="ml-auto pl-3 font-mono text-zinc-100 tabular-nums">
+									{gapText(data, k, cursor, mode)}
+								</span>
 								{#if frame.laps.length > 1 && hasReadout}
 									{@const i = carIndex(data, k, cursor, mode)}
 									{@const steering = i === null ? null : steeringAt(data.laps[k], i)}
@@ -622,30 +624,36 @@
 										<span
 											class="w-9 text-right font-mono text-zinc-100 tabular-nums"
 											aria-label="Steering {steering?.text ?? 'unknown'}"
-											>{steering?.text ?? '–'}</span
 										>
+											{steering?.text ?? '–'}
+										</span>
 									{/if}
 									{#if hasGear}
 										{@render shiftIcon('ml-1 h-4 w-4')}
 										<span
 											class="w-3 font-mono text-zinc-100 tabular-nums"
 											aria-label="Gear {gear === null ? 'unknown' : formatGear(gear)}"
-											>{gear === null ? '–' : formatGear(gear)}</span
 										>
+											{gear === null ? '–' : formatGear(gear)}
+										</span>
 									{/if}
 									{#if hasThrottle}
 										{@render pedalIcon('throttle', throttle, 'ml-1 h-4 w-4')}
 										<span
 											class="w-8 text-right font-mono text-zinc-100 tabular-nums"
-											aria-label="Throttle {percent(throttle)}">{percent(throttle)}</span
+											aria-label="Throttle {percent(throttle)}"
 										>
+											{percent(throttle)}
+										</span>
 									{/if}
 									{#if hasBrake}
 										{@render pedalIcon('brake', brake, 'ml-1 h-4 w-4')}
 										<span
 											class="w-8 text-right font-mono text-zinc-100 tabular-nums"
-											aria-label="Brake {percent(brake)}">{percent(brake)}</span
+											aria-label="Brake {percent(brake)}"
 										>
+											{percent(brake)}
+										</span>
 									{/if}
 								{/if}
 							</li>
@@ -672,8 +680,10 @@
 									{@render wheelIcon(steering?.turn ?? 0, lapColor(frame.focus), 'h-full w-full')}
 									<span
 										class="absolute inset-0 flex items-center justify-center font-mono text-[10px] text-zinc-100 tabular-nums"
-										aria-hidden="true">{steering?.text ?? '–'}</span
+										aria-hidden="true"
 									>
+										{steering?.text ?? '–'}
+									</span>
 								</div>
 							{/if}
 							{#if hasGear || hasThrottle || hasBrake}
@@ -688,8 +698,10 @@
 											{@render shiftIcon('h-5 w-5')}
 											<span
 												class="font-mono text-base text-zinc-100 tabular-nums"
-												aria-hidden="true">{gear === null ? '–' : formatGear(gear)}</span
+												aria-hidden="true"
 											>
+												{gear === null ? '–' : formatGear(gear)}
+											</span>
 										</div>
 									{/if}
 									{#if hasThrottle || hasBrake}
@@ -762,15 +774,19 @@
 									class={control}
 									aria-pressed={!split}
 									title="All laps on one map, following the reference"
-									onclick={() => (splitWanted = false)}>One map</button
+									onclick={() => (splitWanted = false)}
 								>
+									One map
+								</button>
 								<button
 									type="button"
 									class={control}
 									aria-pressed={split}
 									title="Every lap in its own frame, following its car"
-									onclick={() => (splitWanted = true)}>Own frames</button
+									onclick={() => (splitWanted = true)}
 								>
+									Own frames
+								</button>
 							</div>
 						{/if}
 						<label class="flex items-center rounded border border-zinc-800 bg-zinc-950/85 p-0.5">
@@ -791,29 +807,37 @@
 								class={control}
 								aria-pressed={mode === 'distance'}
 								title="Every car at the same distance as the reference: compare lines"
-								onclick={() => (mode = 'distance')}>Distance</button
+								onclick={() => (mode = 'distance')}
 							>
+								Distance
+							</button>
 							<button
 								type="button"
 								class={control}
 								aria-pressed={mode === 'time'}
 								title="Every car where it was after the same lap time: see the gaps"
-								onclick={() => (mode = 'time')}>Time</button
+								onclick={() => (mode = 'time')}
 							>
+								Time
+							</button>
 						</div>
 						<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
 							<button
 								type="button"
 								class={control}
 								aria-pressed={!headingUp}
-								onclick={() => (headingUp = false)}>North up</button
+								onclick={() => (headingUp = false)}
 							>
+								North up
+							</button>
 							<button
 								type="button"
 								class={control}
 								aria-pressed={headingUp}
-								onclick={() => (headingUp = true)}>Heading up</button
+								onclick={() => (headingUp = true)}
 							>
+								Heading up
+							</button>
 						</div>
 						<div class="flex rounded border border-zinc-800 bg-zinc-950/85 p-0.5" role="group">
 							<button
@@ -821,15 +845,19 @@
 								class={control}
 								aria-label="Zoom out"
 								disabled={zoom <= ZOOM_MIN}
-								onclick={() => zoomBy(1 / 1.5)}>−</button
+								onclick={() => zoomBy(1 / 1.5)}
 							>
+								−
+							</button>
 							<button
 								type="button"
 								class={control}
 								aria-label="Zoom in"
 								disabled={zoom >= ZOOM_MAX}
-								onclick={() => zoomBy(1.5)}>+</button
+								onclick={() => zoomBy(1.5)}
 							>
+								+
+							</button>
 						</div>
 						<span class="text-zinc-500">Ctrl + scroll to zoom</span>
 					</div>

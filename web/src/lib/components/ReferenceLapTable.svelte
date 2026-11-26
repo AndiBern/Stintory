@@ -124,9 +124,9 @@
 						{/if}
 					</td>
 					<td class="pl-4">
-						<span class:text-zinc-400={!isShared(l) && l.origin.kind === 'own'}
-							>{formatDriver(l)}</span
-						>
+						<span class:text-zinc-400={!isShared(l) && l.origin.kind === 'own'}>
+							{formatDriver(l)}
+						</span>
 						{#if l.owner && l.owner.displayName}
 							<span class="text-xs text-zinc-500">@{l.owner.username}</span>
 						{/if}
@@ -136,8 +136,10 @@
 						{#if l.remote}
 							<span
 								class="ml-1 rounded bg-sky-950 px-1.5 text-xs text-sky-300"
-								title="Kept on this computer once you compare with it">on the server</span
+								title="Kept on this computer once you compare with it"
 							>
+								on the server
+							</span>
 						{/if}
 					</td>
 					<td>{l.number}</td>

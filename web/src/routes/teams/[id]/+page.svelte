@@ -199,16 +199,20 @@
 					onclick={() => {
 						newName = team!.name;
 						renaming = true;
-					}}>Rename</button
+					}}
 				>
+					Rename
+				</button>
 			{/if}
 			<button type="button" class={plain} onclick={leave}>Leave team</button>
 			{#if isOwner}
 				<button
 					type="button"
 					class="{plain} hover:border-red-700 hover:text-red-300"
-					onclick={remove}>Delete team</button
+					onclick={remove}
 				>
+					Delete team
+				</button>
 			{/if}
 		</div>
 	</div>
@@ -263,8 +267,10 @@
 										run(
 											() => server.removeMember(id, m.user.id),
 											`Remove @${m.user.username} from the team? They lose access to what is shared with it.`
-										)}>Remove</button
+										)}
 								>
+									Remove
+								</button>
 							{/if}
 						</td>
 					</tr>
@@ -286,8 +292,9 @@
 					<input class={input} bind:value={inviteName} required maxlength="33" />
 				</label>
 				<button type="submit" class={button} disabled={!inviteName.trim()}>Invite</button>
-				{#if inviteMsg}<span class="pb-1.5 text-sm text-zinc-300" role="status">{inviteMsg}</span
-					>{/if}
+				{#if inviteMsg}<span class="pb-1.5 text-sm text-zinc-300" role="status">
+						{inviteMsg}
+					</span>{/if}
 			</form>
 
 			<form class="mt-4 flex flex-wrap items-end gap-2" onsubmit={createLink}>
@@ -310,9 +317,9 @@
 					on this server who has it can join:
 					<div class="mt-2 flex flex-wrap items-center gap-2">
 						<code class="font-mono break-all text-emerald-100 select-all">{newLink}</code>
-						<button type="button" class={small} onclick={copyLink}
-							>{copied ? 'Copied' : 'Copy'}</button
-						>
+						<button type="button" class={small} onclick={copyLink}>
+							{copied ? 'Copied' : 'Copy'}
+						</button>
 					</div>
 				</div>
 			{/if}
@@ -331,8 +338,10 @@
 							<button
 								type="button"
 								class={small}
-								onclick={() => run(() => server.revokeInvite(id, i.id))}>Withdraw</button
+								onclick={() => run(() => server.revokeInvite(id, i.id))}
 							>
+								Withdraw
+							</button>
 						</li>
 					{/each}
 				</ul>

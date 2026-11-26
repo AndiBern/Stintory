@@ -71,13 +71,16 @@
 		<div class="mb-1 flex items-start gap-2">
 			<code
 				class="block flex-1 rounded border border-zinc-700 bg-zinc-950 px-2 py-1 font-mono text-xs break-all select-all"
-				>{settings.bridgeLaunchOption}</code
 			>
+				{settings.bridgeLaunchOption}
+			</code>
 			<button
 				type="button"
 				class="rounded border border-zinc-700 px-3 py-1 text-sm hover:border-zinc-500"
-				onclick={copy}>{copied ? 'Copied' : 'Copy'}</button
+				onclick={copy}
 			>
+				{copied ? 'Copied' : 'Copy'}
+			</button>
 		</div>
 		<p class="mb-3 text-xs text-zinc-500">
 			Keep other launch options before <code>%command%</code>. Stintory doesn't have to run before
@@ -116,12 +119,14 @@
 			<button
 				type="submit"
 				class="rounded bg-zinc-100 px-3 py-1.5 font-medium text-zinc-900 hover:bg-white disabled:opacity-50"
-				disabled={busy}>Save</button
+				disabled={busy}
 			>
+				Save
+			</button>
 			{#if error}<span class="text-red-400" role="alert">{error}</span>{/if}
-			{#if saved}<span class="text-zinc-300" role="status"
-					>Saved. Applies once no game is being recorded through the bridge.</span
-				>{/if}
+			{#if saved}<span class="text-zinc-300" role="status">
+					Saved. Applies once no game is being recorded through the bridge.
+				</span>{/if}
 		</div>
 	</form>
 </section>

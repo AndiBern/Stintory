@@ -105,8 +105,10 @@
 			<button
 				type="button"
 				class="rounded border border-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-800"
-				onclick={() => (target = null)}>Cancel</button
+				onclick={() => (target = null)}
 			>
+				Cancel
+			</button>
 			<button
 				type="submit"
 				class="rounded bg-zinc-100 px-3 py-1.5 text-sm font-medium text-zinc-900 hover:bg-white disabled:opacity-50"

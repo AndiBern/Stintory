@@ -146,9 +146,9 @@
 		<span class="text-zinc-400">People</span>
 		{#each people as p (p.id)}
 			<div class="flex items-center justify-between gap-2">
-				<span class="min-w-0 flex-1"
-					>{p.displayName} <span class="text-xs text-zinc-500">@{p.username}</span></span
-				>
+				<span class="min-w-0 flex-1">
+					{p.displayName} <span class="text-xs text-zinc-500">@{p.username}</span>
+				</span>
 				<label class="flex items-center gap-1.5 text-xs text-zinc-400">
 					<input
 						type="checkbox"
@@ -161,8 +161,10 @@
 					type="button"
 					class="rounded border border-zinc-700 px-2 py-0.5 text-xs hover:bg-zinc-800"
 					aria-label="Remove {p.username}"
-					onclick={() => removeUser(p.id)}>Remove</button
+					onclick={() => removeUser(p.id)}
 				>
+					Remove
+				</button>
 			</div>
 		{/each}
 		<div class="flex gap-2">
@@ -192,8 +194,10 @@
 				type="button"
 				class="rounded border border-zinc-700 px-3 py-1 hover:bg-zinc-800 disabled:opacity-40"
 				disabled={!username.trim()}
-				onclick={addUser}>Add</button
+				onclick={addUser}
 			>
+				Add
+			</button>
 		</div>
 		{#if error}<p class="text-xs text-red-400" role="alert">{error}</p>{/if}
 	</div>

@@ -34,9 +34,9 @@
 	</p>
 	{#if more.length > 0}
 		<details class="mt-4">
-			<summary class="cursor-pointer text-sm text-zinc-400 hover:text-zinc-200"
-				>More channels ({more.map((p) => p.title).join(', ')})</summary
-			>
+			<summary class="cursor-pointer text-sm text-zinc-400 hover:text-zinc-200">
+				More channels ({more.map((p) => p.title).join(', ')})
+			</summary>
 			<div class="mt-3">
 				{#each more as panel (panel.key)}
 					<ChartPanel {data} {panel} {cursor} {labels} bind:xRange={range} {onCursor} />

@@ -94,15 +94,19 @@
 					stroke-width="2.5"
 					stroke-linecap="round"
 					stroke-linejoin="round"
-					aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg
-				>Setup
+					aria-hidden="true"
+				>
+					<path d="m6 9 6 6 6-6" />
+				</svg>Setup
 			</button>
 		</h2>
 		<span
 			class="text-xs"
 			class:text-amber-300={comparing && diffCount > 0}
-			class:text-zinc-400={!comparing || diffCount === 0}>{summary}</span
+			class:text-zinc-400={!comparing || diffCount === 0}
 		>
+			{summary}
+		</span>
 		{#if open && comparing && known > 0 && total > 0}
 			<button
 				type="button"
@@ -143,8 +147,9 @@
 										colspan={laps.length + 1}
 										scope="colgroup"
 										class="pt-2 pb-1 text-xs font-medium tracking-wide text-zinc-400 uppercase"
-										>{g.name}</th
 									>
+										{g.name}
+									</th>
 								</tr>
 								{#each g.rows as r (r.name)}
 									<tr class="hover:bg-zinc-900">

@@ -100,9 +100,9 @@
 			Temporary password for <strong>@{handout.username}</strong> (shown once; they must change it
 			at the first login):
 			<code class="ml-1 font-mono text-emerald-100 select-all">{handout.password}</code>
-			<button type="button" class="ml-3 text-xs opacity-70" onclick={() => (handout = null)}
-				>Dismiss</button
-			>
+			<button type="button" class="ml-3 text-xs opacity-70" onclick={() => (handout = null)}>
+				Dismiss
+			</button>
 		</div>
 	{/if}
 
@@ -126,17 +126,17 @@
 							<div class="text-xs text-zinc-500">@{u.username}</div>
 						</td>
 						<td class="text-xs">
-							{#if u.isAdmin}<span class="mr-1 rounded bg-purple-900 px-1.5 text-purple-200"
-									>admin</span
-								>{/if}
-							{#if u.disabled}<span class="mr-1 rounded bg-red-950 px-1.5 text-red-300"
-									>disabled</span
-								>{/if}
+							{#if u.isAdmin}<span class="mr-1 rounded bg-purple-900 px-1.5 text-purple-200">
+									admin
+								</span>{/if}
+							{#if u.disabled}<span class="mr-1 rounded bg-red-950 px-1.5 text-red-300">
+									disabled
+								</span>{/if}
 							{#if u.totpEnabled}<span class="mr-1 rounded bg-zinc-800 px-1.5">TOTP</span>{/if}
 							{#if u.hasPasskey}<span class="mr-1 rounded bg-zinc-800 px-1.5">passkey</span>{/if}
-							{#if u.mustChangePassword}<span class="rounded bg-amber-950 px-1.5 text-amber-300"
-									>temporary password</span
-								>{/if}
+							{#if u.mustChangePassword}<span class="rounded bg-amber-950 px-1.5 text-amber-300">
+									temporary password
+								</span>{/if}
 						</td>
 						<td class="text-xs text-zinc-400">{formatDateTime(u.createdAt)}</td>
 						<td class="text-right whitespace-nowrap">
@@ -149,14 +149,17 @@
 											u,
 											{ disabled: !u.disabled },
 											u.disabled ? undefined : `Disable @${u.username}? They are logged out.`
-										)}>{u.disabled ? 'Enable' : 'Disable'}</button
+										)}
 								>
+									{u.disabled ? 'Enable' : 'Disable'}
+								</button>
 								<button
 									type="button"
 									class={small}
 									onclick={() => update(u, { isAdmin: !u.isAdmin })}
-									>{u.isAdmin ? 'Remove admin' : 'Make admin'}</button
 								>
+									{u.isAdmin ? 'Remove admin' : 'Make admin'}
+								</button>
 							{/if}
 							<button
 								type="button"
@@ -166,8 +169,10 @@
 										u,
 										{ resetPassword: true },
 										`Set a new temporary password for @${u.username}? They are logged out, and their desktop apps and AI assistants (MCP) are disconnected.`
-									)}>Reset password</button
+									)}
 							>
+								Reset password
+							</button>
 							{#if u.totpEnabled || u.hasPasskey}
 								<button
 									type="button"
@@ -177,8 +182,10 @@
 											u,
 											{ resetTwoFactor: true },
 											`Remove two-factor authentication (TOTP and passkeys) of @${u.username}? They are logged out, and their desktop apps and AI assistants (MCP) are disconnected.`
-										)}>Reset 2FA</button
+										)}
 								>
+									Reset 2FA
+								</button>
 							{/if}
 						</td>
 					</tr>
@@ -221,19 +228,19 @@
 					<input type="checkbox" bind:checked={settings.enforce2fa} class="mt-1" />
 					<span>
 						Require two-factor authentication for everyone
-						<span class="block text-xs text-zinc-500"
-							>Users without it must set it up before they can do anything else.</span
-						>
+						<span class="block text-xs text-zinc-500">
+							Users without it must set it up before they can do anything else.
+						</span>
 					</span>
 				</label>
 				<label class="flex items-start gap-2">
 					<input type="checkbox" bind:checked={settings.allowShareEveryone} class="mt-1" />
 					<span>
 						Allow sharing with "everyone on this server"
-						<span class="block text-xs text-zinc-500"
-							>When off, nobody can choose it, and what was shared with everyone is not visible to
-							others until it is turned on again.</span
-						>
+						<span class="block text-xs text-zinc-500">
+							When off, nobody can choose it, and what was shared with everyone is not visible to
+							others until it is turned on again.
+						</span>
 					</span>
 				</label>
 				<div class="flex items-center gap-3">
@@ -261,9 +268,9 @@
 					<tr class="border-t border-zinc-800">
 						<td class="py-1 whitespace-nowrap text-zinc-400">{formatDateTime(a.at)}</td>
 						<td>{a.username ?? '–'}</td>
-						<td class:text-amber-300={a.event.includes('failed') || a.event.includes('limited')}
-							>{a.event}</td
-						>
+						<td class:text-amber-300={a.event.includes('failed') || a.event.includes('limited')}>
+							{a.event}
+						</td>
 						<td class="text-zinc-400">{a.ip ?? ''}</td>
 						<td class="max-w-64 truncate text-zinc-500" title={JSON.stringify(a.details)}>
 							{Object.keys(a.details).length ? JSON.stringify(a.details) : ''}

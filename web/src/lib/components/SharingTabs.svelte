@@ -20,7 +20,9 @@
 			class:text-zinc-100={active}
 			class:border-transparent={!active}
 			class:text-zinc-400={!active}
-			aria-current={active ? 'page' : undefined}>{t.label}</a
+			aria-current={active ? 'page' : undefined}
 		>
+			{t.label}
+		</a>
 	{/each}
 </nav>
