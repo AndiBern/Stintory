@@ -8,7 +8,7 @@ members = ["crates/*", "apps/desktop"]
 [workspace.package]
 version = "0.6.1"
 edition = "2024"
-rust-version = "1.99"
+rust-version = "1.100"
 authors = ["The Stintory Contributors"]
 # Each crate sets its own `license` (see docs/ARCHITECTURE.md §12.1).
 

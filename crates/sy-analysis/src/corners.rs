@@ -430,8 +430,9 @@ fn brake_end(trace: &Trace, start: usize, until: usize) -> usize {
     let gap = (BRAKE_GAP_M / STEP_M) as usize;
     let mut end = start + 1;
     let mut since = 0;
-    for j in start + 1..until.min(trace.len()) {
-        if trace.brake[j] >= BRAKE_ON {
+    let stop = until.min(trace.len());
+    for (j, &brake) in trace.brake.iter().enumerate().take(stop).skip(start + 1) {
+        if brake >= BRAKE_ON {
             end = j + 1;
             since = 0;
         } else {
